@@ -1,16 +1,34 @@
-// /app/api/bookings/route.js (o como lo tengas)
-let BOOKINGS = [];
+// app/api/bookings/route.js
+import { supabase } from "@/lib/supabaseClient";
+
+// máximo de domicilios por día
+const DOMICILIO_LIMIT = 15;
+
+// slots fijos solo para la UI (no vienen de la DB aún)
 let SLOTS = {
   tuesday: { used: 0, capacity: 12, disabled: false },
   thursday: { used: 0, capacity: 12, disabled: false },
 };
 
-// 🟢 GET → obtener todas las agendas y los cupos
+// 🟢 GET → obtener todas las agendas y los slots
 export async function GET() {
-  return Response.json({ bookings: BOOKINGS, slots: SLOTS });
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .order("createdAt", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return Response.json(
+      { message: "Error al leer", bookings: [], slots: SLOTS },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({ bookings: data || [], slots: SLOTS });
 }
 
-// 🟢 POST → registrar una nueva agenda
+// 🟢 POST → crear agenda
 export async function POST(req) {
   try {
     const body = await req.json();
@@ -23,10 +41,10 @@ export async function POST(req) {
       phone,
       address,
       city,
+      state,
       override,
     } = body;
 
-    // validaciones básicas
     if (!type || !instagram || !fullName || !phone || !date) {
       return Response.json(
         { message: "Faltan campos obligatorios." },
@@ -34,45 +52,55 @@ export async function POST(req) {
       );
     }
 
-    // 🔹 Si viene con override, omitimos casi todas las validaciones
+    // 🔸 si viene con override (desde panel), lo guardamos directo
     if (override) {
-      const newBooking = {
-        id: Date.now(),
-        type,
-        day: day || null,
-        date,
-        instagram,
-        fullName,
-        phone,
-        address: address || null,
-        city: city || null,
-        createdAt: new Date().toISOString(),
-        override: true,
-        // si es paquetería lo dejamos pendiente
-        status: type === "paqueteria" ? "pending" : null,
-      };
-      BOOKINGS.push(newBooking);
+      const { data, error } = await supabase
+        .from("bookings")
+        .insert([
+          {
+            type,
+            day: day || null,
+            date,
+            instagram,
+            fullName,
+            phone,
+            address: address || null,
+            city: city || null,
+            state: state || null,
+            override: true,
+            status: type === "paqueteria" ? "pendiente" : null,
+            createdAt: new Date().toISOString(),
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error(error);
+        return Response.json(
+          { message: "No se pudo registrar." },
+          { status: 500 }
+        );
+      }
+
       return Response.json({
         message: "Entrega manual registrada (override).",
-        booking: newBooking,
+        booking: data,
       });
     }
 
-    // 🔸 Validaciones normales (NO para paquetería)
+    // 🔸 validaciones normales (24h)
     const now = new Date();
     const selectedDate = new Date(date);
     const diffHours = (selectedDate - now) / (1000 * 60 * 60);
-
-    // paquetería no necesita las 24h, las otras sí
-    if (type !== "paqueteria" && diffHours < 24) {
+    if (diffHours < 24) {
       return Response.json(
         { message: "Debes agendar con al menos 24 horas de anticipación." },
         { status: 400 }
       );
     }
 
-    // 🟣 Validar bodega (tuesday / thursday) — tú dijiste que bodega no tenga límite,
-    // así que aquí solo respetamos disabled, no el capacity
+    // 🟣 BODEGA
     if (type === "bodega") {
       if (!day || (day !== "tuesday" && day !== "thursday")) {
         return Response.json(
@@ -80,76 +108,68 @@ export async function POST(req) {
           { status: 400 }
         );
       }
+      // aquí podrías validar capacidad si quieres más adelante
+    }
 
-      const slot = SLOTS[day];
-      if (slot.disabled) {
+    // 🟣 DOMICILIO → validar máximo por día
+    if (type === "domicilio") {
+      const { data: domicilios, error: errCount } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("type", "domicilio")
+        .eq("date", date);
+
+      if (errCount) {
+        console.error(errCount);
         return Response.json(
-          { message: "Las entregas están deshabilitadas este día." },
-          { status: 400 }
+          { message: "No se pudo validar el cupo." },
+          { status: 500 }
         );
       }
 
-      // ❗ si quisieras volver a poner límite, aquí va:
-      // if (slot.used >= slot.capacity) { ... }
-
-      // aunque no haya límite, podemos seguir contando
-      slot.used += 1;
+      if ((domicilios?.length || 0) >= DOMICILIO_LIMIT) {
+        return Response.json(
+          { message: "Ya no hay entregas disponibles para ese día." },
+          { status: 400 }
+        );
+      }
     }
 
-    // 🟣 Validar domicilio (el límite de 15 lo estás haciendo en el front,
-    // pero igual podrías validarlo aquí más adelante)
-    // Por ahora dejamos que pase
+    // 🟣 PAQUETERÍA
+    const isPaqueteria = type === "paqueteria";
 
-    const newBooking = {
-      id: Date.now(),
-      type,
-      day: day || null,
-      date,
-      instagram,
-      fullName,
-      phone,
-      address: address || null,
-      city: city || null,
-      createdAt: new Date().toISOString(),
-      override: false,
-      // solo paquetería tiene status
-      status: type === "paqueteria" ? "pending" : null,
-    };
+    const { data: inserted, error: insertError } = await supabase
+      .from("bookings")
+      .insert([
+        {
+          type,
+          day: day || null,
+          date,
+          instagram,
+          fullName,
+          phone,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          createdAt: new Date().toISOString(),
+          status: isPaqueteria ? "pendiente" : null,
+          override: false,
+        },
+      ])
+      .select()
+      .single();
 
-    BOOKINGS.push(newBooking);
+    if (insertError) {
+      console.error(insertError);
+      return Response.json(
+        { message: "Error al crear la entrega." },
+        { status: 500 }
+      );
+    }
+
     return Response.json({
       message: "Entrega registrada correctamente.",
-      booking: newBooking,
-    });
-  } catch (err) {
-    console.error(err);
-    return Response.json({ message: "Error en el servidor." }, { status: 500 });
-  }
-}
-
-// 🟠 PATCH → actualizar una agenda (ej. paquetería = cotizado)
-export async function PATCH(req) {
-  try {
-    const body = await req.json();
-    const { id, status } = body;
-
-    if (!id) {
-      return Response.json({ message: "Falta id" }, { status: 400 });
-    }
-
-    const idx = BOOKINGS.findIndex((b) => String(b.id) === String(id));
-    if (idx === -1) {
-      return Response.json({ message: "No existe esa agenda." }, { status: 404 });
-    }
-
-    // solo actualizamos lo que nos manden
-    if (typeof status !== "undefined") {
-      BOOKINGS[idx].status = status;
-    }
-
-    return Response.json({
-      message: "Agenda actualizada.",
-      booking: BOOKINGS[idx],
+      booking: inserted,
     });
   } catch (err) {
     console.error(err);
@@ -166,30 +186,45 @@ export async function DELETE(req) {
     return Response.json({ message: "Falta id" }, { status: 400 });
   }
 
-  const index = BOOKINGS.findIndex((b) => String(b.id) === String(id));
-  if (index === -1) {
-    return Response.json({ message: "No existe esa agenda." }, { status: 404 });
+  const { error } = await supabase.from("bookings").delete().eq("id", id);
+
+  if (error) {
+    console.error(error);
+    return Response.json({ message: "No se pudo eliminar." }, { status: 500 });
   }
 
-  const bookingToDelete = BOOKINGS[index];
-
-  // si era bodega, liberar conteo
-  if (
-    bookingToDelete.type === "bodega" &&
-    bookingToDelete.day &&
-    (bookingToDelete.day === "tuesday" || bookingToDelete.day === "thursday")
-  ) {
-    const slot = SLOTS[bookingToDelete.day];
-    if (slot && slot.used > 0) slot.used -= 1;
-  }
-
-  BOOKINGS.splice(index, 1);
-
-  return Response.json({
-    message: "Entrega eliminada correctamente.",
-    deleted: bookingToDelete,
-  });
+  return Response.json({ message: "Entrega eliminada correctamente." });
 }
+
+// 🟣 PATCH → para marcar paquetería como cotizada
+export async function PATCH(req) {
+  try {
+    const body = await req.json();
+    const { id, status } = body;
+
+    if (!id) {
+      return Response.json({ message: "Falta id" }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error(error);
+      return Response.json({ message: "No se pudo actualizar." }, { status: 500 });
+    }
+
+    return Response.json({ message: "Actualizado.", booking: data });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ message: "Error en el servidor." }, { status: 500 });
+  }
+}
+
 
 
 

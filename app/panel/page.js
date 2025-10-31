@@ -1,6 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 
+// 🔑 leemos de env (Vercel) o dejamos MELANNY como fallback
+const PANEL_PASSWORD_ENV =
+  process.env.NEXT_PUBLIC_PANEL_PASSWORD ||
+  process.env.PANEL_PASSWORD ||
+  "MELANNY";
+
 export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -29,11 +35,13 @@ export default function PanelPage() {
   const [manualMsg, setManualMsg] = useState("");
   const [manualError, setManualError] = useState("");
 
+  // leer si ya estaba loggeado en localStorage
   useEffect(() => {
     const saved = localStorage.getItem("panelAuth");
     if (saved === "true") setAuthorized(true);
   }, []);
 
+  // obtener bookings reales desde la API (Supabase)
   const fetchBookings = async () => {
     setLoadingData(true);
     try {
@@ -48,13 +56,17 @@ export default function PanelPage() {
     }
   };
 
+  // cuando ya está autorizado, cargar datos
   useEffect(() => {
     if (authorized) fetchBookings();
   }, [authorized]);
 
+  // 🔑 login con API + fallback con env
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage("Verificando...");
+
+    // 1) primero intentamos con la API
     try {
       const res = await fetch("/api/login-panel", {
         method: "POST",
@@ -66,11 +78,20 @@ export default function PanelPage() {
         setAuthorized(true);
         localStorage.setItem("panelAuth", "true");
         setMessage("");
-      } else {
-        setMessage("❌ Contraseña incorrecta.");
+        return;
       }
-    } catch {
-      setMessage("Error al conectar con el servidor.");
+    } catch (err) {
+      // si falla la API, pasamos al plan B
+      console.warn("La API /api/login-panel no respondió, usando fallback.");
+    }
+
+    // 2) plan B: comparar con la env
+    if (password === PANEL_PASSWORD_ENV) {
+      setAuthorized(true);
+      localStorage.setItem("panelAuth", "true");
+      setMessage("");
+    } else {
+      setMessage("❌ Contraseña incorrecta.");
     }
   };
 
@@ -187,6 +208,7 @@ export default function PanelPage() {
     }
   };
 
+  // 👮 vista de login
   if (!authorized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
@@ -227,6 +249,7 @@ export default function PanelPage() {
     );
   }
 
+  // ✅ vista del panel
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       {/* inicio */}
@@ -417,6 +440,17 @@ export default function PanelPage() {
                         {bk.phone && (
                           <p className="text-xs text-slate-500">
                             📞 {bk.phone}
+                          </p>
+                        )}
+                        {/* mostrar día de bodega si viene */}
+                        {bk.type === "bodega" && bk.day && (
+                          <p className="text-xs text-slate-400">
+                            Día:{" "}
+                            {bk.day === "tuesday"
+                              ? "Martes"
+                              : bk.day === "thursday"
+                              ? "Jueves"
+                              : bk.day}
                           </p>
                         )}
                       </td>
@@ -629,6 +663,8 @@ export default function PanelPage() {
     </div>
   );
 }
+
+
 
 
 
