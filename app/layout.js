@@ -36,7 +36,9 @@ export const metadata = {
     type: "website",
   },
   icons: {
-    icon: "/favicon.ico", // asegúrate de tenerlo en /public
+    icon: "/favicon-v2.ico",     // 👈 nuevo nombre
+    shortcut: "/favicon-v2.ico",
+    apple: "/favicon-v2.ico",
   },
 };
 
