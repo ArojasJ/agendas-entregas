@@ -399,10 +399,12 @@ export default function AgendarPage() {
   };
 
   // handler de teléfono: solo números
-  const handlePhoneChange = (e) => {
-    const onlyNums = e.target.value.replace(/[^0-9]/g, "");
-    setPhone(onlyNums);
-  };
+  // handler de teléfono: solo números y máximo 10 dígitos (México)
+const handlePhoneChange = (e) => {
+  const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
+  setPhone(onlyNums);
+};
+
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center py-10 px-4">

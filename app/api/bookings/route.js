@@ -1,6 +1,26 @@
 // app/api/bookings/route.js
 import { supabase } from "@/lib/supabaseClient";
 
+// 🔐 helper para validar token del panel
+function validatePanelToken(req) {
+  const headerToken = req.headers.get("x-panel-token");
+  const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
+
+  if (!headerToken) return false;
+
+  try {
+    const decoded = Buffer.from(headerToken, "base64").toString("utf8");
+    const [json, sig] = decoded.split("|");
+
+    if (sig !== secret) return false;
+
+    return true;
+  } catch (err) {
+    console.error("Error al validar token:", err);
+    return false;
+  }
+}
+
 // máximo de domicilios por día
 const DOMICILIO_LIMIT = 15;
 
@@ -11,7 +31,12 @@ let SLOTS = {
 };
 
 // 🟢 GET → obtener todas las agendas y los slots
-export async function GET() {
+export async function GET(req) {
+  // 🔒 solo el panel puede leer
+  if (!validatePanelToken(req)) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
+  }
+
   const { data, error } = await supabase
     .from("bookings")
     .select("*")
@@ -42,6 +67,7 @@ export async function POST(req) {
       address,
       city,
       state,
+      notes,      // 👈 nuevo
       override,
     } = body;
 
@@ -52,8 +78,12 @@ export async function POST(req) {
       );
     }
 
-    // 🔸 si viene con override (desde panel), lo guardamos directo
+    // 🔸 si viene con override (desde panel), lo guardamos directo PERO pidiendo token
     if (override) {
+      if (!validatePanelToken(req)) {
+        return Response.json({ message: "No autorizado" }, { status: 401 });
+      }
+
       const { data, error } = await supabase
         .from("bookings")
         .insert([
@@ -67,6 +97,7 @@ export async function POST(req) {
             address: address || null,
             city: city || null,
             state: state || null,
+            notes: notes || null, // 👈 lo guardamos
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
             createdAt: new Date().toISOString(),
@@ -89,15 +120,17 @@ export async function POST(req) {
       });
     }
 
-    // 🔸 validaciones normales (24h)
-    const now = new Date();
-    const selectedDate = new Date(date);
-    const diffHours = (selectedDate - now) / (1000 * 60 * 60);
-    if (diffHours < 24) {
-      return Response.json(
-        { message: "Debes agendar con al menos 24 horas de anticipación." },
-        { status: 400 }
-      );
+    // 🔸 validaciones normales (24h) → pero NO para paquetería
+    if (type !== "paqueteria") {
+      const now = new Date();
+      const selectedDate = new Date(date);
+      const diffHours = (selectedDate - now) / (1000 * 60 * 60);
+      if (diffHours < 24) {
+        return Response.json(
+          { message: "Debes agendar con al menos 24 horas de anticipación." },
+          { status: 400 }
+        );
+      }
     }
 
     // 🟣 BODEGA
@@ -108,10 +141,10 @@ export async function POST(req) {
           { status: 400 }
         );
       }
-      // aquí podrías validar capacidad si quieres más adelante
+      // aquí después puedes validar capacidad
     }
 
-    // 🟣 DOMICILIO → validar máximo por día
+    // 🟣 DOMICILIO → validar máximo por día (solo cuando NO es override)
     if (type === "domicilio") {
       const { data: domicilios, error: errCount } = await supabase
         .from("bookings")
@@ -151,6 +184,7 @@ export async function POST(req) {
           address: address || null,
           city: city || null,
           state: state || null,
+          notes: notes || null, // 👈 también aquí
           createdAt: new Date().toISOString(),
           status: isPaqueteria ? "pendiente" : null,
           override: false,
@@ -177,8 +211,13 @@ export async function POST(req) {
   }
 }
 
-// 🟠 DELETE → eliminar una agenda por id
+// 🟠 DELETE → eliminar una agenda por id (solo panel)
 export async function DELETE(req) {
+  // 🔒 solo panel
+  if (!validatePanelToken(req)) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 
@@ -196,8 +235,13 @@ export async function DELETE(req) {
   return Response.json({ message: "Entrega eliminada correctamente." });
 }
 
-// 🟣 PATCH → para marcar paquetería como cotizada
+// 🟣 PATCH → para marcar paquetería como cotizada (solo panel)
 export async function PATCH(req) {
+  // 🔒 solo panel
+  if (!validatePanelToken(req)) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { id, status } = body;
@@ -215,7 +259,10 @@ export async function PATCH(req) {
 
     if (error) {
       console.error(error);
-      return Response.json({ message: "No se pudo actualizar." }, { status: 500 });
+      return Response.json(
+        { message: "No se pudo actualizar." },
+        { status: 500 }
+      );
     }
 
     return Response.json({ message: "Actualizado.", booking: data });
@@ -224,6 +271,8 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
+
 
 
 

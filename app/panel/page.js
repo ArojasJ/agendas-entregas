@@ -17,8 +17,6 @@ export default function PanelPage() {
   const [filterStart, setFilterStart] = useState("");
   const [filterEnd, setFilterEnd] = useState("");
   const [activeTab, setActiveTab] = useState("bodega"); // "bodega" | "domicilio" | "paqueteria"
-
-  // 🔎 nuevo: filtro por instagram
   const [filterInstagram, setFilterInstagram] = useState("");
 
   // modal entrega manual
@@ -41,16 +39,31 @@ export default function PanelPage() {
     if (saved === "true") setAuthorized(true);
   }, []);
 
-  // obtener bookings reales desde la API (Supabase)
+  // 🟣 obtener bookings reales desde la API (Supabase) con token
   const fetchBookings = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch("/api/bookings");
+      const token = localStorage.getItem("panelToken") || "";
+
+      const res = await fetch("/api/bookings", {
+        headers: {
+          "x-panel-token": token,
+        },
+      });
+
+      // si el backend dijo "no"
+      if (!res.ok) {
+        console.warn("No autorizado para leer bookings");
+        setBookings([]);
+        setSlots(null);
+        return;
+      }
+
       const data = await res.json();
       setBookings(data.bookings || []);
       setSlots(data.slots || null);
     } catch (err) {
-      console.error(err);
+      console.error("Error al leer entregas:", err);
     } finally {
       setLoadingData(false);
     }
@@ -66,7 +79,6 @@ export default function PanelPage() {
     e.preventDefault();
     setMessage("Verificando...");
 
-    // 1) primero intentamos con la API
     try {
       const res = await fetch("/api/login-panel", {
         method: "POST",
@@ -74,18 +86,20 @@ export default function PanelPage() {
         body: JSON.stringify({ password }),
       });
       const data = await res.json();
-      if (data.success) {
-        setAuthorized(true);
+
+      // ✅ si la API responde correctamente y trae token
+      if (res.ok && data.success && data.token) {
         localStorage.setItem("panelAuth", "true");
+        localStorage.setItem("panelToken", data.token);
+        setAuthorized(true);
         setMessage("");
         return;
       }
     } catch (err) {
-      // si falla la API, pasamos al plan B
-      console.warn("La API /api/login-panel no respondió, usando fallback.");
+      console.warn("Error al conectar con la API de login:", err);
     }
 
-    // 2) plan B: comparar con la env
+    // 🔁 Plan B: comparar con la variable local si la API falló
     if (password === PANEL_PASSWORD_ENV) {
       setAuthorized(true);
       localStorage.setItem("panelAuth", "true");
@@ -95,12 +109,16 @@ export default function PanelPage() {
     }
   };
 
-  // 🔹 Marcar paquetería como cotizada
+  // 🔹 Marcar paquetería como cotizada (con token)
   const handleMarkCotizado = async (id) => {
     try {
+      const token = localStorage.getItem("panelToken") || "";
       const res = await fetch("/api/bookings", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
         body: JSON.stringify({ id, status: "cotizado" }),
       });
       const data = await res.json();
@@ -114,12 +132,16 @@ export default function PanelPage() {
     }
   };
 
-  // eliminar
+  // eliminar (con token)
   const handleDelete = async (id) => {
     if (!confirm("¿Eliminar esta entrega?")) return;
     try {
+      const token = localStorage.getItem("panelToken") || "";
       const res = await fetch(`/api/bookings?id=${id}`, {
         method: "DELETE",
+        headers: {
+          "x-panel-token": token,
+        },
       });
       const data = await res.json();
       if (!res.ok) {
@@ -155,12 +177,10 @@ export default function PanelPage() {
   const finalFilteredBookings = filteredByDate.filter((bk) => {
     if (!filterInstagram) return true;
     if (!bk.instagram) return false;
-    return bk.instagram
-      .toLowerCase()
-      .includes(filterInstagram.toLowerCase());
+    return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
   });
 
-  // agregar entrega manual
+  // agregar entrega manual (con token)
   const handleManualSubmit = async (e) => {
     e.preventDefault();
     setManualError("");
@@ -173,9 +193,14 @@ export default function PanelPage() {
     }
 
     try {
+      const token = localStorage.getItem("panelToken") || "";
+
       const res = await fetch("/api/bookings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
         body: JSON.stringify({
           type: manualType,
           instagram,
@@ -184,7 +209,7 @@ export default function PanelPage() {
           address,
           city,
           date,
-          override: true,
+          override: true, // 👈 esto le dice al backend que viene del panel
         }),
       });
       const data = await res.json();
@@ -279,6 +304,7 @@ export default function PanelPage() {
         <button
           onClick={() => {
             localStorage.removeItem("panelAuth");
+            localStorage.removeItem("panelToken");
             setAuthorized(false);
           }}
           className="text-sm text-slate-500 hover:text-slate-800"
@@ -456,10 +482,14 @@ export default function PanelPage() {
                       </td>
 
                       {activeTab === "domicilio" && (
-                        <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
-                          {bk.address || "—"}
-                        </td>
-                      )}
+  <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+    {bk.address || "—"}
+    {bk.notes && (
+      <p className="text-[11px] text-slate-400 mt-1">📝 {bk.notes}</p>
+    )}
+  </td>
+)}
+
 
                       {activeTab === "paqueteria" && (
                         <>
@@ -663,6 +693,7 @@ export default function PanelPage() {
     </div>
   );
 }
+
 
 
 
