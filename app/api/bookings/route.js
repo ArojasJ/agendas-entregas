@@ -30,33 +30,88 @@ let SLOTS = {
   thursday: { used: 0, capacity: 12, disabled: false },
 };
 
-// 🟢 GET → obtener todas las agendas y los slots
+// 🟢 GET → obtener todas las agendas, los slots y los días bloqueados
 export async function GET(req) {
   // 🔒 solo el panel puede leer
   if (!validatePanelToken(req)) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  // 1) bookings
+  const { data: bookings, error } = await supabase
     .from("bookings")
     .select("*")
     .order("createdAt", { ascending: false });
 
-  if (error) {
-    console.error(error);
+  // 2) blocked_days
+  const { data: blockedDays, error: blockedErr } = await supabase
+    .from("blocked_days")
+    .select("*")
+    .order("date", { ascending: true });
+
+  if (error || blockedErr) {
+    console.error(error || blockedErr);
     return Response.json(
-      { message: "Error al leer", bookings: [], slots: SLOTS },
+      {
+        message: "Error al leer",
+        bookings: bookings || [],
+        slots: SLOTS,
+        blockedDays: blockedDays || [],
+      },
       { status: 500 }
     );
   }
 
-  return Response.json({ bookings: data || [], slots: SLOTS });
+  return Response.json({
+    bookings: bookings || [],
+    slots: SLOTS,
+    blockedDays: blockedDays || [],
+  });
 }
 
-// 🟢 POST → crear agenda
+// 🟢 POST → crear agenda o bloquear día (según venga)
 export async function POST(req) {
   try {
     const body = await req.json();
+
+    // 1️⃣ si viene desde el panel para BLOQUEAR un día
+    if (body.action === "block-day") {
+      if (!validatePanelToken(req)) {
+        return Response.json({ message: "No autorizado" }, { status: 401 });
+      }
+
+      const { date, type, reason } = body;
+      if (!date || !type) {
+        return Response.json(
+          { message: "Faltan date o type." },
+          { status: 400 }
+        );
+      }
+
+      const { data, error } = await supabase
+        .from("blocked_days")
+        .insert([
+          {
+            date,
+            type,
+            reason: reason || null,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error(error);
+        return Response.json(
+          { message: "No se pudo bloquear el día." },
+          { status: 500 }
+        );
+      }
+
+      return Response.json({ message: "Día bloqueado.", blocked: data });
+    }
+
+    // 2️⃣ flujo normal de crear booking (como ya lo tenías)
     const {
       type,
       day,
@@ -67,7 +122,7 @@ export async function POST(req) {
       address,
       city,
       state,
-      notes,      // 👈 nuevo
+      notes,
       override,
     } = body;
 
@@ -76,6 +131,33 @@ export async function POST(req) {
         { message: "Faltan campos obligatorios." },
         { status: 400 }
       );
+    }
+
+    // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
+    if (!override && (type === "bodega" || type === "domicilio")) {
+      const { data: blockedForThatDay, error: blockedCheckErr } = await supabase
+        .from("blocked_days")
+        .select("id")
+        .eq("date", date)
+        .eq("type", type);
+
+      if (blockedCheckErr) {
+        console.error(blockedCheckErr);
+        return Response.json(
+          { message: "No se pudo validar disponibilidad." },
+          { status: 500 }
+        );
+      }
+
+      if (blockedForThatDay && blockedForThatDay.length > 0) {
+        return Response.json(
+          {
+            message:
+              "Ese día no estamos entregando ese tipo de servicio. Por favor elige otra fecha.",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // 🔸 si viene con override (desde panel), lo guardamos directo PERO pidiendo token
@@ -97,7 +179,7 @@ export async function POST(req) {
             address: address || null,
             city: city || null,
             state: state || null,
-            notes: notes || null, // 👈 lo guardamos
+            notes: notes || null,
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
             createdAt: new Date().toISOString(),
@@ -184,7 +266,7 @@ export async function POST(req) {
           address: address || null,
           city: city || null,
           state: state || null,
-          notes: notes || null, // 👈 también aquí
+          notes: notes || null,
           createdAt: new Date().toISOString(),
           status: isPaqueteria ? "pendiente" : null,
           override: false,
@@ -212,6 +294,7 @@ export async function POST(req) {
 }
 
 // 🟠 DELETE → eliminar una agenda por id (solo panel)
+// 🆕 si viene ?blockedId=... entonces borra un bloqueado
 export async function DELETE(req) {
   // 🔒 solo panel
   if (!validatePanelToken(req)) {
@@ -220,7 +303,27 @@ export async function DELETE(req) {
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
+  const blockedId = searchParams.get("blockedId");
 
+  // borrar día bloqueado
+  if (blockedId) {
+    const { error } = await supabase
+      .from("blocked_days")
+      .delete()
+      .eq("id", blockedId);
+
+    if (error) {
+      console.error(error);
+      return Response.json(
+        { message: "No se pudo quitar el bloqueo." },
+        { status: 500 }
+      );
+    }
+
+    return Response.json({ message: "Bloqueo eliminado." });
+  }
+
+  // borrar booking normal
   if (!id) {
     return Response.json({ message: "Falta id" }, { status: 400 });
   }
@@ -271,6 +374,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

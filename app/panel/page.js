@@ -13,11 +13,17 @@ export default function PanelPage() {
   const [authorized, setAuthorized] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [slots, setSlots] = useState(null);
+  const [blockedDays, setBlockedDays] = useState([]); // 🆕 días bloqueados
   const [loadingData, setLoadingData] = useState(false);
   const [filterStart, setFilterStart] = useState("");
   const [filterEnd, setFilterEnd] = useState("");
   const [activeTab, setActiveTab] = useState("bodega"); // "bodega" | "domicilio" | "paqueteria"
   const [filterInstagram, setFilterInstagram] = useState("");
+
+  // bloqueo rápido
+  const [blockDate, setBlockDate] = useState("");
+  const [blockType, setBlockType] = useState("domicilio");
+  const [blockReason, setBlockReason] = useState("");
 
   // modal entrega manual
   const [showManualModal, setShowManualModal] = useState(false);
@@ -56,12 +62,14 @@ export default function PanelPage() {
         console.warn("No autorizado para leer bookings");
         setBookings([]);
         setSlots(null);
+        setBlockedDays([]); // 🆕
         return;
       }
 
       const data = await res.json();
       setBookings(data.bookings || []);
       setSlots(data.slots || null);
+      setBlockedDays(data.blockedDays || []); // 🆕
     } catch (err) {
       console.error("Error al leer entregas:", err);
     } finally {
@@ -154,31 +162,62 @@ export default function PanelPage() {
     }
   };
 
-  // 1️⃣ filtrar por pestaña
-  const bookingsByTab = bookings.filter((bk) => {
-    if (activeTab === "bodega") return bk.type === "bodega";
-    if (activeTab === "domicilio") return bk.type === "domicilio";
-    if (activeTab === "paqueteria") return bk.type === "paqueteria";
-    return false;
-  });
+  // 🆕 bloquear día desde el panel
+  const handleBlockDay = async () => {
+    if (!blockDate) {
+      alert("Selecciona una fecha para bloquear.");
+      return;
+    }
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
+        body: JSON.stringify({
+          action: "block-day",
+          date: blockDate,
+          type: blockType,
+          reason: blockReason,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo bloquear el día.");
+        return;
+      }
+      // recargar
+      await fetchBookings();
+      setBlockDate("");
+      setBlockReason("");
+    } catch (err) {
+      alert("Error de conexión.");
+    }
+  };
 
-  // 2️⃣ filtrar por fecha
-  const filteredByDate = bookingsByTab.filter((bk) => {
-    if (!bk.date) return true;
-    const date = new Date(bk.date);
-    const start = filterStart ? new Date(filterStart) : null;
-    const end = filterEnd ? new Date(filterEnd) : null;
-    if (start && date < start) return false;
-    if (end && date > end) return false;
-    return true;
-  });
-
-  // 3️⃣ filtrar por Instagram
-  const finalFilteredBookings = filteredByDate.filter((bk) => {
-    if (!filterInstagram) return true;
-    if (!bk.instagram) return false;
-    return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
-  });
+  // 🆕 quitar bloqueo
+  const handleUnblock = async (blockedId) => {
+    if (!confirm("¿Quitar este bloqueo?")) return;
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/bookings?blockedId=${blockedId}`, {
+        method: "DELETE",
+        headers: {
+          "x-panel-token": token,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo quitar.");
+      } else {
+        fetchBookings();
+      }
+    } catch (err) {
+      alert("Error de conexión.");
+    }
+  };
 
   // agregar entrega manual (con token)
   const handleManualSubmit = async (e) => {
@@ -274,6 +313,32 @@ export default function PanelPage() {
     );
   }
 
+  // 1️⃣ filtrar por pestaña
+  const bookingsByTab = bookings.filter((bk) => {
+    if (activeTab === "bodega") return bk.type === "bodega";
+    if (activeTab === "domicilio") return bk.type === "domicilio";
+    if (activeTab === "paqueteria") return bk.type === "paqueteria";
+    return false;
+  });
+
+  // 2️⃣ filtrar por fecha
+  const filteredByDate = bookingsByTab.filter((bk) => {
+    if (!bk.date) return true;
+    const date = new Date(bk.date);
+    const start = filterStart ? new Date(filterStart) : null;
+    const end = filterEnd ? new Date(filterEnd) : null;
+    if (start && date < start) return false;
+    if (end && date > end) return false;
+    return true;
+  });
+
+  // 3️⃣ filtrar por Instagram
+  const finalFilteredBookings = filteredByDate.filter((bk) => {
+    if (!filterInstagram) return true;
+    if (!bk.instagram) return false;
+    return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
+  });
+
   // ✅ vista del panel
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
@@ -347,57 +412,127 @@ export default function PanelPage() {
         </button>
       </div>
 
-      {/* filtros */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-4">
-        <div>
-          <label className="block text-sm font-medium mb-1 text-slate-700">
-            Desde
-          </label>
+      {/* filtros + bloqueador */}
+      <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between">
+        {/* filtros */}
+        <div className="flex flex-wrap gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-700">
+              Desde
+            </label>
+            <input
+              type="date"
+              value={filterStart}
+              onChange={(e) => setFilterStart(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-700">
+              Hasta
+            </label>
+            <input
+              type="date"
+              value={filterEnd}
+              onChange={(e) => setFilterEnd(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
+            />
+          </div>
+          {/* 🔎 filtro por instagram */}
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-700">
+              Instagram
+            </label>
+            <input
+              type="text"
+              value={filterInstagram}
+              onChange={(e) => setFilterInstagram(e.target.value)}
+              placeholder="@usuario"
+              className="border rounded-lg px-3 py-2 text-sm w-full md:w-52"
+            />
+          </div>
+          <button
+            onClick={() => {
+              setFilterStart("");
+              setFilterEnd("");
+              setFilterInstagram("");
+            }}
+            className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg h-10 mt-6"
+          >
+            Limpiar filtro
+          </button>
+          {loadingData && (
+            <span className="text-xs text-slate-400 mt-8">Cargando…</span>
+          )}
+        </div>
+
+        {/* 🆕 bloquear día */}
+        <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
+          <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+            ⛔ Bloquear día
+          </p>
           <input
             type="date"
-            value={filterStart}
-            onChange={(e) => setFilterStart(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
+            value={blockDate}
+            onChange={(e) => setBlockDate(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1 text-slate-700">
-            Hasta
-          </label>
-          <input
-            type="date"
-            value={filterEnd}
-            onChange={(e) => setFilterEnd(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
-          />
-        </div>
-        {/* 🔎 filtro por instagram */}
-        <div>
-          <label className="block text-sm font-medium mb-1 text-slate-700">
-            Instagram
-          </label>
+          <select
+            value={blockType}
+            onChange={(e) => setBlockType(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="domicilio">Domicilio</option>
+            <option value="bodega">Bodega</option>
+          </select>
           <input
             type="text"
-            value={filterInstagram}
-            onChange={(e) => setFilterInstagram(e.target.value)}
-            placeholder="@usuario"
-            className="border rounded-lg px-3 py-2 text-sm w-full md:w-52"
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="Motivo (opcional)"
+            className="border rounded-lg px-3 py-2 text-sm"
           />
+          <button
+            onClick={handleBlockDay}
+            className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
+          >
+            Guardar bloqueo
+          </button>
         </div>
-        <button
-          onClick={() => {
-            setFilterStart("");
-            setFilterEnd("");
-            setFilterInstagram("");
-          }}
-          className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg"
-        >
-          Limpiar filtro
-        </button>
-        {loadingData && (
-          <span className="text-xs text-slate-400">Cargando…</span>
-        )}
       </div>
+
+      {/* 🆕 lista de bloqueos */}
+      {blockedDays && blockedDays.length > 0 && (
+        <div className="bg-white rounded-xl shadow p-4 mb-6">
+          <h2 className="text-sm font-semibold text-slate-700 mb-3">
+            Días bloqueados
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {blockedDays.map((bd) => (
+              <div
+                key={bd.id}
+                className="flex items-center gap-2 bg-slate-100 rounded-full px-3 py-1 text-xs"
+              >
+                <span>
+                  {new Date(bd.date).toLocaleDateString("es-MX", {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })}{" "}
+                  — {bd.type === "domicilio" ? "Domicilio" : "Bodega"}
+                  {bd.reason ? ` · ${bd.reason}` : ""}
+                </span>
+                <button
+                  onClick={() => handleUnblock(bd.id)}
+                  className="text-red-500 hover:text-red-700 text-xs"
+                >
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* tabla */}
       <div className="bg-white rounded-xl shadow overflow-hidden">
@@ -482,14 +617,15 @@ export default function PanelPage() {
                       </td>
 
                       {activeTab === "domicilio" && (
-  <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
-    {bk.address || "—"}
-    {bk.notes && (
-      <p className="text-[11px] text-slate-400 mt-1">📝 {bk.notes}</p>
-    )}
-  </td>
-)}
-
+                        <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+                          {bk.address || "—"}
+                          {bk.notes && (
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              📝 {bk.notes}
+                            </p>
+                          )}
+                        </td>
+                      )}
 
                       {activeTab === "paqueteria" && (
                         <>
@@ -693,6 +829,7 @@ export default function PanelPage() {
     </div>
   );
 }
+
 
 
 

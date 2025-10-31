@@ -77,6 +77,7 @@ export default function AgendarPage() {
   const [mode, setMode] = useState("bodega");
   const [slots, setSlots] = useState(null); // para bodega
   const [allBookings, setAllBookings] = useState([]); // para contar domicilio
+  const [blockedDays, setBlockedDays] = useState([]); // 🆕 lo que viene de Supabase
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
@@ -101,20 +102,41 @@ export default function AgendarPage() {
 
   const pickupDates = getNextPickupDates(6);
 
-  // traer bookings y slots
+  // traer bookings (para conteo) Y días bloqueados (públicos)
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // OJO: /api/bookings está protegido en el backend;
+        // si aquí te marca 401 en producción, puedes quitar este fetch
+        // y solo dejar el de blocked-days. Pero lo dejamos porque ya lo tenías.
         const res = await fetch("/api/bookings");
-        const data = await res.json();
-        setSlots(data.slots || null);
-        setAllBookings(data.bookings || []);
+        if (res.ok) {
+          const data = await res.json();
+          setSlots(data.slots || null);
+          setAllBookings(data.bookings || []);
+        }
       } catch (err) {
         console.error(err);
+      }
+
+      // 🆕 traer los bloqueados públicos
+      try {
+        const res2 = await fetch("/api/blocked-days");
+        const data2 = await res2.json();
+        setBlockedDays(data2.blockedDays || []);
+      } catch (err) {
+        console.warn("No se pudieron leer los días bloqueados públicos", err);
       }
     };
     fetchData();
   }, []);
+
+  // helpers de bloqueos
+  const isBlocked = (dateStr, type) => {
+    return blockedDays.some(
+      (bd) => bd.date === dateStr && bd.type === type
+    );
+  };
 
   // fechas válidas para domicilio
   const now = new Date();
@@ -122,8 +144,16 @@ export default function AgendarPage() {
   const maxDate = new Date();
   maxDate.setDate(now.getDate() + 30);
 
+  // lista de fechas bloqueadas SOLO para domicilio (react-datepicker las pinta grises)
+  const blockedForDomicilio = blockedDays
+    .filter((b) => b.type === "domicilio")
+    .map((b) => new Date(b.date + "T00:00:00"));
+
   const isWeekday = (date) => {
     const day = date.getDay();
+    // día bloqueado explícitamente -> NO
+    const dateStr = date.toISOString().split("T")[0];
+    if (isBlocked(dateStr, "domicilio")) return false;
     return day !== 0 && day !== 6 && date > minDate;
   };
 
@@ -152,6 +182,13 @@ export default function AgendarPage() {
     }
     if (!date) {
       setError("Selecciona la fecha del martes/jueves.");
+      return;
+    }
+
+    // 🔴 checar bloqueo en bodega ANTES de mandar al backend
+    const dateStr = toInputDate(date);
+    if (isBlocked(dateStr, "bodega")) {
+      setError("Ese día no estamos entregando en bodega. Elige otro.");
       return;
     }
 
@@ -229,13 +266,20 @@ export default function AgendarPage() {
       return;
     }
 
+    const selectedStr = toInputDate(deliveryDate);
+
+    // 🔴 checar si está bloqueado para domicilio
+    if (isBlocked(selectedStr, "domicilio")) {
+      setError("Ese día no estamos entregando a domicilio. Elige otro.");
+      return;
+    }
+
     const nowPlus24 = new Date(Date.now() + 24 * 60 * 60 * 1000);
     if (deliveryDate < nowPlus24) {
       setError("Debes agendar con al menos 24 horas de anticipación.");
       return;
     }
 
-    const selectedStr = toInputDate(deliveryDate);
     const alreadyForDay = allBookings.filter(
       (b) => b.type === "domicilio" && b.date === selectedStr
     ).length;
@@ -398,13 +442,11 @@ export default function AgendarPage() {
     }
   };
 
-  // handler de teléfono: solo números
-  // handler de teléfono: solo números y máximo 10 dígitos (México)
-const handlePhoneChange = (e) => {
-  const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
-  setPhone(onlyNums);
-};
-
+  // handler de teléfono: solo números y máximo 10 dígitos
+  const handlePhoneChange = (e) => {
+    const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
+    setPhone(onlyNums);
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center py-10 px-4">
@@ -522,28 +564,39 @@ const handlePhoneChange = (e) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               {pickupDates.map((d) => {
                 const weekday = d.getDay() === 2 ? "tuesday" : "thursday";
+                const dateStr = toInputDate(d);
+                const blocked = isBlocked(dateStr, "bodega"); // 🆕
                 const disabled =
+                  blocked ||
                   isSubmitting ||
                   (slots &&
                     slots[weekday] &&
                     slots[weekday].disabled === true);
+
                 return (
                   <button
-                    key={d}
+                    key={d.toISOString()}
                     onClick={() => handleBodegaBooking(weekday, d)}
                     disabled={disabled}
-                    className={`border rounded-xl p-3 text-left ${
-                      disabled
+                    className={`border rounded-xl p-3 text-left transition ${
+                      blocked
+                        ? "bg-red-100 border-red-200 text-red-700 cursor-not-allowed"
+                        : disabled
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : "hover:border-emerald-400"
+                        : "bg-white hover:border-emerald-400"
                     }`}
                   >
-                    <p className="text-sm font-medium text-slate-800">
+                    <p className="text-sm font-medium">
                       {toNiceDate(d)}
                     </p>
                     <p className="text-[11px] text-slate-400">
                       {weekday === "tuesday" ? "Martes" : "Jueves"}
                     </p>
+                    {blocked && (
+                      <p className="text-[11px] text-red-600 mt-1">
+                        ⛔ Este día no nos encontramos en bodega
+                      </p>
+                    )}
                   </button>
                 );
               })}
@@ -651,10 +704,24 @@ const handlePhoneChange = (e) => {
               </label>
               <DatePicker
                 selected={deliveryDate}
-                onChange={(date) => setDeliveryDate(date)}
+                onChange={(date) => {
+                  if (!date) {
+                    setDeliveryDate(null);
+                    return;
+                  }
+                  const dateStr = date.toISOString().split("T")[0];
+                  if (isBlocked(dateStr, "domicilio")) {
+                    setError("Ese día no estamos entregando a domicilio.");
+                    setDeliveryDate(null);
+                    return;
+                  }
+                  setError("");
+                  setDeliveryDate(date);
+                }}
                 minDate={minDate}
                 maxDate={maxDate}
                 filterDate={isWeekday}
+                excludeDates={blockedForDomicilio} // 🆕 pintarlos grises
                 locale="es"
                 dateFormat="EEEE d 'de' MMMM"
                 className="w-full border rounded-lg px-3 py-2 text-sm"
@@ -916,6 +983,7 @@ const handlePhoneChange = (e) => {
     </div>
   );
 }
+
 
 
 
