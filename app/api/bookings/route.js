@@ -21,6 +21,19 @@ function validatePanelToken(req) {
   }
 }
 
+// 👉 helper para asegurarnos de que la fecha venga en formato YYYY-MM-DD
+function normalizeDateString(date) {
+  if (!date) return null;
+  const base = date.split("T")[0];
+  return base;
+}
+
+// 👉 helper para crear Date local a partir de YYYY-MM-DD (para comparaciones)
+function makeLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 // máximo de domicilios por día
 const DOMICILIO_LIMIT = 15;
 
@@ -88,11 +101,13 @@ export async function POST(req) {
         );
       }
 
+      const dateToSave = normalizeDateString(date);
+
       const { data, error } = await supabase
         .from("blocked_days")
         .insert([
           {
-            date,
+            date: dateToSave,
             type,
             reason: reason || null,
           },
@@ -111,7 +126,7 @@ export async function POST(req) {
       return Response.json({ message: "Día bloqueado.", blocked: data });
     }
 
-    // 2️⃣ flujo normal de crear booking (como ya lo tenías)
+    // 2️⃣ flujo normal de crear booking
     const {
       type,
       day,
@@ -124,6 +139,8 @@ export async function POST(req) {
       state,
       notes,
       override,
+      // 👇 NUEVO: lo mandamos desde el frontend de domicilio
+      postalCode,
     } = body;
 
     if (!type || !instagram || !fullName || !phone || !date) {
@@ -133,12 +150,14 @@ export async function POST(req) {
       );
     }
 
+    const dateToSave = normalizeDateString(date);
+
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
       const { data: blockedForThatDay, error: blockedCheckErr } = await supabase
         .from("blocked_days")
         .select("id")
-        .eq("date", date)
+        .eq("date", dateToSave)
         .eq("type", type);
 
       if (blockedCheckErr) {
@@ -172,7 +191,7 @@ export async function POST(req) {
           {
             type,
             day: day || null,
-            date,
+            date: dateToSave,
             instagram,
             fullName,
             phone,
@@ -180,6 +199,8 @@ export async function POST(req) {
             city: city || null,
             state: state || null,
             notes: notes || null,
+            // 👇 guardar CP también en override
+            postal_code: postalCode || null,
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
             createdAt: new Date().toISOString(),
@@ -205,8 +226,10 @@ export async function POST(req) {
     // 🔸 validaciones normales (24h) → pero NO para paquetería
     if (type !== "paqueteria") {
       const now = new Date();
-      const selectedDate = new Date(date);
-      const diffHours = (selectedDate - now) / (1000 * 60 * 60);
+      const selectedLocalDate = makeLocalDate(dateToSave);
+      const diffHours =
+        (selectedLocalDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+
       if (diffHours < 24) {
         return Response.json(
           { message: "Debes agendar con al menos 24 horas de anticipación." },
@@ -226,13 +249,32 @@ export async function POST(req) {
       // aquí después puedes validar capacidad
     }
 
-    // 🟣 DOMICILIO → validar máximo por día (solo cuando NO es override)
+    // 🟣 DOMICILIO → validar máximo por día + validar ciudad/estado/CP
     if (type === "domicilio") {
+      // 👇 lo que pediste: que sea OBLIGATORIO
+      if (!city || !state || !postalCode) {
+        return Response.json(
+          {
+            message:
+              "Faltan datos de ubicación: ciudad, estado o código postal.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // 👇 opcional: que el CP sea de 5 dígitos
+      if (typeof postalCode === "string" && postalCode.trim().length !== 5) {
+        return Response.json(
+          { message: "El código postal debe tener 5 dígitos." },
+          { status: 400 }
+        );
+      }
+
       const { data: domicilios, error: errCount } = await supabase
         .from("bookings")
         .select("id")
         .eq("type", "domicilio")
-        .eq("date", date);
+        .eq("date", dateToSave);
 
       if (errCount) {
         console.error(errCount);
@@ -259,7 +301,7 @@ export async function POST(req) {
         {
           type,
           day: day || null,
-          date,
+          date: dateToSave,
           instagram,
           fullName,
           phone,
@@ -267,6 +309,8 @@ export async function POST(req) {
           city: city || null,
           state: state || null,
           notes: notes || null,
+          // 👇 nuevo campo para guardarlo en la tabla
+          postal_code: postalCode || null,
           createdAt: new Date().toISOString(),
           status: isPaqueteria ? "pendiente" : null,
           override: false,
@@ -294,7 +338,6 @@ export async function POST(req) {
 }
 
 // 🟠 DELETE → eliminar una agenda por id (solo panel)
-// 🆕 si viene ?blockedId=... entonces borra un bloqueado
 export async function DELETE(req) {
   // 🔒 solo panel
   if (!validatePanelToken(req)) {
@@ -374,6 +417,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

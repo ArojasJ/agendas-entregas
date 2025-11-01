@@ -7,6 +7,34 @@ const PANEL_PASSWORD_ENV =
   process.env.PANEL_PASSWORD ||
   "MELANNY";
 
+// 👇👇👇 NUEVO: helpers para NO usar UTC
+function parseLocalDate(dateStr) {
+  // viene "2025-11-03"
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d); // local
+}
+
+function formatShortMX(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (!d) return "—";
+  return d.toLocaleDateString("es-MX", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function formatBlockedMX(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (!d) return "—";
+  return d.toLocaleDateString("es-MX", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -57,19 +85,18 @@ export default function PanelPage() {
         },
       });
 
-      // si el backend dijo "no"
       if (!res.ok) {
         console.warn("No autorizado para leer bookings");
         setBookings([]);
         setSlots(null);
-        setBlockedDays([]); // 🆕
+        setBlockedDays([]);
         return;
       }
 
       const data = await res.json();
       setBookings(data.bookings || []);
       setSlots(data.slots || null);
-      setBlockedDays(data.blockedDays || []); // 🆕
+      setBlockedDays(data.blockedDays || []);
     } catch (err) {
       console.error("Error al leer entregas:", err);
     } finally {
@@ -95,7 +122,6 @@ export default function PanelPage() {
       });
       const data = await res.json();
 
-      // ✅ si la API responde correctamente y trae token
       if (res.ok && data.success && data.token) {
         localStorage.setItem("panelAuth", "true");
         localStorage.setItem("panelToken", data.token);
@@ -107,7 +133,6 @@ export default function PanelPage() {
       console.warn("Error al conectar con la API de login:", err);
     }
 
-    // 🔁 Plan B: comparar con la variable local si la API falló
     if (password === PANEL_PASSWORD_ENV) {
       setAuthorized(true);
       localStorage.setItem("panelAuth", "true");
@@ -188,7 +213,6 @@ export default function PanelPage() {
         alert(data.message || "No se pudo bloquear el día.");
         return;
       }
-      // recargar
       await fetchBookings();
       setBlockDate("");
       setBlockReason("");
@@ -248,7 +272,7 @@ export default function PanelPage() {
           address,
           city,
           date,
-          override: true, // 👈 esto le dice al backend que viene del panel
+          override: true,
         }),
       });
       const data = await res.json();
@@ -276,7 +300,6 @@ export default function PanelPage() {
   if (!authorized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
-        {/* 🔹 Botón para volver al inicio */}
         <a
           href="/"
           className="absolute top-6 left-6 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow"
@@ -284,7 +307,6 @@ export default function PanelPage() {
           🏠 Inicio
         </a>
 
-        {/* 🔹 Formulario de acceso */}
         <form
           onSubmit={handleSubmit}
           className="bg-white shadow-lg rounded-xl p-6 w-80 flex flex-col gap-4"
@@ -324,9 +346,9 @@ export default function PanelPage() {
   // 2️⃣ filtrar por fecha
   const filteredByDate = bookingsByTab.filter((bk) => {
     if (!bk.date) return true;
-    const date = new Date(bk.date);
-    const start = filterStart ? new Date(filterStart) : null;
-    const end = filterEnd ? new Date(filterEnd) : null;
+    const date = parseLocalDate(bk.date);
+    const start = filterStart ? parseLocalDate(filterStart) : null;
+    const end = filterEnd ? parseLocalDate(filterEnd) : null;
     if (start && date < start) return false;
     if (end && date > end) return false;
     return true;
@@ -339,7 +361,6 @@ export default function PanelPage() {
     return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
   });
 
-  // ✅ vista del panel
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       {/* inicio */}
@@ -438,7 +459,6 @@ export default function PanelPage() {
               className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
             />
           </div>
-          {/* 🔎 filtro por instagram */}
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">
               Instagram
@@ -466,7 +486,7 @@ export default function PanelPage() {
           )}
         </div>
 
-        {/* 🆕 bloquear día */}
+        {/* bloqueador */}
         <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
           <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
             ⛔ Bloquear día
@@ -501,7 +521,7 @@ export default function PanelPage() {
         </div>
       </div>
 
-      {/* 🆕 lista de bloqueos */}
+      {/* lista de bloqueos */}
       {blockedDays && blockedDays.length > 0 && (
         <div className="bg-white rounded-xl shadow p-4 mb-6">
           <h2 className="text-sm font-semibold text-slate-700 mb-3">
@@ -514,12 +534,8 @@ export default function PanelPage() {
                 className="flex items-center gap-2 bg-slate-100 rounded-full px-3 py-1 text-xs"
               >
                 <span>
-                  {new Date(bd.date).toLocaleDateString("es-MX", {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                  })}{" "}
-                  — {bd.type === "domicilio" ? "Domicilio" : "Bodega"}
+                  {formatBlockedMX(bd.date)} —{" "}
+                  {bd.type === "domicilio" ? "Domicilio" : "Bodega"}
                   {bd.reason ? ` · ${bd.reason}` : ""}
                 </span>
                 <button
@@ -555,7 +571,11 @@ export default function PanelPage() {
               <tr>
                 <th className="text-left py-2 px-3">Cliente</th>
                 {activeTab === "domicilio" && (
-                  <th className="text-left py-2 px-3">Dirección</th>
+                  <>
+                    <th className="text-left py-2 px-3">Dirección</th>
+                    {/* 👇 nueva columna */}
+                    <th className="text-left py-2 px-3">Ciudad / Estado / C.P.</th>
+                  </>
                 )}
                 {activeTab === "paqueteria" && (
                   <>
@@ -577,7 +597,7 @@ export default function PanelPage() {
                       activeTab === "paqueteria"
                         ? 7
                         : activeTab === "domicilio"
-                        ? 5
+                        ? 6 // 👈 antes era 5
                         : 4
                     }
                     className="text-center py-6 text-slate-400 text-sm"
@@ -603,7 +623,6 @@ export default function PanelPage() {
                             📞 {bk.phone}
                           </p>
                         )}
-                        {/* mostrar día de bodega si viene */}
                         {bk.type === "bodega" && bk.day && (
                           <p className="text-xs text-slate-400">
                             Día:{" "}
@@ -617,14 +636,27 @@ export default function PanelPage() {
                       </td>
 
                       {activeTab === "domicilio" && (
-                        <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
-                          {bk.address || "—"}
-                          {bk.notes && (
-                            <p className="text-[11px] text-slate-400 mt-1">
-                              📝 {bk.notes}
-                            </p>
-                          )}
-                        </td>
+                        <>
+                          <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+                            {bk.address || "—"}
+                            {bk.notes && (
+                              <p className="text-[11px] text-slate-400 mt-1">
+                                📝 {bk.notes}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-slate-500">
+                            {bk.city || bk.state || bk.postal_code ? (
+                              <div className="space-y-1">
+                                {bk.city && <p>🏙 {bk.city}</p>}
+                                {bk.state && <p>🗺 {bk.state}</p>}
+                                {bk.postal_code && <p>📮 C.P.: {bk.postal_code}</p>}
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </>
                       )}
 
                       {activeTab === "paqueteria" && (
@@ -650,13 +682,7 @@ export default function PanelPage() {
                       )}
 
                       <td className="py-2 px-3 text-sm">
-                        {bk.date
-                          ? new Date(bk.date).toLocaleDateString("es-MX", {
-                              weekday: "short",
-                              day: "numeric",
-                              month: "short",
-                            })
-                          : "—"}
+                        {bk.date ? formatShortMX(bk.date) : "—"}
                       </td>
                       <td className="py-2 px-3 text-xs text-slate-400">
                         {bk.createdAt
@@ -829,6 +855,8 @@ export default function PanelPage() {
     </div>
   );
 }
+
+
 
 
 

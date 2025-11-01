@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import DatePicker, { registerLocale } from "react-datepicker";
+import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { es } from "date-fns/locale";
+import { registerLocale } from "react-datepicker";
 
 registerLocale("es", es);
 
@@ -23,7 +24,10 @@ function getNextPickupDates(count = 6, minHours = 24) {
 }
 
 function toInputDate(date) {
-  return date.toISOString().split("T")[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function toNiceDate(date) {
@@ -34,7 +38,19 @@ function toNiceDate(date) {
   });
 }
 
-// lista de estados de México
+function formatDateStringMX(dateStr) {
+  if (!dateStr) return "";
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const d = new Date(year, month - 1, day);
+  return d.toLocaleDateString("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// lista de estados de México (para paquetería)
 const MEX_STATES = [
   "Aguascalientes",
   "Baja California",
@@ -70,6 +86,13 @@ const MEX_STATES = [
   "Zacatecas",
 ];
 
+// 👇 ciudades de la Comarca que quieres
+const LAGUNA_CITIES = [
+  { city: "Torreón", state: "Coahuila" },
+  { city: "Gómez Palacio", state: "Durango" },
+  { city: "Lerdo", state: "Durango" },
+];
+
 export default function AgendarPage() {
   const router = useRouter();
 
@@ -84,12 +107,17 @@ export default function AgendarPage() {
   // campos cliente
   const [insta, setInsta] = useState("");
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState(""); // solo números
+  const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [notes, setNotes] = useState(""); // 👈 NUEVO para domicilio
+  const [notes, setNotes] = useState("");
   const [city, setCity] = useState(""); // solo paquetería
-  const [stateMx, setStateMx] = useState("Coahuila"); // default 😏
+  const [stateMx, setStateMx] = useState("Coahuila"); // paquetería
   const [deliveryDate, setDeliveryDate] = useState(null);
+
+  // 👇 NUEVOS para DOMICILIO
+  const [domicilioCity, setDomicilioCity] = useState("");
+  const [domicilioState, setDomicilioState] = useState("");
+  const [domicilioCP, setDomicilioCP] = useState("");
 
   // modal éxito
   const [successModal, setSuccessModal] = useState(false);
@@ -106,9 +134,6 @@ export default function AgendarPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // OJO: /api/bookings está protegido en el backend;
-        // si aquí te marca 401 en producción, puedes quitar este fetch
-        // y solo dejar el de blocked-days. Pero lo dejamos porque ya lo tenías.
         const res = await fetch("/api/bookings");
         if (res.ok) {
           const data = await res.json();
@@ -119,7 +144,6 @@ export default function AgendarPage() {
         console.error(err);
       }
 
-      // 🆕 traer los bloqueados públicos
       try {
         const res2 = await fetch("/api/blocked-days");
         const data2 = await res2.json();
@@ -133,9 +157,7 @@ export default function AgendarPage() {
 
   // helpers de bloqueos
   const isBlocked = (dateStr, type) => {
-    return blockedDays.some(
-      (bd) => bd.date === dateStr && bd.type === type
-    );
+    return blockedDays.some((bd) => bd.date === dateStr && bd.type === type);
   };
 
   // fechas válidas para domicilio
@@ -151,7 +173,6 @@ export default function AgendarPage() {
 
   const isWeekday = (date) => {
     const day = date.getDay();
-    // día bloqueado explícitamente -> NO
     const dateStr = date.toISOString().split("T")[0];
     if (isBlocked(dateStr, "domicilio")) return false;
     return day !== 0 && day !== 6 && date > minDate;
@@ -185,7 +206,6 @@ export default function AgendarPage() {
       return;
     }
 
-    // 🔴 checar bloqueo en bodega ANTES de mandar al backend
     const dateStr = toInputDate(date);
     if (isBlocked(dateStr, "bodega")) {
       setError("Ese día no estamos entregando en bodega. Elige otro.");
@@ -229,7 +249,6 @@ export default function AgendarPage() {
         });
         setSuccessModal(true);
 
-        // actualizar estado local
         setAllBookings((prev) => [
           ...prev,
           {
@@ -257,8 +276,20 @@ export default function AgendarPage() {
     setMsg("");
     setError("");
 
-    if (!insta || !fullName || !phone || !address) {
-      setError("Llena todos los campos.");
+    if (
+      !insta ||
+      !fullName ||
+      !phone ||
+      !address ||
+      !domicilioCity ||
+      !domicilioState ||
+      !domicilioCP
+    ) {
+      setError("Llena todos los campos (incluye ciudad, estado y C.P.).");
+      return;
+    }
+    if (domicilioCP.length !== 5) {
+      setError("El código postal debe tener 5 dígitos.");
       return;
     }
     if (!deliveryDate) {
@@ -268,7 +299,6 @@ export default function AgendarPage() {
 
     const selectedStr = toInputDate(deliveryDate);
 
-    // 🔴 checar si está bloqueado para domicilio
     if (isBlocked(selectedStr, "domicilio")) {
       setError("Ese día no estamos entregando a domicilio. Elige otro.");
       return;
@@ -302,8 +332,11 @@ export default function AgendarPage() {
           fullName,
           phone,
           address,
-          notes, // 👈 mandamos las notas
+          notes,
           date: selectedStr,
+          city: domicilioCity,
+          state: domicilioState,
+          postalCode: domicilioCP,
         }),
       });
       const data = await res.json();
@@ -324,7 +357,10 @@ export default function AgendarPage() {
           fullName,
           phone,
           address,
-          notes, // 👈 las mostramos en el modal
+          notes,
+          city: domicilioCity,
+          state: domicilioState,
+          postalCode: domicilioCP,
           price: 40,
         });
         setSuccessModal(true);
@@ -334,8 +370,11 @@ export default function AgendarPage() {
         setFullName("");
         setPhone("");
         setAddress("");
-        setNotes(""); // 👈 limpiar notas
+        setNotes("");
         setDeliveryDate(null);
+        setDomicilioCity("");
+        setDomicilioState("");
+        setDomicilioCP("");
 
         // actualizar lista
         setAllBookings((prev) => [
@@ -349,6 +388,9 @@ export default function AgendarPage() {
             phone,
             address,
             notes,
+            city: domicilioCity,
+            state: domicilioState,
+            postalCode: domicilioCP,
           },
         ]);
       }
@@ -389,7 +431,7 @@ export default function AgendarPage() {
           address,
           city,
           state: stateMx,
-          date: todayStr, // solo para registrar
+          date: todayStr,
         }),
       });
       const data = await res.json();
@@ -419,7 +461,6 @@ export default function AgendarPage() {
         setCity("");
         setStateMx("Coahuila");
 
-        // guardar en lista local
         setAllBookings((prev) => [
           ...prev,
           {
@@ -446,6 +487,22 @@ export default function AgendarPage() {
   const handlePhoneChange = (e) => {
     const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
     setPhone(onlyNums);
+  };
+
+  // handler de CP: 5 dígitos
+  const handleCPChange = (e) => {
+    const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 5);
+    setDomicilioCP(onlyNums);
+  };
+
+  // handler ciudad domicilio: autollenar estado
+  const handleDomicilioCityChange = (e) => {
+    const value = e.target.value;
+    setDomicilioCity(value);
+    const found = LAGUNA_CITIES.find((c) => c.city === value);
+    if (found) {
+      setDomicilioState(found.state);
+    }
   };
 
   return (
@@ -516,7 +573,6 @@ export default function AgendarPage() {
               <b>24 horas de anticipación</b>.
             </p>
 
-            {/* POLÍTICA BODEGA */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
               <p className="font-semibold mb-1">POLÍTICA ENTREGA EN BODEGA</p>
               <p>Entregas únicamente de 6:00 pm a 8:00 pm sin excepción.</p>
@@ -565,7 +621,7 @@ export default function AgendarPage() {
               {pickupDates.map((d) => {
                 const weekday = d.getDay() === 2 ? "tuesday" : "thursday";
                 const dateStr = toInputDate(d);
-                const blocked = isBlocked(dateStr, "bodega"); // 🆕
+                const blocked = isBlocked(dateStr, "bodega");
                 const disabled =
                   blocked ||
                   isSubmitting ||
@@ -586,9 +642,7 @@ export default function AgendarPage() {
                         : "bg-white hover:border-emerald-400"
                     }`}
                   >
-                    <p className="text-sm font-medium">
-                      {toNiceDate(d)}
-                    </p>
+                    <p className="text-sm font-medium">{toNiceDate(d)}</p>
                     <p className="text-[11px] text-slate-400">
                       {weekday === "tuesday" ? "Martes" : "Jueves"}
                     </p>
@@ -609,7 +663,6 @@ export default function AgendarPage() {
               agendar con al menos <b>24 horas de anticipación</b>.
             </p>
 
-            {/* COSTO ENTREGA */}
             <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800">
               <p className="font-semibold mb-1">
                 Costo de entrega a domicilio: <b>$40 MXN</b>
@@ -619,7 +672,6 @@ export default function AgendarPage() {
               </p>
             </div>
 
-            {/* POLÍTICA DOMICILIO */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
               <p className="font-semibold mb-1">
                 POLÍTICA DE ENTREGA DOMICILIO
@@ -672,19 +724,73 @@ export default function AgendarPage() {
                 inputMode="numeric"
               />
             </div>
+
+            {/* dirección */}
             <div>
               <label className="block text-sm font-medium mb-1">
-                Dirección completa *
+                Dirección completa (calle, número, colonia) *
               </label>
               <textarea
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 required
                 className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Calle, número, colonia, referencias..."
+                placeholder="Ej. Calle Zaragoza 124, col. Centro..."
               />
             </div>
-            {/* 👇 NUEVO CAMPO */}
+
+            {/* ciudad + estado + cp */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Ciudad *
+                </label>
+                <select
+                  value={domicilioCity}
+                  onChange={handleDomicilioCityChange}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                  required
+                >
+                  <option value="">Selecciona ciudad</option>
+                  {LAGUNA_CITIES.map((c) => (
+                    <option key={c.city} value={c.city}>
+                      {c.city}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Estado *
+                </label>
+                <select
+                  value={domicilioState}
+                  onChange={(e) => setDomicilioState(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                  required
+                >
+                  <option value="">Selecciona estado</option>
+                  <option value="Coahuila">Coahuila</option>
+                  <option value="Durango">Durango</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Código Postal *
+                </label>
+                <input
+                  value={domicilioCP}
+                  onChange={handleCPChange}
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="35000"
+                  inputMode="numeric"
+                  maxLength={5}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* notas */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Referencia / notas para el repartidor
@@ -698,6 +804,7 @@ export default function AgendarPage() {
               />
             </div>
 
+            {/* fecha */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Fecha de entrega (lunes a viernes) *
@@ -709,7 +816,7 @@ export default function AgendarPage() {
                     setDeliveryDate(null);
                     return;
                   }
-                  const dateStr = date.toISOString().split("T")[0];
+                  const dateStr = toInputDate(date);
                   if (isBlocked(dateStr, "domicilio")) {
                     setError("Ese día no estamos entregando a domicilio.");
                     setDeliveryDate(null);
@@ -721,7 +828,7 @@ export default function AgendarPage() {
                 minDate={minDate}
                 maxDate={maxDate}
                 filterDate={isWeekday}
-                excludeDates={blockedForDomicilio} // 🆕 pintarlos grises
+                excludeDates={blockedForDomicilio}
                 locale="es"
                 dateFormat="EEEE d 'de' MMMM"
                 className="w-full border rounded-lg px-3 py-2 text-sm"
@@ -762,7 +869,6 @@ export default function AgendarPage() {
               datos y te contactaremos por privado para <b>cotizar tu envío</b>.
             </p>
 
-            {/* POLÍTICA PAQUETERÍA */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
               <p className="font-semibold mb-1">POLÍTICA PAQUETERÍA</p>
               <p>Agenda tu entrega para cotizar tu paquete.</p>
@@ -886,7 +992,6 @@ export default function AgendarPage() {
             </h2>
             <p className="text-sm text-slate-600">{successText}</p>
 
-            {/* datos para screenshot */}
             {successBooking && (
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-left text-sm text-slate-700">
                 <p className="text-xs uppercase text-slate-400 mb-1">
@@ -924,12 +1029,6 @@ export default function AgendarPage() {
                     {successBooking.address}
                   </p>
                 )}
-                {successBooking.notes && (
-                  <p>
-                    <span className="font-medium">Notas:</span>{" "}
-                    {successBooking.notes}
-                  </p>
-                )}
                 {successBooking.city && (
                   <p>
                     <span className="font-medium">Ciudad:</span>{" "}
@@ -942,18 +1041,22 @@ export default function AgendarPage() {
                     {successBooking.state}
                   </p>
                 )}
+                {successBooking.postalCode && (
+                  <p>
+                    <span className="font-medium">C.P.:</span>{" "}
+                    {successBooking.postalCode}
+                  </p>
+                )}
+                {successBooking.notes && (
+                  <p>
+                    <span className="font-medium">Notas:</span>{" "}
+                    {successBooking.notes}
+                  </p>
+                )}
                 {successBooking.date && (
                   <p>
                     <span className="font-medium">Fecha:</span>{" "}
-                    {new Date(successBooking.date).toLocaleDateString(
-                      "es-MX",
-                      {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      }
-                    )}
+                    {formatDateStringMX(successBooking.date)}
                   </p>
                 )}
                 {successBooking.price && (
@@ -968,7 +1071,7 @@ export default function AgendarPage() {
             <button
               onClick={() => {
                 setSuccessModal(false);
-                router.push("/"); // 👈 regresar al inicio
+                router.push("/");
               }}
               className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg w-full text-sm font-semibold"
             >
@@ -983,6 +1086,7 @@ export default function AgendarPage() {
     </div>
   );
 }
+
 
 
 
