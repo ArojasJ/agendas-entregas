@@ -9,7 +9,6 @@ const PANEL_PASSWORD_ENV =
 
 // 👇👇👇 NUEVO: helpers para NO usar UTC
 function parseLocalDate(dateStr) {
-  // viene "2025-11-03"
   if (!dateStr) return null;
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d); // local
@@ -35,17 +34,34 @@ function formatBlockedMX(dateStr) {
   });
 }
 
+// ✅ para poner la fecha de HOY en los filtros
+function getTodayInputDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// ✅ para comparar IG aunque venga con / sin @ y en mayúsculas
+function normalizeInstagram(ig) {
+  if (!ig) return "";
+  let v = ig.trim();
+  if (v.startsWith("@")) v = v.slice(1);
+  return v.toLowerCase();
+}
+
 export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [slots, setSlots] = useState(null);
-  const [blockedDays, setBlockedDays] = useState([]); // 🆕 días bloqueados
+  const [blockedDays, setBlockedDays] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
   const [filterStart, setFilterStart] = useState("");
   const [filterEnd, setFilterEnd] = useState("");
-  const [activeTab, setActiveTab] = useState("bodega"); // "bodega" | "domicilio" | "paqueteria"
+  const [activeTab, setActiveTab] = useState("bodega");
   const [filterInstagram, setFilterInstagram] = useState("");
 
   // bloqueo rápido
@@ -66,6 +82,11 @@ export default function PanelPage() {
   });
   const [manualMsg, setManualMsg] = useState("");
   const [manualError, setManualError] = useState("");
+
+  // 🔎 NUEVO: modal de historial
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyInstagram, setHistoryInstagram] = useState("");
+  const [historyBookings, setHistoryBookings] = useState([]);
 
   // leer si ya estaba loggeado en localStorage
   useEffect(() => {
@@ -296,6 +317,24 @@ export default function PanelPage() {
     }
   };
 
+  // 🆕 abrir historial por Instagram
+  const openHistoryForInstagram = (igRaw) => {
+    const igNorm = normalizeInstagram(igRaw);
+    if (!igNorm) return;
+    // todas las entregas de ese IG (sin importar si son bodega / domicilio / paquetería)
+    const allForThisUser = bookings
+      .filter((bk) => normalizeInstagram(bk.instagram) === igNorm)
+      .sort((a, b) => {
+        // ordenar por fecha de creación descendente
+        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return db - da;
+      });
+    setHistoryInstagram(igRaw);
+    setHistoryBookings(allForThisUser);
+    setShowHistoryModal(true);
+  };
+
   // 👮 vista de login
   if (!authorized) {
     return (
@@ -471,6 +510,21 @@ export default function PanelPage() {
               className="border rounded-lg px-3 py-2 text-sm w-full md:w-52"
             />
           </div>
+
+          {/* 👇 BOTÓN NUEVO "HOY" solo para bodega y domicilio */}
+          {(activeTab === "bodega" || activeTab === "domicilio") && (
+            <button
+              onClick={() => {
+                const today = getTodayInputDate();
+                setFilterStart(today);
+                setFilterEnd(today);
+              }}
+              className="text-sm bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-lg h-10 mt-6"
+            >
+              Hoy
+            </button>
+          )}
+
           <button
             onClick={() => {
               setFilterStart("");
@@ -573,8 +627,9 @@ export default function PanelPage() {
                 {activeTab === "domicilio" && (
                   <>
                     <th className="text-left py-2 px-3">Dirección</th>
-                    {/* 👇 nueva columna */}
-                    <th className="text-left py-2 px-3">Ciudad / Estado / C.P.</th>
+                    <th className="text-left py-2 px-3">
+                      Ciudad / Estado / C.P.
+                    </th>
                   </>
                 )}
                 {activeTab === "paqueteria" && (
@@ -597,7 +652,7 @@ export default function PanelPage() {
                       activeTab === "paqueteria"
                         ? 7
                         : activeTab === "domicilio"
-                        ? 6 // 👈 antes era 5
+                        ? 6
                         : 4
                     }
                     className="text-center py-6 text-slate-400 text-sm"
@@ -614,9 +669,13 @@ export default function PanelPage() {
                       <td className="py-2 px-3">
                         <p className="font-medium">{bk.fullName}</p>
                         {bk.instagram && (
-                          <p className="text-xs text-slate-500">
-                            IG: {bk.instagram}
-                          </p>
+                          <button
+                            type="button"
+                            onClick={() => openHistoryForInstagram(bk.instagram)}
+                            className="text-xs text-emerald-600 hover:text-emerald-800 underline"
+                          >
+                            {bk.instagram}
+                          </button>
                         )}
                         {bk.phone && (
                           <p className="text-xs text-slate-500">
@@ -650,7 +709,9 @@ export default function PanelPage() {
                               <div className="space-y-1">
                                 {bk.city && <p>🏙 {bk.city}</p>}
                                 {bk.state && <p>🗺 {bk.state}</p>}
-                                {bk.postal_code && <p>📮 C.P.: {bk.postal_code}</p>}
+                                {bk.postal_code && (
+                                  <p>📮 C.P.: {bk.postal_code}</p>
+                                )}
                               </div>
                             ) : (
                               "—"
@@ -852,9 +913,79 @@ export default function PanelPage() {
           </div>
         </div>
       )}
+
+      {/* 🆕 modal historial por IG */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 relative">
+            <button
+              onClick={() => setShowHistoryModal(false)}
+              className="absolute top-3 right-4 text-slate-400 hover:text-slate-600 text-lg"
+            >
+              ✖
+            </button>
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">
+              Historial de {historyInstagram}
+            </h2>
+            <p className="text-xs text-slate-500 mb-4">
+              {historyBookings.length} entrega(s) registradas
+            </p>
+
+            {historyBookings.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No hay entregas para este cliente.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {historyBookings.map((h) => (
+                  <li
+                    key={h.id}
+                    className="border border-slate-100 rounded-lg p-3 bg-slate-50"
+                  >
+                    <p className="text-xs text-slate-400 mb-1">
+                      {h.createdAt
+                        ? new Date(h.createdAt).toLocaleString("es-MX")
+                        : ""}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-semibold">
+                        {h.type === "bodega"
+                          ? "Entrega en bodega"
+                          : h.type === "domicilio"
+                          ? "Entrega a domicilio"
+                          : "Paquetería"}
+                      </span>{" "}
+                      · {h.date ? formatShortMX(h.date) : "sin fecha"}
+                    </p>
+                    {h.address && (
+                      <p className="text-xs text-slate-600 mt-1">
+                        📍 {h.address}
+                      </p>
+                    )}
+                    {(h.city || h.state || h.postal_code) && (
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {h.city ? `🏙 ${h.city} · ` : ""}
+                        {h.state ? `🗺 ${h.state} · ` : ""}
+                        {h.postal_code ? `📮 C.P. ${h.postal_code}` : ""}
+                      </p>
+                    )}
+                    {h.notes && (
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        📝 {h.notes}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
 
 
 
