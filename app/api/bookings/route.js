@@ -139,8 +139,7 @@ export async function POST(req) {
       state,
       notes,
       override,
-      // 👇 NUEVO: lo mandamos desde el frontend de domicilio
-      postalCode,
+      postalCode, // 👈 NUEVO que ya traías
     } = body;
 
     if (!type || !instagram || !fullName || !phone || !date) {
@@ -199,7 +198,6 @@ export async function POST(req) {
             city: city || null,
             state: state || null,
             notes: notes || null,
-            // 👇 guardar CP también en override
             postal_code: postalCode || null,
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
@@ -251,7 +249,6 @@ export async function POST(req) {
 
     // 🟣 DOMICILIO → validar máximo por día + validar ciudad/estado/CP
     if (type === "domicilio") {
-      // 👇 lo que pediste: que sea OBLIGATORIO
       if (!city || !state || !postalCode) {
         return Response.json(
           {
@@ -262,7 +259,6 @@ export async function POST(req) {
         );
       }
 
-      // 👇 opcional: que el CP sea de 5 dígitos
       if (typeof postalCode === "string" && postalCode.trim().length !== 5) {
         return Response.json(
           { message: "El código postal debe tener 5 dígitos." },
@@ -309,7 +305,6 @@ export async function POST(req) {
           city: city || null,
           state: state || null,
           notes: notes || null,
-          // 👇 nuevo campo para guardarlo en la tabla
           postal_code: postalCode || null,
           createdAt: new Date().toISOString(),
           status: isPaqueteria ? "pendiente" : null,
@@ -381,7 +376,7 @@ export async function DELETE(req) {
   return Response.json({ message: "Entrega eliminada correctamente." });
 }
 
-// 🟣 PATCH → para marcar paquetería como cotizada (solo panel)
+// 🟣 PATCH → para reagendar o marcar paquetería como cotizada (solo panel)
 export async function PATCH(req) {
   // 🔒 solo panel
   if (!validatePanelToken(req)) {
@@ -390,8 +385,58 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
-    const { id, status } = body;
+    const { id, status, action, date } = body;
 
+    // 🆕 1) REAGENDAR desde el panel
+    if (action === "reschedule") {
+      if (!id || !date) {
+        return Response.json(
+          { message: "Falta id o fecha para reagendar." },
+          { status: 400 }
+        );
+      }
+
+      // normalizamos fecha (YYYY-MM-DD)
+      const normalizedDate = normalizeDateString(date);
+
+      // vamos a actualizar también el campo "day" si es bodega
+      // sacamos el día de la semana de esa fecha
+      const d = makeLocalDate(normalizedDate);
+      const weekday = d.getDay(); // 0 dom, 1 lun, 2 mar, 3 mié, 4 jue...
+
+      const updateData = {
+        date: normalizedDate,
+      };
+
+      // si el admin está moviendo una entrega de bodega a martes/jueves
+      if (weekday === 2) {
+        updateData.day = "tuesday";
+      } else if (weekday === 4) {
+        updateData.day = "thursday";
+      } else {
+        // si lo manda a otro día, lo dejamos null (para que no quede martes fijo)
+        updateData.day = null;
+      }
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error(error);
+        return Response.json(
+          { message: "No se pudo reagendar.", error: error.message },
+          { status: 500 }
+        );
+      }
+
+      return Response.json({ message: "Reagendado.", booking: data });
+    }
+
+    // 🟣 2) lo que ya tenías: marcar paquetería como cotizada
     if (!id) {
       return Response.json({ message: "Falta id" }, { status: 400 });
     }
@@ -417,6 +462,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

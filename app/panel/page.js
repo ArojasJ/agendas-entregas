@@ -7,7 +7,7 @@ const PANEL_PASSWORD_ENV =
   process.env.PANEL_PASSWORD ||
   "MELANNY";
 
-// 👇👇👇 NUEVO: helpers para NO usar UTC
+// 👇👇👇 helpers para NO usar UTC
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -43,7 +43,7 @@ function getTodayInputDate() {
   return `${year}-${month}-${day}`;
 }
 
-// ✅ para comparar IG aunque venga con / sin @ y en mayúsculas
+// ✅ para comparar IG
 function normalizeInstagram(ig) {
   if (!ig) return "";
   let v = ig.trim();
@@ -83,18 +83,22 @@ export default function PanelPage() {
   const [manualMsg, setManualMsg] = useState("");
   const [manualError, setManualError] = useState("");
 
-  // 🔎 NUEVO: modal de historial
+  // modal historial
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyInstagram, setHistoryInstagram] = useState("");
   const [historyBookings, setHistoryBookings] = useState([]);
 
-  // leer si ya estaba loggeado en localStorage
+  // 🆕 modal reagendar
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [bookingToReschedule, setBookingToReschedule] = useState(null);
+
+  // leer si ya estaba loggeado
   useEffect(() => {
     const saved = localStorage.getItem("panelAuth");
     if (saved === "true") setAuthorized(true);
   }, []);
 
-  // 🟣 obtener bookings reales desde la API (Supabase) con token
+  // 🟣 obtener bookings desde API
   const fetchBookings = async () => {
     setLoadingData(true);
     try {
@@ -125,12 +129,11 @@ export default function PanelPage() {
     }
   };
 
-  // cuando ya está autorizado, cargar datos
   useEffect(() => {
     if (authorized) fetchBookings();
   }, [authorized]);
 
-  // 🔑 login con API + fallback con env
+  // login
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage("Verificando...");
@@ -163,7 +166,7 @@ export default function PanelPage() {
     }
   };
 
-  // 🔹 Marcar paquetería como cotizada (con token)
+  // marcar paquetería como cotizada
   const handleMarkCotizado = async (id) => {
     try {
       const token = localStorage.getItem("panelToken") || "";
@@ -186,7 +189,7 @@ export default function PanelPage() {
     }
   };
 
-  // eliminar (con token)
+  // eliminar
   const handleDelete = async (id) => {
     if (!confirm("¿Eliminar esta entrega?")) return;
     try {
@@ -208,7 +211,7 @@ export default function PanelPage() {
     }
   };
 
-  // 🆕 bloquear día desde el panel
+  // bloquear día
   const handleBlockDay = async () => {
     if (!blockDate) {
       alert("Selecciona una fecha para bloquear.");
@@ -242,7 +245,7 @@ export default function PanelPage() {
     }
   };
 
-  // 🆕 quitar bloqueo
+  // quitar bloqueo
   const handleUnblock = async (blockedId) => {
     if (!confirm("¿Quitar este bloqueo?")) return;
     try {
@@ -264,7 +267,7 @@ export default function PanelPage() {
     }
   };
 
-  // agregar entrega manual (con token)
+  // agregar manual
   const handleManualSubmit = async (e) => {
     e.preventDefault();
     setManualError("");
@@ -317,15 +320,13 @@ export default function PanelPage() {
     }
   };
 
-  // 🆕 abrir historial por Instagram
+  // historial por IG
   const openHistoryForInstagram = (igRaw) => {
     const igNorm = normalizeInstagram(igRaw);
     if (!igNorm) return;
-    // todas las entregas de ese IG (sin importar si son bodega / domicilio / paquetería)
     const allForThisUser = bookings
       .filter((bk) => normalizeInstagram(bk.instagram) === igNorm)
       .sort((a, b) => {
-        // ordenar por fecha de creación descendente
         const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return db - da;
@@ -335,7 +336,13 @@ export default function PanelPage() {
     setShowHistoryModal(true);
   };
 
-  // 👮 vista de login
+  // 🆕 abrir modal reagendar
+  const handleOpenReschedule = (booking) => {
+    setBookingToReschedule(booking);
+    setShowRescheduleModal(true);
+  };
+
+  // 👮 vista login
   if (!authorized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
@@ -374,7 +381,7 @@ export default function PanelPage() {
     );
   }
 
-  // 1️⃣ filtrar por pestaña
+  // filtros
   const bookingsByTab = bookings.filter((bk) => {
     if (activeTab === "bodega") return bk.type === "bodega";
     if (activeTab === "domicilio") return bk.type === "domicilio";
@@ -382,7 +389,6 @@ export default function PanelPage() {
     return false;
   });
 
-  // 2️⃣ filtrar por fecha
   const filteredByDate = bookingsByTab.filter((bk) => {
     if (!bk.date) return true;
     const date = parseLocalDate(bk.date);
@@ -393,7 +399,6 @@ export default function PanelPage() {
     return true;
   });
 
-  // 3️⃣ filtrar por Instagram
   const finalFilteredBookings = filteredByDate.filter((bk) => {
     if (!filterInstagram) return true;
     if (!bk.instagram) return false;
@@ -511,7 +516,6 @@ export default function PanelPage() {
             />
           </div>
 
-          {/* 👇 BOTÓN NUEVO "HOY" solo para bodega y domicilio */}
           {(activeTab === "bodega" || activeTab === "domicilio") && (
             <button
               onClick={() => {
@@ -750,7 +754,15 @@ export default function PanelPage() {
                           ? new Date(bk.createdAt).toLocaleString("es-MX")
                           : "—"}
                       </td>
-                      <td className="py-2 px-3 text-xs flex gap-3">
+                      <td className="py-2 px-3 text-xs flex gap-3 flex-wrap">
+                        {/* 🆕 botón reagendar */}
+                        <button
+                          onClick={() => handleOpenReschedule(bk)}
+                          className="text-emerald-600 hover:text-emerald-800"
+                        >
+                          Reagendar
+                        </button>
+
                         {activeTab === "paqueteria" &&
                           bk.status !== "cotizado" && (
                             <button
@@ -760,6 +772,7 @@ export default function PanelPage() {
                               Marcar cotizado
                             </button>
                           )}
+
                         <button
                           onClick={() => handleDelete(bk.id)}
                           className="text-red-500 hover:text-red-700"
@@ -914,7 +927,7 @@ export default function PanelPage() {
         </div>
       )}
 
-      {/* 🆕 modal historial por IG */}
+      {/* modal historial por IG */}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 relative">
@@ -981,9 +994,113 @@ export default function PanelPage() {
           </div>
         </div>
       )}
+
+      {/* 🆕 modal REAGENDAR */}
+      {showRescheduleModal && bookingToReschedule && (
+        <RescheduleModal
+          booking={bookingToReschedule}
+          onClose={() => {
+            setShowRescheduleModal(false);
+            setBookingToReschedule(null);
+          }}
+          onSaved={async () => {
+            await fetchBookings();
+            setShowRescheduleModal(false);
+            setBookingToReschedule(null);
+          }}
+        />
+      )}
     </div>
   );
 }
+
+// 🆕 componente modal reagendar
+function RescheduleModal({ booking, onClose, onSaved }) {
+  const [newDate, setNewDate] = useState(booking.date || "");
+  const [saving, setSaving] = useState(false);
+  const today = getTodayInputDate();
+
+  const handleSave = async () => {
+    if (!newDate) {
+      alert("Selecciona una fecha");
+      return;
+    }
+    try {
+      setSaving(true);
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
+        body: JSON.stringify({
+          action: "reschedule",
+          id: booking.id,
+          date: newDate,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo reagendar");
+        return;
+      }
+      onSaved?.();
+    } catch (err) {
+      alert("Error de conexión");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-3">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-4 text-slate-400 hover:text-slate-700"
+        >
+          ✖
+        </button>
+        <h2 className="text-lg font-semibold mb-2">
+          Reagendar a {booking.fullName || booking.instagram}
+        </h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Actual: {booking.date ? formatShortMX(booking.date) : "sin fecha"}
+        </p>
+
+        <label className="text-sm font-medium text-slate-700 mb-1 block">
+          Nueva fecha
+        </label>
+        <input
+          type="date"
+          value={newDate}
+          min={today}
+          onChange={(e) => setNewDate(e.target.value)}
+          className="border rounded-lg px-3 py-2 w-full mb-4"
+        />
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border text-slate-600"
+            disabled={saving}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-600"
+            disabled={saving}
+          >
+            {saving ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 
 
