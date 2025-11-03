@@ -9,15 +9,22 @@ import { registerLocale } from "react-datepicker";
 
 registerLocale("es", es);
 
-// 🔹 genera los siguientes martes y jueves válidos
-function getNextPickupDates(count = 6, minHours = 24) {
+// 🔹 genera los siguientes martes y jueves válidos (siempre a partir de MAÑANA)
+function getNextPickupDates(count = 6) {
   const result = [];
   const now = new Date();
-  const limit = new Date(now.getTime() + minHours * 60 * 60 * 1000);
-  let d = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // empezamos a contar desde mañana
+  let d = new Date(today);
+  d.setDate(d.getDate() + 1);
+
   while (result.length < count) {
     const day = d.getDay();
-    if ((day === 2 || day === 4) && d > limit) result.push(new Date(d));
+    // martes (2) o jueves (4)
+    if (day === 2 || day === 4) {
+      result.push(new Date(d));
+    }
     d.setDate(d.getDate() + 1);
   }
   return result;
@@ -160,11 +167,15 @@ export default function AgendarPage() {
     return blockedDays.some((bd) => bd.date === dateStr && bd.type === type);
   };
 
-  // fechas válidas para domicilio
+  // fechas válidas para domicilio (mínimo mañana, máximo 30 días)
   const now = new Date();
-  const minDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const maxDate = new Date();
-  maxDate.setDate(now.getDate() + 30);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const minDate = new Date(today);
+  minDate.setDate(minDate.getDate() + 1);
+
+  const maxDate = new Date(today);
+  maxDate.setDate(maxDate.getDate() + 30);
 
   // lista de fechas bloqueadas SOLO para domicilio (react-datepicker las pinta grises)
   const blockedForDomicilio = blockedDays
@@ -174,8 +185,14 @@ export default function AgendarPage() {
   const isWeekday = (date) => {
     const day = date.getDay();
     const dateStr = date.toISOString().split("T")[0];
+
+    // día bloqueado en Supabase
     if (isBlocked(dateStr, "domicilio")) return false;
-    return day !== 0 && day !== 6 && date > minDate;
+
+    // solo lunes a viernes
+    if (day === 0 || day === 6) return false;
+
+    return true;
   };
 
   // cuántos hay ya para la fecha seleccionada (solo domicilio)
@@ -212,9 +229,21 @@ export default function AgendarPage() {
       return;
     }
 
-    const nowPlus24 = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    if (new Date(date) < nowPlus24) {
-      setError("Debes agendar con al menos 24 horas de anticipación.");
+    // ❌ No permitir agendar para el mismo día
+    const nowLocal = new Date();
+    const todayLocal = new Date(
+      nowLocal.getFullYear(),
+      nowLocal.getMonth(),
+      nowLocal.getDate()
+    );
+    const selectedDateOnly = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    );
+
+    if (selectedDateOnly <= todayLocal) {
+      setError("Solo puedes agendar a partir del día siguiente.");
       return;
     }
 
@@ -304,9 +333,21 @@ export default function AgendarPage() {
       return;
     }
 
-    const nowPlus24 = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    if (deliveryDate < nowPlus24) {
-      setError("Debes agendar con al menos 24 horas de anticipación.");
+    // ❌ No permitir agendar para el mismo día
+    const nowLocal = new Date();
+    const todayLocal = new Date(
+      nowLocal.getFullYear(),
+      nowLocal.getMonth(),
+      nowLocal.getDate()
+    );
+    const selectedDateOnly = new Date(
+      deliveryDate.getFullYear(),
+      deliveryDate.getMonth(),
+      deliveryDate.getDate()
+    );
+
+    if (selectedDateOnly <= todayLocal) {
+      setError("Solo puedes agendar a partir del día siguiente.");
       return;
     }
 
@@ -570,7 +611,7 @@ export default function AgendarPage() {
             <p className="text-sm text-slate-600">
               Las entregas en bodega son <b>martes y jueves</b> de{" "}
               <b>6:00 pm a 8:00 pm</b>. Debes agendar con al menos{" "}
-              <b>24 horas de anticipación</b>.
+              <b>1 día de anticipación (no mismo día)</b>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
@@ -660,7 +701,8 @@ export default function AgendarPage() {
           <form onSubmit={handleDomicilioBooking} className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Entregamos de <b>lunes a viernes</b> (sin horario exacto). Debes
-              agendar con al menos <b>24 horas de anticipación</b>.
+              agendar con al menos{" "}
+              <b>1 día de anticipación (no mismo día)</b>.
             </p>
 
             <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800">
@@ -1086,6 +1128,7 @@ export default function AgendarPage() {
     </div>
   );
 }
+
 
 
 

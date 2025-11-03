@@ -16,8 +16,8 @@ function validatePanelToken(req) {
 
     return true;
   } catch (err) {
-    console.error("Error al validar token:", err);
-    return false;
+      console.error("Error al validar token:", err);
+      return false;
   }
 }
 
@@ -153,11 +153,12 @@ export async function POST(req) {
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
-      const { data: blockedForThatDay, error: blockedCheckErr } = await supabase
-        .from("blocked_days")
-        .select("id")
-        .eq("date", dateToSave)
-        .eq("type", type);
+      const { data: blockedForThatDay, error: blockedCheckErr } =
+        await supabase
+          .from("blocked_days")
+          .select("id")
+          .eq("date", dateToSave)
+          .eq("type", type);
 
       if (blockedCheckErr) {
         console.error(blockedCheckErr);
@@ -221,16 +222,24 @@ export async function POST(req) {
       });
     }
 
-    // 🔸 validaciones normales (24h) → pero NO para paquetería
-    if (type !== "paqueteria") {
+    // 🔸 validaciones normales de fecha → NO paquetería
+    // Nueva regla: para bodega/domilicio NO se permite agendar para el mismo día,
+    // pero sí cualquier hora del día anterior (no contamos horas, solo fecha).
+    if (type === "bodega" || type === "domicilio") {
       const now = new Date();
+      const todayLocal = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
+      );
       const selectedLocalDate = makeLocalDate(dateToSave);
-      const diffHours =
-        (selectedLocalDate.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-      if (diffHours < 24) {
+      if (selectedLocalDate <= todayLocal) {
         return Response.json(
-          { message: "Debes agendar con al menos 24 horas de anticipación." },
+          {
+            message:
+              "Solo puedes agendar a partir del día siguiente (no mismo día).",
+          },
           { status: 400 }
         );
       }
@@ -462,6 +471,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 
