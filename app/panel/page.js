@@ -113,6 +113,7 @@ export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [authorized, setAuthorized] = useState(false);
+  const [panelRole, setPanelRole] = useState(null); // 👈 admin | driver
   const [bookings, setBookings] = useState([]);
   const [slots, setSlots] = useState(null);
   const [blockedDays, setBlockedDays] = useState([]);
@@ -167,11 +168,25 @@ export default function PanelPage() {
   // botón Copiar → Copiado ✓
   const [copiedBookingId, setCopiedBookingId] = useState(null);
 
+  const isDriver = panelRole === "driver";
+  const isAdmin = !isDriver;
+
   // leer si ya estaba loggeado
   useEffect(() => {
     const saved = localStorage.getItem("panelAuth");
-    if (saved === "true") setAuthorized(true);
+    const savedRole = localStorage.getItem("panelRole");
+    if (saved === "true") {
+      setAuthorized(true);
+      if (savedRole) setPanelRole(savedRole);
+    }
   }, []);
+
+  // si es repartidor, siempre forzamos pestaña domicilio
+  useEffect(() => {
+    if (authorized && isDriver) {
+      setActiveTab("domicilio");
+    }
+  }, [authorized, isDriver]);
 
   // obtener bookings desde API
   const fetchBookings = async () => {
@@ -204,7 +219,7 @@ export default function PanelPage() {
     }
   };
 
-  // leer info de caja (último corte)
+  // leer info de caja (último corte) — solo tiene sentido para admin
   const fetchCashboxInfo = async () => {
     try {
       setCashboxLoading(true);
@@ -232,9 +247,11 @@ export default function PanelPage() {
   useEffect(() => {
     if (authorized) {
       fetchBookings();
-      fetchCashboxInfo();
+      if (isAdmin) {
+        fetchCashboxInfo();
+      }
     }
-  }, [authorized]);
+  }, [authorized, isAdmin]);
 
   // login
   const handleSubmit = async (e) => {
@@ -252,6 +269,8 @@ export default function PanelPage() {
       if (res.ok && data.success && data.token) {
         localStorage.setItem("panelAuth", "true");
         localStorage.setItem("panelToken", data.token);
+        localStorage.setItem("panelRole", data.role || "admin");
+        setPanelRole(data.role || "admin");
         setAuthorized(true);
         setMessage("");
         return;
@@ -260,9 +279,12 @@ export default function PanelPage() {
       console.warn("Error al conectar con la API de login:", err);
     }
 
+    // 🔙 fallback viejo: si coincide con env, lo dejamos como admin
     if (password === PANEL_PASSWORD_ENV) {
       setAuthorized(true);
+      setPanelRole("admin");
       localStorage.setItem("panelAuth", "true");
+      localStorage.setItem("panelRole", "admin");
       setMessage("");
     } else {
       setMessage("❌ Contraseña incorrecta.");
@@ -308,14 +330,14 @@ export default function PanelPage() {
         alert(data.message || "No se pudo eliminar.");
       } else {
         fetchBookings();
-        fetchCashboxInfo();
+        if (isAdmin) fetchCashboxInfo();
       }
     } catch (err) {
       alert("Error de conexión.");
     }
   };
 
-  // bloquear día
+  // bloquear día (solo admin, pero igual está oculto en UI para repartidor)
   const handleBlockDay = async () => {
     if (!blockDate) {
       alert("Selecciona una fecha para bloquear.");
@@ -493,7 +515,7 @@ export default function PanelPage() {
       );
 
       // refrescar caja (por si cambió entregado/efectivo)
-      fetchCashboxInfo();
+      if (isAdmin) fetchCashboxInfo();
 
       // cerrar formulario
       setSelectedBooking(null);
@@ -726,27 +748,37 @@ export default function PanelPage() {
         >
           🏠 Inicio
         </a>
-        <button
-          onClick={() => setShowManualModal(true)}
-          className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow"
-        >
-          ➕ Agregar entrega manual
-        </button>
+
+        {/* botón solo para admin */}
+        {isAdmin && (
+          <button
+            onClick={() => setShowManualModal(true)}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow"
+          >
+            ➕ Agregar entrega manual
+          </button>
+        )}
       </div>
 
       {/* header */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Panel de entregas</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isDriver ? "Panel repartidor" : "Panel de entregas"}
+          </h1>
           <p className="text-sm text-slate-500">
-            Administra, filtra y agrega entregas de forma manual.
+            {isDriver
+              ? "Consulta y actualiza tus entregas a domicilio."
+              : "Administra, filtra y agrega entregas de forma manual."}
           </p>
         </div>
         <button
           onClick={() => {
             localStorage.removeItem("panelAuth");
             localStorage.removeItem("panelToken");
+            localStorage.removeItem("panelRole");
             setAuthorized(false);
+            setPanelRole(null);
           }}
           className="text-sm text-slate-500 hover:text-slate-800"
         >
@@ -756,16 +788,21 @@ export default function PanelPage() {
 
       {/* pestañas */}
       <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setActiveTab("bodega")}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-            activeTab === "bodega"
-              ? "bg-emerald-500 text-white"
-              : "bg-white text-slate-600"
-          }`}
-        >
-          Entregas en bodega
-        </button>
+        {/* bodega solo admin */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("bodega")}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+              activeTab === "bodega"
+                ? "bg-emerald-500 text-white"
+                : "bg-white text-slate-600"
+            }`}
+          >
+            Entregas en bodega
+          </button>
+        )}
+
+        {/* domicilio todos */}
         <button
           onClick={() => setActiveTab("domicilio")}
           className={`px-4 py-2 rounded-lg text-sm font-semibold ${
@@ -776,21 +813,25 @@ export default function PanelPage() {
         >
           Entregas a domicilio
         </button>
-        <button
-          onClick={() => setActiveTab("paqueteria")}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-            activeTab === "paqueteria"
-              ? "bg-emerald-500 text-white"
-              : "bg-white text-slate-600"
-          }`}
-        >
-          Paquetería
-        </button>
+
+        {/* paquetería solo admin */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("paqueteria")}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+              activeTab === "paqueteria"
+                ? "bg-emerald-500 text-white"
+                : "bg-white text-slate-600"
+            }`}
+          >
+            Paquetería
+          </button>
+        )}
       </div>
 
       {/* filtros + bloqueador + caja */}
       <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between">
-        {/* filtros */}
+        {/* filtros (para todos) */}
         <div className="flex flex-wrap gap-4">
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">
@@ -855,93 +896,95 @@ export default function PanelPage() {
           )}
         </div>
 
-        {/* bloqueador + caja dinero (solo domicilio) */}
-        <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-          {/* bloqueador */}
-          <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
-            <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
-              ⛔ Bloquear día
-            </p>
-            <input
-              type="date"
-              value={blockDate}
-              onChange={(e) => setBlockDate(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            />
-            <select
-              value={blockType}
-              onChange={(e) => setBlockType(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="domicilio">Domicilio</option>
-              <option value="bodega">Bodega</option>
-            </select>
-            <input
-              type="text"
-              value={blockReason}
-              onChange={(e) => setBlockReason(e.target.value)}
-              placeholder="Motivo (opcional)"
-              className="border rounded-lg px-3 py-2 text-sm"
-            />
-            <button
-              onClick={handleBlockDay}
-              className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
-            >
-              Guardar bloqueo
-            </button>
-          </div>
-
-          {/* caja Noreste: solo en pestaña domicilio */}
-          {activeTab === "domicilio" && (
-            <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-72">
+        {/* bloqueador + caja dinero (solo admin) */}
+        {isAdmin && (
+          <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+            {/* bloqueador */}
+            <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
               <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
-                💵 Caja Noreste
+                ⛔ Bloquear día
               </p>
-              <p className="text-xs text-slate-600">
-                Dinero inicial: <strong>${CASHBOX_INITIAL}</strong>
-              </p>
-              <p className="text-xs text-slate-600">
-                Entregado en efectivo desde último corte:{" "}
-                <strong>${deliveriesAmount}</strong>
-              </p>
-              <p className="text-xs text-slate-800 font-semibold">
-                Total esperado en caja: <strong>${expectedCash}</strong>
-              </p>
-              {cashboxLastCut ? (
-                <p className="text-[11px] text-slate-500">
-                  Último corte:{" "}
-                  {cashboxLastCut.created_at
-                    ? new Date(
-                        cashboxLastCut.created_at
-                      ).toLocaleString("es-MX")
-                    : "—"}
-                  {" · "}
-                  Dif: ${cashboxLastCut.difference ?? 0}
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-400">
-                  Aún no hay cortes registrados.
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowCashboxModal(true)}
-                className="mt-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2"
+              <input
+                type="date"
+                value={blockDate}
+                onChange={(e) => setBlockDate(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm"
+              />
+              <select
+                value={blockType}
+                onChange={(e) => setBlockType(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm"
               >
-                Hacer corte
+                <option value="domicilio">Domicilio</option>
+                <option value="bodega">Bodega</option>
+              </select>
+              <input
+                type="text"
+                value={blockReason}
+                onChange={(e) => setBlockReason(e.target.value)}
+                placeholder="Motivo (opcional)"
+                className="border rounded-lg px-3 py-2 text-sm"
+              />
+              <button
+                onClick={handleBlockDay}
+                className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
+              >
+                Guardar bloqueo
               </button>
-              {cashboxLoading && (
-                <span className="text-[10px] text-slate-400">
-                  Actualizando caja…
-                </span>
-              )}
             </div>
-          )}
-        </div>
+
+            {/* caja Noreste: solo en pestaña domicilio */}
+            {activeTab === "domicilio" && (
+              <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-72">
+                <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+                  💵 Caja Noreste
+                </p>
+                <p className="text-xs text-slate-600">
+                  Dinero inicial: <strong>${CASHBOX_INITIAL}</strong>
+                </p>
+                <p className="text-xs text-slate-600">
+                  Entregado en efectivo desde último corte:{" "}
+                  <strong>${deliveriesAmount}</strong>
+                </p>
+                <p className="text-xs text-slate-800 font-semibold">
+                  Total esperado en caja: <strong>${expectedCash}</strong>
+                </p>
+                {cashboxLastCut ? (
+                  <p className="text-[11px] text-slate-500">
+                    Último corte:{" "}
+                    {cashboxLastCut.created_at
+                      ? new Date(
+                          cashboxLastCut.created_at
+                        ).toLocaleString("es-MX")
+                      : "—"}
+                    {" · "}
+                    Dif: ${cashboxLastCut.difference ?? 0}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Aún no hay cortes registrados.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowCashboxModal(true)}
+                  className="mt-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2"
+                >
+                  Hacer corte
+                </button>
+                {cashboxLoading && (
+                  <span className="text-[10px] text-slate-400">
+                    Actualizando caja…
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* lista de bloqueos */}
-      {blockedDays && blockedDays.length > 0 && (
+      {/* lista de bloqueos — solo admin */}
+      {isAdmin && blockedDays && blockedDays.length > 0 && (
         <div className="bg-white rounded-xl shadow p-4 mb-6">
           <h2 className="text-sm font-semibold text-slate-700 mb-3">
             Días bloqueados
@@ -1338,7 +1381,7 @@ export default function PanelPage() {
         </div>
       )}
 
-      {/* modal entrega manual */}
+      {/* modal entrega manual (solo admin, porque el botón solo lo ve admin) */}
       {showManualModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md relative">
@@ -1795,6 +1838,7 @@ function CashboxCutModal({
     </div>
   );
 }
+
 
 
 

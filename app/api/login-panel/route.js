@@ -4,7 +4,10 @@ export async function POST(request) {
   try {
     const { password } = await request.json();
 
-    const validPassword = process.env.PANEL_PASSWORD || "MELANNY";
+    // 🔑 contraseñas por rol
+    const adminPassword = process.env.PANEL_PASSWORD || "MELANNY";
+    const driverPassword = process.env.PANEL_DRIVER_PASSWORD || "REPARTIDOR";
+
     const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
 
     if (!password) {
@@ -14,16 +17,25 @@ export async function POST(request) {
       );
     }
 
-    if (password !== validPassword) {
+    let role = null;
+
+    if (password === adminPassword) {
+      role = "admin";
+    } else if (password === driverPassword) {
+      role = "driver";
+    }
+
+    if (!role) {
       return new Response(
         JSON.stringify({ success: false, message: "Contraseña incorrecta." }),
         { status: 401 }
       );
     }
 
-    // ✅ si la contraseña es correcta, generamos token simple
+    // ✅ token con rol incluido
     const payload = {
       issuedAt: Date.now(),
+      role,
     };
 
     const token = Buffer.from(
@@ -35,6 +47,7 @@ export async function POST(request) {
         success: true,
         message: "Acceso autorizado.",
         token,
+        role, // 👈 lo usamos en el frontend para saber qué mostrar
       }),
       { status: 200 }
     );
@@ -46,4 +59,5 @@ export async function POST(request) {
     );
   }
 }
+
 
