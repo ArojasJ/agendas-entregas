@@ -16,8 +16,8 @@ function validatePanelToken(req) {
 
     return true;
   } catch (err) {
-      console.error("Error al validar token:", err);
-      return false;
+    console.error("Error al validar token:", err);
+    return false;
   }
 }
 
@@ -139,7 +139,11 @@ export async function POST(req) {
       state,
       notes,
       override,
-      postalCode, // 👈 NUEVO que ya traías
+      postalCode, // ya lo traías
+      // 🆕 campos nuevos (pueden venir vacíos)
+      products,
+      amountDue,
+      deliveryStatus,
     } = body;
 
     if (!type || !instagram || !fullName || !phone || !date) {
@@ -150,6 +154,14 @@ export async function POST(req) {
     }
 
     const dateToSave = normalizeDateString(date);
+
+    // valores por defecto para los nuevos campos
+    const productsToSave = products || null;
+    const amountDueNumber = Number(
+      amountDue !== undefined && amountDue !== null ? amountDue : 0
+    );
+    const amountDueToSave = isNaN(amountDueNumber) ? 0 : amountDueNumber;
+    const deliveryStatusToSave = deliveryStatus || "pendiente";
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
@@ -203,6 +215,10 @@ export async function POST(req) {
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
             createdAt: new Date().toISOString(),
+            // 🆕 campos nuevos
+            products: productsToSave,
+            amount_due: amountDueToSave,
+            delivery_status: deliveryStatusToSave,
           },
         ])
         .select()
@@ -318,6 +334,10 @@ export async function POST(req) {
           createdAt: new Date().toISOString(),
           status: isPaqueteria ? "pendiente" : null,
           override: false,
+          // 🆕 campos nuevos
+          products: productsToSave,
+          amount_due: amountDueToSave,
+          delivery_status: deliveryStatusToSave,
         },
       ])
       .select()
@@ -385,7 +405,7 @@ export async function DELETE(req) {
   return Response.json({ message: "Entrega eliminada correctamente." });
 }
 
-// 🟣 PATCH → para reagendar o marcar paquetería como cotizada (solo panel)
+// 🟣 PATCH → reagendar, marcar paquetería como cotizada o actualizar info de entrega
 export async function PATCH(req) {
   // 🔒 solo panel
   if (!validatePanelToken(req)) {
@@ -394,7 +414,16 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
-    const { id, status, action, date } = body;
+    const {
+      id,
+      status,
+      action,
+      date,
+      // 🆕 posibles campos para actualizar info de entrega
+      products,
+      amountDue,
+      deliveryStatus,
+    } = body;
 
     // 🆕 1) REAGENDAR desde el panel
     if (action === "reschedule") {
@@ -445,7 +474,54 @@ export async function PATCH(req) {
       return Response.json({ message: "Reagendado.", booking: data });
     }
 
-    // 🟣 2) lo que ya tenías: marcar paquetería como cotizada
+    // 🆕 2) Actualizar info de productos / adeudo / estado de entrega
+    if (action === "update-delivery-info") {
+      if (!id) {
+        return Response.json({ message: "Falta id" }, { status: 400 });
+      }
+
+      const updateData = {};
+
+      if (products !== undefined) {
+        updateData.products = products || null;
+      }
+
+      if (amountDue !== undefined) {
+        const num = Number(amountDue);
+        updateData.amount_due = isNaN(num) ? 0 : num;
+      }
+
+      if (deliveryStatus !== undefined) {
+        // validamos valores permitidos
+        const allowed = ["pendiente", "entregado", "no_entregado"];
+        const normalized = String(deliveryStatus).toLowerCase();
+        updateData.delivery_status = allowed.includes(normalized)
+          ? normalized
+          : "pendiente";
+      }
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error(error);
+        return Response.json(
+          { message: "No se pudo actualizar la info de entrega." },
+          { status: 500 }
+        );
+      }
+
+      return Response.json({
+        message: "Información de entrega actualizada.",
+        booking: data,
+      });
+    }
+
+    // 🟣 3) lo que ya tenías: marcar paquetería como cotizada
     if (!id) {
       return Response.json({ message: "Falta id" }, { status: 400 });
     }
@@ -471,6 +547,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

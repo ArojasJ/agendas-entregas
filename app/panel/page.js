@@ -7,7 +7,7 @@ const PANEL_PASSWORD_ENV =
   process.env.PANEL_PASSWORD ||
   "MELANNY";
 
-// 👇👇👇 helpers para NO usar UTC
+// 👇 helpers fechas
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -51,6 +51,22 @@ function normalizeInstagram(ig) {
   return v.toLowerCase();
 }
 
+// ✅ estilos según estado de entrega
+function getDeliveryStatusClasses(status) {
+  const value = (status || "pendiente").toLowerCase();
+
+  if (value === "entregado") {
+    return "bg-emerald-100 text-emerald-700 border-emerald-300";
+  }
+
+  if (value === "no_entregado") {
+    return "bg-red-100 text-red-700 border-red-300";
+  }
+
+  // pendiente
+  return "bg-slate-100 text-slate-700 border-slate-300";
+}
+
 export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -88,9 +104,17 @@ export default function PanelPage() {
   const [historyInstagram, setHistoryInstagram] = useState("");
   const [historyBookings, setHistoryBookings] = useState([]);
 
-  // 🆕 modal reagendar
+  // modal reagendar
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [bookingToReschedule, setBookingToReschedule] = useState(null);
+
+  // selección para formulario de edición (productos / adeudo / estado)
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [editForm, setEditForm] = useState({
+    products: "",
+    amount_due: 0,
+    delivery_status: "pendiente",
+  });
 
   // leer si ya estaba loggeado
   useEffect(() => {
@@ -98,7 +122,7 @@ export default function PanelPage() {
     if (saved === "true") setAuthorized(true);
   }, []);
 
-  // 🟣 obtener bookings desde API
+  // obtener bookings desde API
   const fetchBookings = async () => {
     setLoadingData(true);
     try {
@@ -336,13 +360,69 @@ export default function PanelPage() {
     setShowHistoryModal(true);
   };
 
-  // 🆕 abrir modal reagendar
+  // abrir modal reagendar
   const handleOpenReschedule = (booking) => {
     setBookingToReschedule(booking);
     setShowRescheduleModal(true);
   };
 
-  // 👮 vista login
+  // al hacer click en tarjeta
+  const handleSelectBooking = (bk) => {
+    setSelectedBooking(bk);
+    setEditForm({
+      products: bk.products || "",
+      amount_due:
+        bk.amount_due !== undefined && bk.amount_due !== null
+          ? bk.amount_due
+          : 0,
+      delivery_status: bk.delivery_status || "pendiente",
+    });
+  };
+
+  // guardar info desde formulario de edición
+  const handleSaveDeliveryInfo = async () => {
+    if (!selectedBooking) return;
+
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
+        body: JSON.stringify({
+          action: "update-delivery-info", // recuerda tener este caso en /api/bookings
+          id: selectedBooking.id,
+          products: editForm.products || "",
+          amountDue: editForm.amount_due || 0,
+          deliveryStatus: editForm.delivery_status || "pendiente",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo guardar la información.");
+        return;
+      }
+
+      // actualizar en memoria (usamos lo que regrese la API)
+      setBookings((prev) =>
+        prev.map((b) => (b.id === selectedBooking.id ? data.booking : b))
+      );
+
+      // cerrar formulario
+      setSelectedBooking(null);
+      setEditForm({
+        products: "",
+        amount_due: 0,
+        delivery_status: "pendiente",
+      });
+    } catch (err) {
+      alert("Error de conexión.");
+    }
+  };
+
+  // vista login
   if (!authorized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
@@ -381,12 +461,10 @@ export default function PanelPage() {
     );
   }
 
-  // filtros
-  // 🆕 hoy sin horas
+  // filtros (incluye lógica para ocultar días pasados cuando no hay filtros)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // 🆕 saber si hay filtros activos
   const hasAnyFilter =
     (filterStart && filterStart !== "") ||
     (filterEnd && filterEnd !== "") ||
@@ -405,7 +483,7 @@ export default function PanelPage() {
     const start = filterStart ? parseLocalDate(filterStart) : null;
     const end = filterEnd ? parseLocalDate(filterEnd) : null;
 
-    // 🆕 si NO hay filtros, ocultar todo lo que sea antes de HOY
+    // si NO hay filtros, ocultar todo lo que sea antes de HOY
     if (!hasAnyFilter && date < today) return false;
 
     if (start && date < start) return false;
@@ -622,8 +700,8 @@ export default function PanelPage() {
         </div>
       )}
 
-      {/* tabla */}
-      <div className="bg-white rounded-xl shadow overflow-hidden">
+      {/* tarjetas de entregas */}
+      <div className="bg-white rounded-xl shadow">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <h2 className="font-semibold">
             {activeTab === "bodega"
@@ -637,170 +715,321 @@ export default function PanelPage() {
           </p>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left py-2 px-3">Cliente</th>
-                {activeTab === "domicilio" && (
-                  <>
-                    <th className="text-left py-2 px-3">Dirección</th>
-                    <th className="text-left py-2 px-3">
-                      Ciudad / Estado / C.P.
-                    </th>
-                  </>
-                )}
-                {activeTab === "paqueteria" && (
-                  <>
-                    <th className="text-left py-2 px-3">Dirección</th>
-                    <th className="text-left py-2 px-3">Ciudad / Estado</th>
-                    <th className="text-left py-2 px-3">Estado</th>
-                  </>
-                )}
-                <th className="text-left py-2 px-3">Fecha programada</th>
-                <th className="text-left py-2 px-3">Fecha registro</th>
-                <th className="text-left py-2 px-3">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {finalFilteredBookings.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={
-                      activeTab === "paqueteria"
-                        ? 7
-                        : activeTab === "domicilio"
-                        ? 6
-                        : 4
-                    }
-                    className="text-center py-6 text-slate-400 text-sm"
-                  >
-                    No hay entregas en este rango.
-                  </td>
-                </tr>
-              ) : (
-                finalFilteredBookings
-                  .slice()
-                  .reverse()
-                  .map((bk) => (
-                    <tr key={bk.id} className="border-t">
-                      <td className="py-2 px-3">
-                        <p className="font-medium">{bk.fullName}</p>
-                        {bk.instagram && (
-                          <button
-                            type="button"
-                            onClick={() => openHistoryForInstagram(bk.instagram)}
-                            className="text-xs text-emerald-600 hover:text-emerald-800 underline"
-                          >
-                            {bk.instagram}
-                          </button>
-                        )}
-                        {bk.phone && (
-                          <p className="text-xs text-slate-500">
-                            📞 {bk.phone}
-                          </p>
-                        )}
-                        {bk.type === "bodega" && bk.day && (
-                          <p className="text-xs text-slate-400">
-                            Día:{" "}
-                            {bk.day === "tuesday"
-                              ? "Martes"
-                              : bk.day === "thursday"
-                              ? "Jueves"
-                              : bk.day}
-                          </p>
-                        )}
-                      </td>
+        <div className="p-4">
+          {finalFilteredBookings.length === 0 ? (
+            <p className="text-center py-6 text-slate-400 text-sm">
+              No hay entregas en este rango.
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {finalFilteredBookings
+                .slice()
+                .reverse()
+                .map((bk) => {
+                  const isSelected =
+                    selectedBooking && selectedBooking.id === bk.id;
 
+                  const statusLabel =
+                    bk.delivery_status === "entregado"
+                      ? "Entregado"
+                      : bk.delivery_status === "no_entregado"
+                      ? "No entregado"
+                      : "Pendiente";
+
+                  return (
+                    <div
+                      key={bk.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleSelectBooking(bk)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          handleSelectBooking(bk);
+                        }
+                      }}
+                      className={`text-left bg-white rounded-2xl shadow-sm p-4 flex flex-col gap-2 border transition cursor-pointer hover:shadow-md hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
+                        isSelected
+                          ? "border-emerald-400 ring-2 ring-emerald-200"
+                          : "border-slate-100"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-slate-900 truncate">
+                            {bk.fullName}
+                          </p>
+                          {bk.instagram && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openHistoryForInstagram(bk.instagram);
+                              }}
+                              className="text-xs text-emerald-600 hover:text-emerald-800 underline"
+                            >
+                              {bk.instagram}
+                            </button>
+                          )}
+                          {bk.phone && (
+                            <p className="text-xs text-slate-500">
+                              📞 {bk.phone}
+                            </p>
+                          )}
+                          {bk.type === "bodega" && bk.day && (
+                            <p className="text-[11px] text-slate-400">
+                              Día:{" "}
+                              {bk.day === "tuesday"
+                                ? "Martes"
+                                : bk.day === "thursday"
+                                ? "Jueves"
+                                : bk.day}
+                            </p>
+                          )}
+                        </div>
+
+                        <span
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-medium whitespace-nowrap ${getDeliveryStatusClasses(
+                            bk.delivery_status
+                          )}`}
+                        >
+                          {statusLabel}
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-slate-700 mt-1 space-y-1">
+                        <p>
+                          <strong>📦 Productos:</strong>{" "}
+                          {bk.products || "— (sin capturar)"}
+                        </p>
+                        <p>
+                          <strong>💰 Adeudo:</strong> $
+                          {bk.amount_due ? bk.amount_due : 0}
+                        </p>
+                        <p>
+                          <strong>📅 Fecha programada:</strong>{" "}
+                          {bk.date ? formatShortMX(bk.date) : "—"}
+                        </p>
+                      </div>
+
+                      {/* detalles según tipo */}
                       {activeTab === "domicilio" && (
-                        <>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+                        <div className="text-[11px] text-slate-600 mt-1 space-y-1">
+                          <p>
+                            <strong>📍 Dirección:</strong>{" "}
                             {bk.address || "—"}
-                            {bk.notes && (
-                              <p className="text-[11px] text-slate-400 mt-1">
-                                📝 {bk.notes}
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-xs text-slate-500">
-                            {bk.city || bk.state || bk.postal_code ? (
-                              <div className="space-y-1">
-                                {bk.city && <p>🏙 {bk.city}</p>}
-                                {bk.state && <p>🗺 {bk.state}</p>}
-                                {bk.postal_code && (
-                                  <p>📮 C.P.: {bk.postal_code}</p>
-                                )}
-                              </div>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                        </>
+                          </p>
+                          {bk.city || bk.state || bk.postal_code ? (
+                            <p>
+                              {bk.city ? `🏙 ${bk.city} · ` : ""}
+                              {bk.state ? `🗺 ${bk.state} · ` : ""}
+                              {bk.postal_code ? `📮 C.P. ${bk.postal_code}` : ""}
+                            </p>
+                          ) : null}
+                          {bk.notes && (
+                            <p className="text-[11px] text-slate-500">
+                              📝 {bk.notes}
+                            </p>
+                          )}
+                        </div>
                       )}
 
                       {activeTab === "paqueteria" && (
-                        <>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+                        <div className="text-[11px] text-slate-600 mt-1 space-y-1">
+                          <p>
+                            <strong>📍 Dirección:</strong>{" "}
                             {bk.address || "—"}
-                          </td>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-xs">
+                          </p>
+                          <p>
+                            <strong>🏙 Ciudad/Estado:</strong>{" "}
                             {bk.city || "—"}
-                          </td>
-                          <td className="py-2 px-3 text-xs text-slate-500">
-                            {bk.status === "cotizado" ? (
-                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-1 rounded">
-                                ✅ Cotizado
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded">
-                                ⏱ Pendiente
-                              </span>
-                            )}
-                          </td>
-                        </>
+                          </p>
+                          <p>
+                            <strong>Estado cotización:</strong>{" "}
+                            {bk.status === "cotizado"
+                              ? "✅ Cotizado"
+                              : "⏱ Pendiente"}
+                          </p>
+                        </div>
                       )}
 
-                      <td className="py-2 px-3 text-sm">
-                        {bk.date ? formatShortMX(bk.date) : "—"}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-slate-400">
-                        {bk.createdAt
-                          ? new Date(bk.createdAt).toLocaleString("es-MX")
-                          : "—"}
-                      </td>
-                      <td className="py-2 px-3 text-xs flex gap-3 flex-wrap">
-                        {/* 🆕 botón reagendar */}
-                        <button
-                          onClick={() => handleOpenReschedule(bk)}
-                          className="text-emerald-600 hover:text-emerald-800"
-                        >
-                          Reagendar
-                        </button>
+                      {/* fecha registro y acciones */}
+                      <div className="mt-2 flex flex-col gap-1">
+                        <p className="text-[11px] text-slate-400">
+                          Registrado:{" "}
+                          {bk.createdAt
+                            ? new Date(bk.createdAt).toLocaleString("es-MX")
+                            : "—"}
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-[11px] mt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReschedule(bk);
+                            }}
+                            className="text-emerald-600 hover:text-emerald-800"
+                          >
+                            Reagendar
+                          </button>
 
-                        {activeTab === "paqueteria" &&
-                          bk.status !== "cotizado" && (
-                            <button
-                              onClick={() => handleMarkCotizado(bk.id)}
-                              className="text-emerald-600 hover:text-emerald-800"
-                            >
-                              Marcar cotizado
-                            </button>
-                          )}
+                          {activeTab === "paqueteria" &&
+                            bk.status !== "cotizado" && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMarkCotizado(bk.id);
+                                }}
+                                className="text-emerald-600 hover:text-emerald-800"
+                              >
+                                Marcar cotizado
+                              </button>
+                            )}
 
-                        <button
-                          onClick={() => handleDelete(bk.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          Eliminar
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-              )}
-            </tbody>
-          </table>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(bk.id);
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* mensaje cuando no hay selección */}
+      {!selectedBooking && finalFilteredBookings.length > 0 && (
+        <p className="text-center text-sm text-slate-500 italic mt-4">
+          Selecciona una entrega para editar productos, adeudo y estado de
+          entrega.
+        </p>
+      )}
+
+      {/* 🆕 formulario de edición de entrega como MODAL centrado */}
+      {selectedBooking && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 px-3">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-5 relative">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBooking(null);
+                setEditForm({
+                  products: "",
+                  amount_due: 0,
+                  delivery_status: "pendiente",
+                });
+              }}
+              className="absolute top-3 right-4 text-slate-400 hover:text-slate-700 text-lg"
+            >
+              ✖
+            </button>
+
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">
+              Editar entrega
+            </h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Cliente:{" "}
+              <span className="font-medium">{selectedBooking.fullName}</span> ·{" "}
+              {selectedBooking.instagram}
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-[2fr,1fr] items-start mb-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-700">
+                  Productos
+                </label>
+                <textarea
+                  className="border rounded-lg px-2 py-1 text-sm min-h-[100px]"
+                  placeholder="Productos a entregar..."
+                  value={editForm.products}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, products: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-slate-700">
+                    Monto adeudado (MXN)
+                  </label>
+                  <input
+                    type="number"
+                    className="border rounded-lg px-2 py-1 text-sm"
+                    value={
+                      editForm.amount_due === 0 ? "" : editForm.amount_due
+                    }
+                    placeholder="0"
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setEditForm((f) => ({
+                        ...f,
+                        amount_due: v === "" ? 0 : Number(v),
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-slate-700">
+                    Estado entrega
+                  </label>
+                  <select
+                    className={`border rounded-lg px-2 py-1 text-xs ${getDeliveryStatusClasses(
+                      editForm.delivery_status
+                    )}`}
+                    value={editForm.delivery_status}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        delivery_status: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="pendiente">Pendiente</option>
+                    <option value="entregado">Entregado</option>
+                    <option value="no_entregado">No entregado</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-2 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedBooking(null);
+                  setEditForm({
+                    products: "",
+                    amount_due: 0,
+                    delivery_status: "pendiente",
+                  });
+                }}
+                className="px-4 py-2 rounded-lg border text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDeliveryInfo}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium"
+              >
+                Guardar info entrega
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* modal entrega manual */}
       {showManualModal && (
@@ -838,7 +1067,10 @@ export default function PanelPage() {
                 <input
                   value={manualForm.instagram}
                   onChange={(e) =>
-                    setManualForm({ ...manualForm, instagram: e.target.value })
+                    setManualForm({
+                      ...manualForm,
+                      instagram: e.target.value,
+                    })
                   }
                   className="border rounded-lg px-3 py-2 text-sm w-full"
                   placeholder="@usuario"
@@ -851,7 +1083,10 @@ export default function PanelPage() {
                 <input
                   value={manualForm.fullName}
                   onChange={(e) =>
-                    setManualForm({ ...manualForm, fullName: e.target.value })
+                    setManualForm({
+                      ...manualForm,
+                      fullName: e.target.value,
+                    })
                   }
                   className="border rounded-lg px-3 py-2 text-sm w-full"
                   placeholder="Nombre y apellidos"
@@ -871,7 +1106,8 @@ export default function PanelPage() {
                 />
               </div>
 
-              {(manualType === "domicilio" || manualType === "paqueteria") && (
+              {(manualType === "domicilio" ||
+                manualType === "paqueteria") && (
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Dirección
@@ -1009,7 +1245,7 @@ export default function PanelPage() {
         </div>
       )}
 
-      {/* 🆕 modal REAGENDAR */}
+      {/* modal REAGENDAR */}
       {showRescheduleModal && bookingToReschedule && (
         <RescheduleModal
           booking={bookingToReschedule}
@@ -1028,7 +1264,7 @@ export default function PanelPage() {
   );
 }
 
-// 🆕 componente modal reagendar
+// componente modal reagendar
 function RescheduleModal({ booking, onClose, onSaved }) {
   const [newDate, setNewDate] = useState(booking.date || "");
   const [saving, setSaving] = useState(false);
@@ -1114,6 +1350,10 @@ function RescheduleModal({ booking, onClose, onSaved }) {
     </div>
   );
 }
+
+
+
+
 
 
 
