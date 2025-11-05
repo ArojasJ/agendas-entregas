@@ -78,11 +78,11 @@ function buildConfirmationMessage(bk) {
     bk.amount_due !== undefined && bk.amount_due !== null ? bk.amount_due : 0;
 
   if (bk.type === "domicilio") {
-    return `Hola sólo para confirmar lo que se te entregará el día de mañana:
+    return `Hola sólo para confirmar lo que se te entregará :
 
 ${products}
 
-Aún queda pendiente $${adeudo} de envío , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
+Aún queda pendiente $${adeudo} , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
 Tu entrega será después de las 3pm✨
 
@@ -92,11 +92,11 @@ Es correcto?✨`;
   }
 
   if (bk.type === "bodega") {
-    return `Hola sólo para confirmar lo que se te entregará el día de mañana:
+    return `Hola sólo para confirmar lo que se te entregará :
 
 ${products}
 
-Aún queda pendiente $${adeudo} de envío , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
+Aún queda pendiente $${adeudo} , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
 Puedes pasar a recoger tus productos de 5 a 7pm✨
 
@@ -190,34 +190,46 @@ export default function PanelPage() {
 
   // obtener bookings desde API
   const fetchBookings = async () => {
-    setLoadingData(true);
-    try {
-      const token = localStorage.getItem("panelToken") || "";
+  setLoadingData(true);
+  try {
+    const token = localStorage.getItem("panelToken") || "";
 
-      const res = await fetch("/api/bookings", {
-        headers: {
-          "x-panel-token": token,
-        },
-      });
+    const res = await fetch("/api/bookings", {
+      headers: {
+        "x-panel-token": token,
+      },
+    });
 
-      if (!res.ok) {
-        console.warn("No autorizado para leer bookings");
-        setBookings([]);
-        setSlots(null);
-        setBlockedDays([]);
+    if (!res.ok) {
+      console.warn("No autorizado para leer bookings");
+
+      // 👇 si el backend responde 401/403, limpiamos sesión y mandamos a login
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem("panelAuth");
+        localStorage.removeItem("panelToken");
+        localStorage.removeItem("panelRole");
+        setAuthorized(false);
+        setPanelRole(null);
         return;
       }
 
-      const data = await res.json();
-      setBookings(data.bookings || []);
-      setSlots(data.slots || null);
-      setBlockedDays(data.blockedDays || []);
-    } catch (err) {
-      console.error("Error al leer entregas:", err);
-    } finally {
-      setLoadingData(false);
+      setBookings([]);
+      setSlots(null);
+      setBlockedDays([]);
+      return;
     }
-  };
+
+    const data = await res.json();
+    setBookings(data.bookings || []);
+    setSlots(data.slots || null);
+    setBlockedDays(data.blockedDays || []);
+  } catch (err) {
+    console.error("Error al leer entregas:", err);
+  } finally {
+    setLoadingData(false);
+  }
+};
+
 
   // leer info de caja (último corte) — solo tiene sentido para admin
   const fetchCashboxInfo = async () => {
