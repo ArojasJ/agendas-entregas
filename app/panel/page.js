@@ -382,6 +382,16 @@ export default function PanelPage() {
   }
 
   // filtros
+  // 🆕 hoy sin horas
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // 🆕 saber si hay filtros activos
+  const hasAnyFilter =
+    (filterStart && filterStart !== "") ||
+    (filterEnd && filterEnd !== "") ||
+    (filterInstagram && filterInstagram.trim() !== "");
+
   const bookingsByTab = bookings.filter((bk) => {
     if (activeTab === "bodega") return bk.type === "bodega";
     if (activeTab === "domicilio") return bk.type === "domicilio";
@@ -394,6 +404,10 @@ export default function PanelPage() {
     const date = parseLocalDate(bk.date);
     const start = filterStart ? parseLocalDate(filterStart) : null;
     const end = filterEnd ? parseLocalDate(filterEnd) : null;
+
+    // 🆕 si NO hay filtros, ocultar todo lo que sea antes de HOY
+    if (!hasAnyFilter && date < today) return false;
+
     if (start && date < start) return false;
     if (end && date > end) return false;
     return true;
@@ -519,9 +533,9 @@ export default function PanelPage() {
           {(activeTab === "bodega" || activeTab === "domicilio") && (
             <button
               onClick={() => {
-                const today = getTodayInputDate();
-                setFilterStart(today);
-                setFilterEnd(today);
+                const todayInput = getTodayInputDate();
+                setFilterStart(todayInput);
+                setFilterEnd(todayInput);
               }}
               className="text-sm bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-lg h-10 mt-6"
             >
@@ -1100,6 +1114,7 @@ function RescheduleModal({ booking, onClose, onSaved }) {
     </div>
   );
 }
+
 
 
 
