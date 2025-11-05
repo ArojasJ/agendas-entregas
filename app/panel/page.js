@@ -7,6 +7,9 @@ const PANEL_PASSWORD_ENV =
   process.env.PANEL_PASSWORD ||
   "MELANNY";
 
+// 💵 dinero inicial en caja Noreste
+const CASHBOX_INITIAL = 300;
+
 // 👇 helpers fechas
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
@@ -67,6 +70,45 @@ function getDeliveryStatusClasses(status) {
   return "bg-slate-100 text-slate-700 border-slate-300";
 }
 
+// 📝 arma el mensaje de confirmación según tipo de entrega
+function buildConfirmationMessage(bk) {
+  const products =
+    (bk.products && bk.products.trim()) || "— (sin productos capturados)";
+  const adeudo =
+    bk.amount_due !== undefined && bk.amount_due !== null ? bk.amount_due : 0;
+
+  if (bk.type === "domicilio") {
+    return `Hola sólo para confirmar lo que se te entregará el día de mañana:
+
+${products}
+
+Aún queda pendiente $${adeudo} de envío , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
+
+Tu entrega será después de las 3pm✨
+
+Recuerda revisar tus productos al recibirlos con el repartidor ya que una vez entregados no hay cambios ni devoluciones. Solo podemos permanecer 10 min en el domicilio en caso de exceder este tiempo deberás agendar tu entrega nuevamente 🚚 🖤
+
+Es correcto?✨`;
+  }
+
+  if (bk.type === "bodega") {
+    return `Hola sólo para confirmar lo que se te entregará el día de mañana:
+
+${products}
+
+Aún queda pendiente $${adeudo} de envío , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
+
+Puedes pasar a recoger tus productos de 5 a 7pm✨
+
+Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones🖤
+
+Es correcto?✨`;
+  }
+
+  // para paquetería u otros tipos no definimos mensaje
+  return "";
+}
+
 export default function PanelPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -108,13 +150,22 @@ export default function PanelPage() {
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [bookingToReschedule, setBookingToReschedule] = useState(null);
 
-  // selección para formulario de edición (productos / adeudo / estado)
+  // selección para formulario de edición (productos / adeudo / estado / pago)
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [editForm, setEditForm] = useState({
     products: "",
     amount_due: 0,
     delivery_status: "pendiente",
+    payment_method: "efectivo",
   });
+
+  // 💵 caja Noreste
+  const [cashboxLastCut, setCashboxLastCut] = useState(null);
+  const [cashboxLoading, setCashboxLoading] = useState(false);
+  const [showCashboxModal, setShowCashboxModal] = useState(false);
+
+  // botón Copiar → Copiado ✓
+  const [copiedBookingId, setCopiedBookingId] = useState(null);
 
   // leer si ya estaba loggeado
   useEffect(() => {
@@ -153,8 +204,36 @@ export default function PanelPage() {
     }
   };
 
+  // leer info de caja (último corte)
+  const fetchCashboxInfo = async () => {
+    try {
+      setCashboxLoading(true);
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/cashbox", {
+        headers: {
+          "x-panel-token": token,
+        },
+      });
+      if (!res.ok) {
+        console.warn("No se pudo leer info de caja");
+        setCashboxLastCut(null);
+        return;
+      }
+      const data = await res.json();
+      setCashboxLastCut(data.lastCut || null);
+    } catch (err) {
+      console.error("Error al leer caja:", err);
+      setCashboxLastCut(null);
+    } finally {
+      setCashboxLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (authorized) fetchBookings();
+    if (authorized) {
+      fetchBookings();
+      fetchCashboxInfo();
+    }
   }, [authorized]);
 
   // login
@@ -229,6 +308,7 @@ export default function PanelPage() {
         alert(data.message || "No se pudo eliminar.");
       } else {
         fetchBookings();
+        fetchCashboxInfo();
       }
     } catch (err) {
       alert("Error de conexión.");
@@ -376,6 +456,7 @@ export default function PanelPage() {
           ? bk.amount_due
           : 0,
       delivery_status: bk.delivery_status || "pendiente",
+      payment_method: bk.payment_method || "efectivo",
     });
   };
 
@@ -397,6 +478,7 @@ export default function PanelPage() {
           products: editForm.products || "",
           amountDue: editForm.amount_due || 0,
           deliveryStatus: editForm.delivery_status || "pendiente",
+          paymentMethod: editForm.payment_method || "efectivo",
         }),
       });
       const data = await res.json();
@@ -410,15 +492,115 @@ export default function PanelPage() {
         prev.map((b) => (b.id === selectedBooking.id ? data.booking : b))
       );
 
+      // refrescar caja (por si cambió entregado/efectivo)
+      fetchCashboxInfo();
+
       // cerrar formulario
       setSelectedBooking(null);
       setEditForm({
         products: "",
         amount_due: 0,
         delivery_status: "pendiente",
+        payment_method: "efectivo",
       });
     } catch (err) {
       alert("Error de conexión.");
+    }
+  };
+
+  // copiar mensaje al portapapeles (con botón Copiado ✓)
+  const handleCopyMessage = async (bk) => {
+    const text = buildConfirmationMessage(bk);
+
+    // si por alguna razón no se generó mensaje, avisamos
+    if (!text) {
+      alert("No se pudo generar el mensaje para copiar.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      // cambia texto del botón 1.5s
+      setCopiedBookingId(bk.id);
+      setTimeout(() => {
+        setCopiedBookingId((current) => (current === bk.id ? null : current));
+      }, 1500);
+    } catch (err) {
+      console.error("No se pudo copiar el mensaje:", err);
+      alert(
+        "No se pudo copiar el mensaje. Revisa los permisos del navegador o cópialo manualmente."
+      );
+    }
+  };
+
+  // crear corte de caja
+  const handleCreateCashboxCut = async ({ countedCash, note }) => {
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      // recalculamos montos actuales (para asegurar que usamos lo último)
+      const domicilioBookingsAll = bookings.filter(
+        (bk) =>
+          String(bk.type || "")
+            .trim()
+            .toLowerCase() === "domicilio"
+      );
+
+      let lastCutDate = null;
+      if (cashboxLastCut && cashboxLastCut.created_at) {
+        lastCutDate = new Date(cashboxLastCut.created_at);
+      }
+
+      const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
+        const status = String(bk.delivery_status || "").toLowerCase();
+        if (status !== "entregado") return false;
+
+        const method = String(bk.payment_method || "efectivo").toLowerCase();
+        if (method !== "efectivo") return false;
+
+        if (lastCutDate && bk.createdAt) {
+          const createdAt = new Date(bk.createdAt);
+          if (createdAt <= lastCutDate) return false;
+        }
+        return true;
+      });
+
+      const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {
+        const v =
+          bk.amount_due !== undefined && bk.amount_due !== null
+            ? Number(bk.amount_due)
+            : 0;
+        return sum + (isNaN(v) ? 0 : v);
+      }, 0);
+
+      const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
+
+      const res = await fetch("/api/cashbox", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
+        body: JSON.stringify({
+          route: "noreste",
+          initialCash: CASHBOX_INITIAL,
+          deliveriesAmount,
+          expectedCash,
+          countedCash,
+          note: note || "",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo guardar el corte de caja.");
+        return;
+      }
+
+      setCashboxLastCut(data.cut || null);
+      setShowCashboxModal(false);
+    } catch (err) {
+      console.error("Error al guardar corte de caja:", err);
+      alert("Error de conexión al guardar el corte de caja.");
     }
   };
 
@@ -497,6 +679,43 @@ export default function PanelPage() {
     return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
   });
 
+  // 💵 cálculos de caja (solo tiene sentido para domicilio, pero usamos todos bookings)
+  const domicilioBookingsAll = bookings.filter(
+    (bk) =>
+      String(bk.type || "")
+        .trim()
+        .toLowerCase() === "domicilio"
+  );
+
+  let lastCutDate = null;
+  if (cashboxLastCut && cashboxLastCut.created_at) {
+    lastCutDate = new Date(cashboxLastCut.created_at);
+  }
+
+  const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
+    const status = String(bk.delivery_status || "").toLowerCase();
+    if (status !== "entregado") return false;
+
+    const method = String(bk.payment_method || "efectivo").toLowerCase();
+    if (method !== "efectivo") return false;
+
+    if (lastCutDate && bk.createdAt) {
+      const createdAt = new Date(bk.createdAt);
+      if (createdAt <= lastCutDate) return false;
+    }
+    return true;
+  });
+
+  const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {
+    const v =
+      bk.amount_due !== undefined && bk.amount_due !== null
+        ? Number(bk.amount_due)
+        : 0;
+    return sum + (isNaN(v) ? 0 : v);
+  }, 0);
+
+  const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
+
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       {/* inicio */}
@@ -569,7 +788,7 @@ export default function PanelPage() {
         </button>
       </div>
 
-      {/* filtros + bloqueador */}
+      {/* filtros + bloqueador + caja */}
       <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between">
         {/* filtros */}
         <div className="flex flex-wrap gap-4">
@@ -636,38 +855,88 @@ export default function PanelPage() {
           )}
         </div>
 
-        {/* bloqueador */}
-        <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
-          <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
-            ⛔ Bloquear día
-          </p>
-          <input
-            type="date"
-            value={blockDate}
-            onChange={(e) => setBlockDate(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          />
-          <select
-            value={blockType}
-            onChange={(e) => setBlockType(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="domicilio">Domicilio</option>
-            <option value="bodega">Bodega</option>
-          </select>
-          <input
-            type="text"
-            value={blockReason}
-            onChange={(e) => setBlockReason(e.target.value)}
-            placeholder="Motivo (opcional)"
-            className="border rounded-lg px-3 py-2 text-sm"
-          />
-          <button
-            onClick={handleBlockDay}
-            className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
-          >
-            Guardar bloqueo
-          </button>
+        {/* bloqueador + caja dinero (solo domicilio) */}
+        <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+          {/* bloqueador */}
+          <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
+            <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+              ⛔ Bloquear día
+            </p>
+            <input
+              type="date"
+              value={blockDate}
+              onChange={(e) => setBlockDate(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            />
+            <select
+              value={blockType}
+              onChange={(e) => setBlockType(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="domicilio">Domicilio</option>
+              <option value="bodega">Bodega</option>
+            </select>
+            <input
+              type="text"
+              value={blockReason}
+              onChange={(e) => setBlockReason(e.target.value)}
+              placeholder="Motivo (opcional)"
+              className="border rounded-lg px-3 py-2 text-sm"
+            />
+            <button
+              onClick={handleBlockDay}
+              className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
+            >
+              Guardar bloqueo
+            </button>
+          </div>
+
+          {/* caja Noreste: solo en pestaña domicilio */}
+          {activeTab === "domicilio" && (
+            <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-72">
+              <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+                💵 Caja Noreste
+              </p>
+              <p className="text-xs text-slate-600">
+                Dinero inicial: <strong>${CASHBOX_INITIAL}</strong>
+              </p>
+              <p className="text-xs text-slate-600">
+                Entregado en efectivo desde último corte:{" "}
+                <strong>${deliveriesAmount}</strong>
+              </p>
+              <p className="text-xs text-slate-800 font-semibold">
+                Total esperado en caja: <strong>${expectedCash}</strong>
+              </p>
+              {cashboxLastCut ? (
+                <p className="text-[11px] text-slate-500">
+                  Último corte:{" "}
+                  {cashboxLastCut.created_at
+                    ? new Date(
+                        cashboxLastCut.created_at
+                      ).toLocaleString("es-MX")
+                    : "—"}
+                  {" · "}
+                  Dif: ${cashboxLastCut.difference ?? 0}
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400">
+                  Aún no hay cortes registrados.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCashboxModal(true)}
+                className="mt-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2"
+              >
+                Hacer corte
+              </button>
+              {cashboxLoading && (
+                <span className="text-[10px] text-slate-400">
+                  Actualizando caja…
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -823,7 +1092,9 @@ export default function PanelPage() {
                             <p>
                               {bk.city ? `🏙 ${bk.city} · ` : ""}
                               {bk.state ? `🗺 ${bk.state} · ` : ""}
-                              {bk.postal_code ? `📮 C.P. ${bk.postal_code}` : ""}
+                              {bk.postal_code
+                                ? `📮 C.P. ${bk.postal_code}`
+                                : ""}
                             </p>
                           ) : null}
                           {bk.notes && (
@@ -887,6 +1158,21 @@ export default function PanelPage() {
                               </button>
                             )}
 
+                          {(bk.type === "domicilio" || bk.type === "bodega") && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyMessage(bk);
+                              }}
+                              className="text-sky-600 hover:text-sky-800"
+                            >
+                              {copiedBookingId === bk.id
+                                ? "Copiado ✓"
+                                : "Copiar"}
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={(e) => {
@@ -915,7 +1201,7 @@ export default function PanelPage() {
         </p>
       )}
 
-      {/* 🆕 formulario de edición de entrega como MODAL centrado */}
+      {/* formulario de edición de entrega como MODAL centrado */}
       {selectedBooking && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 px-3">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-5 relative">
@@ -927,6 +1213,7 @@ export default function PanelPage() {
                   products: "",
                   amount_due: 0,
                   delivery_status: "pendiente",
+                  payment_method: "efectivo",
                 });
               }}
               className="absolute top-3 right-4 text-slate-400 hover:text-slate-700 text-lg"
@@ -982,6 +1269,25 @@ export default function PanelPage() {
 
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-slate-700">
+                    Forma de pago
+                  </label>
+                  <select
+                    className="border rounded-lg px-2 py-1 text-xs"
+                    value={editForm.payment_method}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        payment_method: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="efectivo">Efectivo</option>
+                    <option value="transferencia">Transferencia</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-slate-700">
                     Estado entrega
                   </label>
                   <select
@@ -1013,6 +1319,7 @@ export default function PanelPage() {
                     products: "",
                     amount_due: 0,
                     delivery_status: "pendiente",
+                    payment_method: "efectivo",
                   });
                 }}
                 className="px-4 py-2 rounded-lg border text-slate-600"
@@ -1260,6 +1567,18 @@ export default function PanelPage() {
           }}
         />
       )}
+
+      {/* modal CORTE DE CAJA */}
+      {showCashboxModal && (
+        <CashboxCutModal
+          initialCash={CASHBOX_INITIAL}
+          deliveriesAmount={deliveriesAmount}
+          expectedCash={expectedCash}
+          lastCut={cashboxLastCut}
+          onClose={() => setShowCashboxModal(false)}
+          onConfirm={handleCreateCashboxCut}
+        />
+      )}
     </div>
   );
 }
@@ -1350,6 +1669,134 @@ function RescheduleModal({ booking, onClose, onSaved }) {
     </div>
   );
 }
+
+// componente modal CORTE DE CAJA
+function CashboxCutModal({
+  initialCash,
+  deliveriesAmount,
+  expectedCash,
+  lastCut,
+  onClose,
+  onConfirm,
+}) {
+  const [countedCash, setCountedCash] = useState(expectedCash);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (countedCash === null || countedCash === undefined || countedCash === "") {
+      alert("Captura cuánto dinero hay en la caja.");
+      return;
+    }
+    const numericCounted = Number(countedCash);
+    if (isNaN(numericCounted)) {
+      alert("El monto contado debe ser un número válido.");
+      return;
+    }
+    try {
+      setSaving(true);
+      await onConfirm({
+        countedCash: numericCounted,
+        note,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const diff = Number(countedCash || 0) - Number(expectedCash || 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-3">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-4 text-slate-400 hover:text-slate-700"
+        >
+          ✖
+        </button>
+        <h2 className="text-lg font-semibold mb-2">Corte de caja Noreste</h2>
+        {lastCut && lastCut.created_at && (
+          <p className="text-[11px] text-slate-500 mb-2">
+            Último corte:{" "}
+            {new Date(lastCut.created_at).toLocaleString("es-MX")}
+          </p>
+        )}
+
+        <div className="text-xs text-slate-700 space-y-1 mb-4">
+          <p>
+            Dinero inicial: <strong>${initialCash}</strong>
+          </p>
+          <p>
+            Entregado en efectivo desde último corte:{" "}
+            <strong>${deliveriesAmount}</strong>
+          </p>
+          <p>
+            Total esperado en caja: <strong>${expectedCash}</strong>
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 mb-3">
+          <label className="text-xs font-medium text-slate-700">
+            Dinero contado en caja
+          </label>
+          <input
+            type="number"
+            className="border rounded-lg px-3 py-2 text-sm"
+            value={countedCash}
+            onChange={(e) => setCountedCash(e.target.value)}
+          />
+          <p className="text-[11px] text-slate-500">
+            Diferencia:{" "}
+            <span
+              className={
+                diff === 0
+                  ? "text-slate-600"
+                  : diff > 0
+                  ? "text-emerald-600"
+                  : "text-red-600"
+              }
+            >
+              {diff >= 0 ? "+" : ""}
+              {diff}
+            </span>
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 mb-4">
+          <label className="text-xs font-medium text-slate-700">
+            Nota (opcional)
+          </label>
+          <textarea
+            className="border rounded-lg px-3 py-2 text-sm"
+            placeholder="Ej: Faltaron $40, cliente X dijo que pagará mañana..."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 text-sm">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border text-slate-600"
+            disabled={saving}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-600"
+            disabled={saving}
+          >
+            {saving ? "Guardando..." : "Guardar corte"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 
 
 

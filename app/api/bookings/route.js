@@ -139,11 +139,12 @@ export async function POST(req) {
       state,
       notes,
       override,
-      postalCode, // ya lo traías
+      postalCode,
       // 🆕 campos nuevos (pueden venir vacíos)
       products,
       amountDue,
       deliveryStatus,
+      paymentMethod,
     } = body;
 
     if (!type || !instagram || !fullName || !phone || !date) {
@@ -162,6 +163,7 @@ export async function POST(req) {
     );
     const amountDueToSave = isNaN(amountDueNumber) ? 0 : amountDueNumber;
     const deliveryStatusToSave = deliveryStatus || "pendiente";
+    const paymentMethodToSave = (paymentMethod || "efectivo").toLowerCase();
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
@@ -219,6 +221,7 @@ export async function POST(req) {
             products: productsToSave,
             amount_due: amountDueToSave,
             delivery_status: deliveryStatusToSave,
+            payment_method: paymentMethodToSave,
           },
         ])
         .select()
@@ -239,8 +242,6 @@ export async function POST(req) {
     }
 
     // 🔸 validaciones normales de fecha → NO paquetería
-    // Nueva regla: para bodega/domilicio NO se permite agendar para el mismo día,
-    // pero sí cualquier hora del día anterior (no contamos horas, solo fecha).
     if (type === "bodega" || type === "domicilio") {
       const now = new Date();
       const todayLocal = new Date(
@@ -269,7 +270,6 @@ export async function POST(req) {
           { status: 400 }
         );
       }
-      // aquí después puedes validar capacidad
     }
 
     // 🟣 DOMICILIO → validar máximo por día + validar ciudad/estado/CP
@@ -313,7 +313,6 @@ export async function POST(req) {
       }
     }
 
-    // 🟣 PAQUETERÍA
     const isPaqueteria = type === "paqueteria";
 
     const { data: inserted, error: insertError } = await supabase
@@ -338,6 +337,7 @@ export async function POST(req) {
           products: productsToSave,
           amount_due: amountDueToSave,
           delivery_status: deliveryStatusToSave,
+          payment_method: paymentMethodToSave,
         },
       ])
       .select()
@@ -363,7 +363,6 @@ export async function POST(req) {
 
 // 🟠 DELETE → eliminar una agenda por id (solo panel)
 export async function DELETE(req) {
-  // 🔒 solo panel
   if (!validatePanelToken(req)) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
@@ -372,7 +371,6 @@ export async function DELETE(req) {
   const id = searchParams.get("id");
   const blockedId = searchParams.get("blockedId");
 
-  // borrar día bloqueado
   if (blockedId) {
     const { error } = await supabase
       .from("blocked_days")
@@ -390,7 +388,6 @@ export async function DELETE(req) {
     return Response.json({ message: "Bloqueo eliminado." });
   }
 
-  // borrar booking normal
   if (!id) {
     return Response.json({ message: "Falta id" }, { status: 400 });
   }
@@ -407,7 +404,6 @@ export async function DELETE(req) {
 
 // 🟣 PATCH → reagendar, marcar paquetería como cotizada o actualizar info de entrega
 export async function PATCH(req) {
-  // 🔒 solo panel
   if (!validatePanelToken(req)) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
@@ -419,13 +415,13 @@ export async function PATCH(req) {
       status,
       action,
       date,
-      // 🆕 posibles campos para actualizar info de entrega
       products,
       amountDue,
       deliveryStatus,
+      paymentMethod,
     } = body;
 
-    // 🆕 1) REAGENDAR desde el panel
+    // 1) REAGENDAR
     if (action === "reschedule") {
       if (!id || !date) {
         return Response.json(
@@ -434,11 +430,7 @@ export async function PATCH(req) {
         );
       }
 
-      // normalizamos fecha (YYYY-MM-DD)
       const normalizedDate = normalizeDateString(date);
-
-      // vamos a actualizar también el campo "day" si es bodega
-      // sacamos el día de la semana de esa fecha
       const d = makeLocalDate(normalizedDate);
       const weekday = d.getDay(); // 0 dom, 1 lun, 2 mar, 3 mié, 4 jue...
 
@@ -446,13 +438,11 @@ export async function PATCH(req) {
         date: normalizedDate,
       };
 
-      // si el admin está moviendo una entrega de bodega a martes/jueves
       if (weekday === 2) {
         updateData.day = "tuesday";
       } else if (weekday === 4) {
         updateData.day = "thursday";
       } else {
-        // si lo manda a otro día, lo dejamos null (para que no quede martes fijo)
         updateData.day = null;
       }
 
@@ -474,7 +464,7 @@ export async function PATCH(req) {
       return Response.json({ message: "Reagendado.", booking: data });
     }
 
-    // 🆕 2) Actualizar info de productos / adeudo / estado de entrega
+    // 2) Actualizar info de entrega (productos / adeudo / estado / forma de pago)
     if (action === "update-delivery-info") {
       if (!id) {
         return Response.json({ message: "Falta id" }, { status: 400 });
@@ -492,12 +482,17 @@ export async function PATCH(req) {
       }
 
       if (deliveryStatus !== undefined) {
-        // validamos valores permitidos
         const allowed = ["pendiente", "entregado", "no_entregado"];
         const normalized = String(deliveryStatus).toLowerCase();
         updateData.delivery_status = allowed.includes(normalized)
           ? normalized
           : "pendiente";
+      }
+
+      if (paymentMethod !== undefined) {
+        const allowedPay = ["efectivo", "transferencia"];
+        const val = String(paymentMethod).toLowerCase();
+        updateData.payment_method = allowedPay.includes(val) ? val : "efectivo";
       }
 
       const { data, error } = await supabase
@@ -521,7 +516,7 @@ export async function PATCH(req) {
       });
     }
 
-    // 🟣 3) lo que ya tenías: marcar paquetería como cotizada
+    // 3) marcar paquetería como cotizada
     if (!id) {
       return Response.json({ message: "Falta id" }, { status: 400 });
     }
@@ -547,6 +542,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 
