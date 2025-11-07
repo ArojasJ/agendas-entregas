@@ -162,8 +162,17 @@ export async function POST(req) {
       amountDue !== undefined && amountDue !== null ? amountDue : 0
     );
     const amountDueToSave = isNaN(amountDueNumber) ? 0 : amountDueNumber;
-    const deliveryStatusToSave = deliveryStatus || "pendiente";
+    const deliveryStatusToSave = (deliveryStatus || "pendiente").toLowerCase();
     const paymentMethodToSave = (paymentMethod || "efectivo").toLowerCase();
+
+    // calculamos delivered_at inicial (solo si ya está entregado en efectivo desde la creación)
+    let deliveredAtToSave = null;
+    if (
+      deliveryStatusToSave === "entregado" &&
+      paymentMethodToSave === "efectivo"
+    ) {
+      deliveredAtToSave = new Date().toISOString();
+    }
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
@@ -222,6 +231,7 @@ export async function POST(req) {
             amount_due: amountDueToSave,
             delivery_status: deliveryStatusToSave,
             payment_method: paymentMethodToSave,
+            delivered_at: deliveredAtToSave,
           },
         ])
         .select()
@@ -338,6 +348,7 @@ export async function POST(req) {
           amount_due: amountDueToSave,
           delivery_status: deliveryStatusToSave,
           payment_method: paymentMethodToSave,
+          delivered_at: deliveredAtToSave,
         },
       ])
       .select()
@@ -470,6 +481,21 @@ export async function PATCH(req) {
         return Response.json({ message: "Falta id" }, { status: 400 });
       }
 
+      // leemos el registro actual para decidir qué hacer con delivered_at
+      const { data: existing, error: existingErr } = await supabase
+        .from("bookings")
+        .select("delivery_status, payment_method, delivered_at")
+        .eq("id", id)
+        .single();
+
+      if (existingErr) {
+        console.error(existingErr);
+        return Response.json(
+          { message: "No se pudo leer la entrega para actualizar." },
+          { status: 500 }
+        );
+      }
+
       const updateData = {};
 
       if (products !== undefined) {
@@ -481,19 +507,48 @@ export async function PATCH(req) {
         updateData.amount_due = isNaN(num) ? 0 : num;
       }
 
+      // estado entrega
+      let finalStatus = existing.delivery_status || "pendiente";
       if (deliveryStatus !== undefined) {
         const allowed = ["pendiente", "entregado", "no_entregado"];
         const normalized = String(deliveryStatus).toLowerCase();
-        updateData.delivery_status = allowed.includes(normalized)
-          ? normalized
-          : "pendiente";
+        finalStatus = allowed.includes(normalized) ? normalized : "pendiente";
+        updateData.delivery_status = finalStatus;
+      } else {
+        // si no viene en el body, mantenemos el actual
+        updateData.delivery_status = finalStatus;
       }
 
+      // forma de pago
+      let finalPayment = existing.payment_method || "efectivo";
       if (paymentMethod !== undefined) {
         const allowedPay = ["efectivo", "transferencia"];
         const val = String(paymentMethod).toLowerCase();
-        updateData.payment_method = allowedPay.includes(val) ? val : "efectivo";
+        finalPayment = allowedPay.includes(val) ? val : "efectivo";
+        updateData.payment_method = finalPayment;
+      } else {
+        updateData.payment_method = finalPayment;
       }
+
+      // lógica de delivered_at:
+      // - si queda ENTREGADO + EFECTIVO:
+      //    - si ya tenía delivered_at, lo dejamos igual
+      //    - si no tenía, lo ponemos ahora
+      // - si no, lo ponemos en null
+      let newDeliveredAt = existing.delivered_at || null;
+
+      const isDeliveredCash =
+        finalStatus === "entregado" && finalPayment === "efectivo";
+
+      if (isDeliveredCash) {
+        if (!existing.delivered_at) {
+          newDeliveredAt = new Date().toISOString();
+        }
+      } else {
+        newDeliveredAt = null;
+      }
+
+      updateData.delivered_at = newDeliveredAt;
 
       const { data, error } = await supabase
         .from("bookings")
@@ -542,6 +597,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

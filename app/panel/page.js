@@ -190,46 +190,45 @@ export default function PanelPage() {
 
   // obtener bookings desde API
   const fetchBookings = async () => {
-  setLoadingData(true);
-  try {
-    const token = localStorage.getItem("panelToken") || "";
+    setLoadingData(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
 
-    const res = await fetch("/api/bookings", {
-      headers: {
-        "x-panel-token": token,
-      },
-    });
+      const res = await fetch("/api/bookings", {
+        headers: {
+          "x-panel-token": token,
+        },
+      });
 
-    if (!res.ok) {
-      console.warn("No autorizado para leer bookings");
+      if (!res.ok) {
+        console.warn("No autorizado para leer bookings");
 
-      // 👇 si el backend responde 401/403, limpiamos sesión y mandamos a login
-      if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("panelAuth");
-        localStorage.removeItem("panelToken");
-        localStorage.removeItem("panelRole");
-        setAuthorized(false);
-        setPanelRole(null);
+        // 👇 si el backend responde 401/403, limpiamos sesión y mandamos a login
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem("panelAuth");
+          localStorage.removeItem("panelToken");
+          localStorage.removeItem("panelRole");
+          setAuthorized(false);
+          setPanelRole(null);
+          return;
+        }
+
+        setBookings([]);
+        setSlots(null);
+        setBlockedDays([]);
         return;
       }
 
-      setBookings([]);
-      setSlots(null);
-      setBlockedDays([]);
-      return;
+      const data = await res.json();
+      setBookings(data.bookings || []);
+      setSlots(data.slots || null);
+      setBlockedDays(data.blockedDays || []);
+    } catch (err) {
+      console.error("Error al leer entregas:", err);
+    } finally {
+      setLoadingData(false);
     }
-
-    const data = await res.json();
-    setBookings(data.bookings || []);
-    setSlots(data.slots || null);
-    setBlockedDays(data.blockedDays || []);
-  } catch (err) {
-    console.error("Error al leer entregas:", err);
-  } finally {
-    setLoadingData(false);
-  }
-};
-
+  };
 
   // leer info de caja (último corte) — solo tiene sentido para admin
   const fetchCashboxInfo = async () => {
@@ -572,6 +571,7 @@ export default function PanelPage() {
     try {
       const token = localStorage.getItem("panelToken") || "";
       // recalculamos montos actuales (para asegurar que usamos lo último)
+
       const domicilioBookingsAll = bookings.filter(
         (bk) =>
           String(bk.type || "")
@@ -579,9 +579,9 @@ export default function PanelPage() {
             .toLowerCase() === "domicilio"
       );
 
-      let lastCutDate = null;
+      let lastCutTimestamp = null;
       if (cashboxLastCut && cashboxLastCut.created_at) {
-        lastCutDate = new Date(cashboxLastCut.created_at);
+        lastCutTimestamp = new Date(cashboxLastCut.created_at).getTime();
       }
 
       const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
@@ -591,10 +591,14 @@ export default function PanelPage() {
         const method = String(bk.payment_method || "efectivo").toLowerCase();
         if (method !== "efectivo") return false;
 
-        if (lastCutDate && bk.createdAt) {
-          const createdAt = new Date(bk.createdAt);
-          if (createdAt <= lastCutDate) return false;
-        }
+        // solo consideramos entregas que ya tienen momento de entrega
+        if (!bk.delivered_at) return false;
+
+        const deliveredTs = new Date(bk.delivered_at).getTime();
+
+        // si hay corte previo, solo sumamos entregas posteriores a ese corte
+        if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
+
         return true;
       });
 
@@ -721,9 +725,9 @@ export default function PanelPage() {
         .toLowerCase() === "domicilio"
   );
 
-  let lastCutDate = null;
+  let lastCutTimestamp = null;
   if (cashboxLastCut && cashboxLastCut.created_at) {
-    lastCutDate = new Date(cashboxLastCut.created_at);
+    lastCutTimestamp = new Date(cashboxLastCut.created_at).getTime();
   }
 
   const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
@@ -733,10 +737,13 @@ export default function PanelPage() {
     const method = String(bk.payment_method || "efectivo").toLowerCase();
     if (method !== "efectivo") return false;
 
-    if (lastCutDate && bk.createdAt) {
-      const createdAt = new Date(bk.createdAt);
-      if (createdAt <= lastCutDate) return false;
-    }
+    // solo consideramos entregas que ya tienen momento de entrega registrado
+    if (!bk.delivered_at) return false;
+
+    const deliveredTs = new Date(bk.delivered_at).getTime();
+
+    if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
+
     return true;
   });
 
@@ -1213,7 +1220,8 @@ export default function PanelPage() {
                               </button>
                             )}
 
-                          {(bk.type === "domicilio" || bk.type === "bodega") && (
+                          {(bk.type === "domicilio" ||
+                            bk.type === "bodega") && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1850,6 +1858,7 @@ function CashboxCutModal({
     </div>
   );
 }
+
 
 
 
