@@ -142,7 +142,7 @@ export default function PanelPage() {
   const [manualMsg, setManualMsg] = useState("");
   const [manualError, setManualError] = useState("");
 
-  // modal historial
+  // modal historial por IG
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyInstagram, setHistoryInstagram] = useState("");
   const [historyBookings, setHistoryBookings] = useState([]);
@@ -164,6 +164,9 @@ export default function PanelPage() {
   const [cashboxLastCut, setCashboxLastCut] = useState(null);
   const [cashboxLoading, setCashboxLoading] = useState(false);
   const [showCashboxModal, setShowCashboxModal] = useState(false);
+  const [cashboxHistory, setCashboxHistory] = useState([]);
+  const [cashboxHistoryLoading, setCashboxHistoryLoading] = useState(false);
+  const [showCashboxHistoryModal, setShowCashboxHistoryModal] = useState(false);
 
   // botón Copiar → Copiado ✓
   const [copiedBookingId, setCopiedBookingId] = useState(null);
@@ -230,7 +233,7 @@ export default function PanelPage() {
     }
   };
 
-  // leer info de caja (último corte) — solo tiene sentido para admin
+  // leer info de caja (último corte)
   const fetchCashboxInfo = async () => {
     try {
       setCashboxLoading(true);
@@ -252,6 +255,31 @@ export default function PanelPage() {
       setCashboxLastCut(null);
     } finally {
       setCashboxLoading(false);
+    }
+  };
+
+  // leer historial de cortes
+  const fetchCashboxHistory = async () => {
+    try {
+      setCashboxHistoryLoading(true);
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/cashbox?history=1", {
+        headers: {
+          "x-panel-token": token,
+        },
+      });
+      if (!res.ok) {
+        console.warn("No se pudo leer historial de caja");
+        setCashboxHistory([]);
+        return;
+      }
+      const data = await res.json();
+      setCashboxHistory(data.cuts || []);
+    } catch (err) {
+      console.error("Error al leer historial de caja:", err);
+      setCashboxHistory([]);
+    } finally {
+      setCashboxHistoryLoading(false);
     }
   };
 
@@ -348,7 +376,7 @@ export default function PanelPage() {
     }
   };
 
-  // bloquear día (solo admin, pero igual está oculto en UI para repartidor)
+  // bloquear día
   const handleBlockDay = async () => {
     if (!blockDate) {
       alert("Selecciona una fecha para bloquear.");
@@ -493,7 +521,7 @@ export default function PanelPage() {
     });
   };
 
-  // guardar info desde formulario de edición
+  // guardar info de entrega
   const handleSaveDeliveryInfo = async () => {
     if (!selectedBooking) return;
 
@@ -506,7 +534,7 @@ export default function PanelPage() {
           "x-panel-token": token,
         },
         body: JSON.stringify({
-          action: "update-delivery-info", // recuerda tener este caso en /api/bookings
+          action: "update-delivery-info",
           id: selectedBooking.id,
           products: editForm.products || "",
           amountDue: editForm.amount_due || 0,
@@ -520,15 +548,12 @@ export default function PanelPage() {
         return;
       }
 
-      // actualizar en memoria (usamos lo que regrese la API)
       setBookings((prev) =>
         prev.map((b) => (b.id === selectedBooking.id ? data.booking : b))
       );
 
-      // refrescar caja (por si cambió entregado/efectivo)
       if (isAdmin) fetchCashboxInfo();
 
-      // cerrar formulario
       setSelectedBooking(null);
       setEditForm({
         products: "",
@@ -541,11 +566,10 @@ export default function PanelPage() {
     }
   };
 
-  // copiar mensaje al portapapeles (con botón Copiado ✓)
+  // copiar mensaje al portapapeles
   const handleCopyMessage = async (bk) => {
     const text = buildConfirmationMessage(bk);
 
-    // si por alguna razón no se generó mensaje, avisamos
     if (!text) {
       alert("No se pudo generar el mensaje para copiar.");
       return;
@@ -553,7 +577,6 @@ export default function PanelPage() {
 
     try {
       await navigator.clipboard.writeText(text);
-      // cambia texto del botón 1.5s
       setCopiedBookingId(bk.id);
       setTimeout(() => {
         setCopiedBookingId((current) => (current === bk.id ? null : current));
@@ -570,7 +593,6 @@ export default function PanelPage() {
   const handleCreateCashboxCut = async ({ countedCash, note }) => {
     try {
       const token = localStorage.getItem("panelToken") || "";
-      // recalculamos montos actuales (para asegurar que usamos lo último)
 
       const domicilioBookingsAll = bookings.filter(
         (bk) =>
@@ -591,12 +613,9 @@ export default function PanelPage() {
         const method = String(bk.payment_method || "efectivo").toLowerCase();
         if (method !== "efectivo") return false;
 
-        // solo consideramos entregas que ya tienen momento de entrega
         if (!bk.delivered_at) return false;
 
         const deliveredTs = new Date(bk.delivered_at).getTime();
-
-        // si hay corte previo, solo sumamos entregas posteriores a ese corte
         if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
 
         return true;
@@ -636,6 +655,10 @@ export default function PanelPage() {
 
       setCashboxLastCut(data.cut || null);
       setShowCashboxModal(false);
+
+      if (showCashboxHistoryModal) {
+        fetchCashboxHistory();
+      }
     } catch (err) {
       console.error("Error al guardar corte de caja:", err);
       alert("Error de conexión al guardar el corte de caja.");
@@ -681,7 +704,7 @@ export default function PanelPage() {
     );
   }
 
-  // filtros (incluye lógica para ocultar días pasados cuando no hay filtros)
+  // filtros
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -703,9 +726,7 @@ export default function PanelPage() {
     const start = filterStart ? parseLocalDate(filterStart) : null;
     const end = filterEnd ? parseLocalDate(filterEnd) : null;
 
-    // si NO hay filtros, ocultar todo lo que sea antes de HOY
     if (!hasAnyFilter && date < today) return false;
-
     if (start && date < start) return false;
     if (end && date > end) return false;
     return true;
@@ -717,7 +738,7 @@ export default function PanelPage() {
     return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
   });
 
-  // 💵 cálculos de caja (solo tiene sentido para domicilio, pero usamos todos bookings)
+  // cálculos de caja
   const domicilioBookingsAll = bookings.filter(
     (bk) =>
       String(bk.type || "")
@@ -737,11 +758,9 @@ export default function PanelPage() {
     const method = String(bk.payment_method || "efectivo").toLowerCase();
     if (method !== "efectivo") return false;
 
-    // solo consideramos entregas que ya tienen momento de entrega registrado
     if (!bk.delivered_at) return false;
 
     const deliveredTs = new Date(bk.delivered_at).getTime();
-
     if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
 
     return true;
@@ -768,7 +787,6 @@ export default function PanelPage() {
           🏠 Inicio
         </a>
 
-        {/* botón solo para admin */}
         {isAdmin && (
           <button
             onClick={() => setShowManualModal(true)}
@@ -807,7 +825,6 @@ export default function PanelPage() {
 
       {/* pestañas */}
       <div className="flex gap-2 mb-6">
-        {/* bodega solo admin */}
         {isAdmin && (
           <button
             onClick={() => setActiveTab("bodega")}
@@ -821,7 +838,6 @@ export default function PanelPage() {
           </button>
         )}
 
-        {/* domicilio todos */}
         <button
           onClick={() => setActiveTab("domicilio")}
           className={`px-4 py-2 rounded-lg text-sm font-semibold ${
@@ -833,7 +849,6 @@ export default function PanelPage() {
           Entregas a domicilio
         </button>
 
-        {/* paquetería solo admin */}
         {isAdmin && (
           <button
             onClick={() => setActiveTab("paqueteria")}
@@ -850,7 +865,7 @@ export default function PanelPage() {
 
       {/* filtros + bloqueador + caja */}
       <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between">
-        {/* filtros (para todos) */}
+        {/* filtros */}
         <div className="flex flex-wrap gap-4">
           <div>
             <label className="block text-sm font-medium mb-1 text-slate-700">
@@ -915,7 +930,7 @@ export default function PanelPage() {
           )}
         </div>
 
-        {/* bloqueador + caja dinero (solo admin) */}
+        {/* bloqueador + caja */}
         {isAdmin && (
           <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
             {/* bloqueador */}
@@ -952,7 +967,7 @@ export default function PanelPage() {
               </button>
             </div>
 
-            {/* caja Noreste: solo en pestaña domicilio */}
+            {/* caja Noreste */}
             {activeTab === "domicilio" && (
               <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-72">
                 <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
@@ -991,6 +1006,20 @@ export default function PanelPage() {
                 >
                   Hacer corte
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCashboxHistoryModal(true);
+                    if (cashboxHistory.length === 0) {
+                      fetchCashboxHistory();
+                    }
+                  }}
+                  className="mt-1 text-[11px] text-emerald-700 hover:text-emerald-900 underline text-left"
+                >
+                  Ver historial de cortes
+                </button>
+
                 {cashboxLoading && (
                   <span className="text-[10px] text-slate-400">
                     Actualizando caja…
@@ -1002,7 +1031,7 @@ export default function PanelPage() {
         )}
       </div>
 
-      {/* lista de bloqueos — solo admin */}
+      {/* lista de bloqueos */}
       {isAdmin && blockedDays && blockedDays.length > 0 && (
         <div className="bg-white rounded-xl shadow p-4 mb-6">
           <h2 className="text-sm font-semibold text-slate-700 mb-3">
@@ -1143,7 +1172,6 @@ export default function PanelPage() {
                         </p>
                       </div>
 
-                      {/* detalles según tipo */}
                       {activeTab === "domicilio" && (
                         <div className="text-[11px] text-slate-600 mt-1 space-y-1">
                           <p>
@@ -1186,7 +1214,6 @@ export default function PanelPage() {
                         </div>
                       )}
 
-                      {/* fecha registro y acciones */}
                       <div className="mt-2 flex flex-col gap-1">
                         <p className="text-[11px] text-slate-400">
                           Registrado:{" "}
@@ -1256,7 +1283,6 @@ export default function PanelPage() {
         </div>
       </div>
 
-      {/* mensaje cuando no hay selección */}
       {!selectedBooking && finalFilteredBookings.length > 0 && (
         <p className="text-center text-sm text-slate-500 italic mt-4">
           Selecciona una entrega para editar productos, adeudo y estado de
@@ -1264,7 +1290,7 @@ export default function PanelPage() {
         </p>
       )}
 
-      {/* formulario de edición de entrega como MODAL centrado */}
+      {/* modal edición entrega */}
       {selectedBooking && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 px-3">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-5 relative">
@@ -1401,7 +1427,7 @@ export default function PanelPage() {
         </div>
       )}
 
-      {/* modal entrega manual (solo admin, porque el botón solo lo ve admin) */}
+      {/* modal entrega manual */}
       {showManualModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md relative">
@@ -1642,11 +1668,21 @@ export default function PanelPage() {
           onConfirm={handleCreateCashboxCut}
         />
       )}
+
+      {/* modal HISTORIAL DE CORTES (drawer) */}
+      {showCashboxHistoryModal && (
+        <CashboxHistoryModal
+          cuts={cashboxHistory}
+          loading={cashboxHistoryLoading}
+          onClose={() => setShowCashboxHistoryModal(false)}
+          onRefresh={fetchCashboxHistory}
+        />
+      )}
     </div>
   );
 }
 
-// componente modal reagendar
+// modal reagendar
 function RescheduleModal({ booking, onClose, onSaved }) {
   const [newDate, setNewDate] = useState(booking.date || "");
   const [saving, setSaving] = useState(false);
@@ -1733,7 +1769,7 @@ function RescheduleModal({ booking, onClose, onSaved }) {
   );
 }
 
-// componente modal CORTE DE CAJA
+// modal CORTE DE CAJA
 function CashboxCutModal({
   initialCash,
   deliveriesAmount,
@@ -1747,7 +1783,11 @@ function CashboxCutModal({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (countedCash === null || countedCash === undefined || countedCash === "") {
+    if (
+      countedCash === null ||
+      countedCash === undefined ||
+      countedCash === ""
+    ) {
       alert("Captura cuánto dinero hay en la caja.");
       return;
     }
@@ -1858,6 +1898,156 @@ function CashboxCutModal({
     </div>
   );
 }
+
+// modal HISTORIAL DE CORTES (drawer)
+function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const sortedCuts = [...(cuts || [])].sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  const handleToggle = (id) => {
+    setExpandedId((current) => (current === id ? null : id));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
+      {/* overlay clickeable para cerrar */}
+      <div
+        className="flex-1"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* panel derecho */}
+      <div className="w-full max-w-md bg-white h-full shadow-xl flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              Historial de cortes
+            </h2>
+            <p className="text-[11px] text-slate-500">
+              {cuts?.length || 0} corte(s) registrados
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onRefresh}
+              className="text-[11px] text-emerald-600 hover:text-emerald-800 underline"
+            >
+              Actualizar
+            </button>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-700 text-lg"
+            >
+              ✖
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <p className="text-xs text-slate-400">Cargando historial…</p>
+          ) : sortedCuts.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Aún no hay cortes registrados.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {sortedCuts.map((cut) => {
+                const diff = cut.difference ?? 0;
+                const diffClass =
+                  diff > 0
+                    ? "text-emerald-600"
+                    : diff < 0
+                    ? "text-red-600"
+                    : "text-slate-600";
+                const isOpen = expandedId === cut.id;
+
+                return (
+                  <li
+                    key={cut.id}
+                    className="border border-slate-200 rounded-lg bg-slate-50"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(cut.id)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs"
+                    >
+                      <div className="text-left">
+                        <p className="font-medium text-slate-800">
+                          {cut.created_at
+                            ? new Date(
+                                cut.created_at
+                              ).toLocaleString("es-MX")
+                            : "Sin fecha"}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Ruta: {cut.route || "noreste"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[11px] font-semibold ${diffClass}`}>
+                          Dif: {diff >= 0 ? "+" : ""}
+                          {diff}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          {isOpen ? "▲" : "▼"}
+                        </span>
+                      </div>
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-3 pb-3 text-[11px] text-slate-700 space-y-1">
+                        {cut.from_datetime && (
+                          <p className="text-slate-500">
+                            Desde:{" "}
+                            {new Date(
+                              cut.from_datetime
+                            ).toLocaleString("es-MX")}
+                          </p>
+                        )}
+                        <p>
+                          Inicial en caja:{" "}
+                          <strong>${cut.initial_cash ?? 0}</strong>
+                        </p>
+                        <p>
+                          Total esperado:{" "}
+                          <strong>${cut.expected_cash ?? 0}</strong>
+                        </p>
+                        <p>
+                          Contado: <strong>${cut.counted_cash ?? 0}</strong>
+                        </p>
+                        <p>
+                          Diferencia:{" "}
+                          <strong className={diffClass}>
+                            {diff >= 0 ? "+" : ""}
+                            {diff}
+                          </strong>
+                        </p>
+                        {cut.note && (
+                          <p className="mt-1 text-slate-500">
+                            Nota: {cut.note}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 
 
 

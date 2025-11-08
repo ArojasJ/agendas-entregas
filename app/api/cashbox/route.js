@@ -15,9 +15,90 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // GET  /api/cashbox
-// Devuelve el último corte de caja (o null si no hay)
-export async function GET() {
+// - Sin query: devuelve el último corte de caja (como antes)
+// - ?history=1: devuelve la lista completa de cortes
+// - ?id=... : devuelve un corte específico + las entregas que entraron en ese corte
+export async function GET(request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const history = searchParams.get("history");
+    const id = searchParams.get("id");
+
+    // 1) HISTORIAL DE CORTES: /api/cashbox?history=1
+    if (history) {
+      const { data, error } = await supabase
+        .from("cashbox_cuts")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error leyendo historial de cashbox_cuts:", error);
+        return NextResponse.json(
+          { message: "No se pudo leer el historial de cortes.", cuts: [] },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ cuts: data || [] }, { status: 200 });
+    }
+
+    // 2) DETALLE DE UN CORTE: /api/cashbox?id=123
+    if (id) {
+      // leemos el corte solicitado
+      const { data: cut, error: cutError } = await supabase
+        .from("cashbox_cuts")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (cutError) {
+        console.error("Error leyendo corte específico:", cutError);
+        return NextResponse.json(
+          { message: "No se encontró el corte solicitado." },
+          { status: 404 }
+        );
+      }
+
+      const to = cut.created_at; // hasta cuándo llegan las entregas
+      const from = cut.from_datetime || null; // desde cuándo (lo guardamos al crear el corte)
+
+      // buscamos las entregas que entran en ese intervalo
+      let query = supabase
+        .from("bookings")
+        .select("*")
+        .eq("type", "domicilio")
+        .eq("delivery_status", "entregado")
+        .eq("payment_method", "efectivo")
+        .not("delivered_at", "is", null)
+        .lte("delivered_at", to);
+
+      if (from) {
+        query = query.gt("delivered_at", from);
+      }
+
+      const { data: deliveries, error: deliveriesError } = await query;
+
+      if (deliveriesError) {
+        console.error(
+          "Error leyendo entregas del corte específico:",
+          deliveriesError
+        );
+        return NextResponse.json(
+          { message: "No se pudieron leer las entregas del corte." },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          cut,
+          deliveries: deliveries || [],
+        },
+        { status: 200 }
+      );
+    }
+
+    // 3) COMPORTAMIENTO ORIGINAL (sin query): último corte
     const { data, error } = await supabase
       .from("cashbox_cuts")
       .select("*")
@@ -52,10 +133,10 @@ export async function POST(request) {
 
     const {
       route = "noreste",
-      initialCash,      // dinero inicial (normalmente 300)
+      initialCash, // dinero inicial (normalmente 300)
       deliveriesAmount, // lo que se cobró en efectivo desde el último corte (solo lo usamos para calcular)
-      expectedCash,     // total esperado (inicial + deliveriesAmount)
-      countedCash,      // lo que realmente contó el repartidor
+      expectedCash, // total esperado (inicial + deliveriesAmount)
+      countedCash, // lo que realmente contó el repartidor
       note = "",
     } = body;
 
@@ -115,3 +196,4 @@ export async function POST(request) {
     );
   }
 }
+
