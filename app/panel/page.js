@@ -74,6 +74,7 @@ function getDeliveryStatusClasses(status) {
 function buildConfirmationMessage(bk) {
   const products =
     (bk.products && bk.products.trim()) || "— (sin productos capturados)";
+
   const adeudo =
     bk.amount_due !== undefined && bk.amount_due !== null ? bk.amount_due : 0;
 
@@ -171,6 +172,9 @@ export default function PanelPage() {
   // botón Copiar → Copiado ✓
   const [copiedBookingId, setCopiedBookingId] = useState(null);
 
+  // 🌗 tema (claro/oscuro)
+  const [isDark, setIsDark] = useState(false);
+
   const isDriver = panelRole === "driver";
   const isAdmin = !isDriver;
 
@@ -182,7 +186,24 @@ export default function PanelPage() {
       setAuthorized(true);
       if (savedRole) setPanelRole(savedRole);
     }
+
+    const savedTheme = localStorage.getItem("panelTheme");
+    if (savedTheme === "dark") {
+      setIsDark(true);
+      document.documentElement.classList.add("dark");
+    }
   }, []);
+
+  // guardar tema
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("panelTheme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("panelTheme", "light");
+    }
+  }, [isDark]);
 
   // si es repartidor, siempre forzamos pestaña domicilio
   useEffect(() => {
@@ -665,48 +686,11 @@ export default function PanelPage() {
     }
   };
 
-  // vista login
-  if (!authorized) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
-        <a
-          href="/"
-          className="absolute top-6 left-6 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow"
-        >
-          🏠 Inicio
-        </a>
+  // --------- LÓGICA DE FILTROS / ESTADÍSTICAS ---------
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white shadow-lg rounded-xl p-6 w-80 flex flex-col gap-4"
-        >
-          <h1 className="text-xl font-semibold text-gray-800 text-center">
-            Acceso al Panel
-          </h1>
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg font-semibold"
-          >
-            Entrar
-          </button>
-          {message && (
-            <p className="text-sm text-center text-gray-600">{message}</p>
-          )}
-        </form>
-      </div>
-    );
-  }
-
-  // filtros
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayInput = getTodayInputDate();
 
   const hasAnyFilter =
     (filterStart && filterStart !== "") ||
@@ -737,6 +721,38 @@ export default function PanelPage() {
     if (!bk.instagram) return false;
     return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
   });
+
+  // 👉 estadísticas SOLO para hoy, a domicilio
+  const todayDomicilio = bookings.filter(
+    (bk) => bk.type === "domicilio" && bk.date === todayInput
+  );
+  const todayDeliveredDom = todayDomicilio.filter(
+    (bk) =>
+      String(bk.delivery_status || "pendiente").toLowerCase() === "entregado"
+  ).length;
+  const todayNotDeliveredDom = todayDomicilio.filter(
+    (bk) =>
+      String(bk.delivery_status || "pendiente").toLowerCase() ===
+      "no_entregado"
+  ).length;
+  const todayPendingDom =
+    todayDomicilio.length - todayDeliveredDom - todayNotDeliveredDom;
+
+  // 👉 estadísticas SOLO para hoy, en bodega (NUEVO)
+  const todayBodega = bookings.filter(
+    (bk) => bk.type === "bodega" && bk.date === todayInput
+  );
+  const todayDeliveredBod = todayBodega.filter(
+    (bk) =>
+      String(bk.delivery_status || "pendiente").toLowerCase() === "entregado"
+  ).length;
+  const todayNotDeliveredBod = todayBodega.filter(
+    (bk) =>
+      String(bk.delivery_status || "pendiente").toLowerCase() ===
+      "no_entregado"
+  ).length;
+  const todayPendingBod =
+    todayBodega.length - todayDeliveredBod - todayNotDeliveredBod;
 
   // cálculos de caja
   const domicilioBookingsAll = bookings.filter(
@@ -776,51 +792,139 @@ export default function PanelPage() {
 
   const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
 
-  return (
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8">
-      {/* inicio */}
-      <div className="mb-4 flex justify-between items-center">
+  // --------- ESTILOS DEPENDIENDO DEL TEMA ---------
+  const containerClass = isDark
+    ? "min-h-screen bg-slate-950 text-slate-100"
+    : "min-h-screen bg-slate-100 text-slate-900";
+
+  const cardSurface = isDark
+    ? "bg-slate-900/80 border border-slate-800"
+    : "bg-white border border-slate-100";
+
+  const inputBase =
+    "border rounded-lg px-3 py-2 text-sm w-full md:w-48 transition-colors";
+  const inputTheme = isDark
+    ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
+    : "bg-white border-slate-300 text-slate-900 placeholder-slate-400";
+
+  const smallCardBase =
+    "rounded-xl p-4 shadow-sm transition-colors border text-sm";
+  const smallCardTheme = isDark
+    ? "bg-slate-900/80 border-slate-800"
+    : "bg-white border-slate-100";
+
+  // --------- VISTA LOGIN ---------
+  if (!authorized) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
         <a
           href="/"
-          className="inline-flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+          className="absolute top-6 left-6 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow"
         >
           🏠 Inicio
         </a>
 
-        {isAdmin && (
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white shadow-lg rounded-xl p-6 w-80 flex flex-col gap-4"
+        >
+          <h1 className="text-xl font-semibold text-gray-800 text-center">
+            Acceso al Panel
+          </h1>
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm"
+          />
           <button
-            onClick={() => setShowManualModal(true)}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow"
+            type="submit"
+            className="bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg font-semibold"
           >
-            ➕ Agregar entrega manual
+            Entrar
           </button>
-        )}
+          {message && (
+            <p className="text-sm text-center text-gray-600">{message}</p>
+          )}
+        </form>
+      </div>
+    );
+  }
+
+  // --------- VISTA PRINCIPAL ---------
+
+  return (
+    <div
+      className={`${containerClass} p-4 md:p-8 transition-colors duration-300`}
+    >
+      {/* inicio */}
+      <div className="mb-4 flex justify-between items-center gap-3">
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium"
+        >
+          🏠 Inicio
+        </a>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsDark((v) => !v)}
+            className={`w-9 h-9 rounded-full border flex items-center justify-center text-lg transition-colors ${
+              isDark
+                ? "bg-slate-800 border-slate-600 text-amber-300"
+                : "bg-white border-slate-200 text-slate-700"
+            }`}
+            title={isDark ? "Modo claro" : "Modo oscuro"}
+          >
+            {isDark ? "☀️" : "🌙"}
+          </button>
+
+          {isAdmin && (
+            <button
+              onClick={() => setShowManualModal(true)}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow"
+            >
+              ➕ Agregar entrega manual
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              localStorage.removeItem("panelAuth");
+              localStorage.removeItem("panelToken");
+              localStorage.removeItem("panelRole");
+              setAuthorized(false);
+              setPanelRole(null);
+            }}
+            className={`text-sm ${
+              isDark
+                ? "text-slate-300 hover:text-slate-100"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
 
       {/* header */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold">
             {isDriver ? "Panel repartidor" : "Panel de entregas"}
           </h1>
-          <p className="text-sm text-slate-500">
+          <p
+            className={
+              isDark ? "text-sm text-slate-400" : "text-sm text-slate-500"
+            }
+          >
             {isDriver
               ? "Consulta y actualiza tus entregas a domicilio."
               : "Administra, filtra y agrega entregas de forma manual."}
           </p>
         </div>
-        <button
-          onClick={() => {
-            localStorage.removeItem("panelAuth");
-            localStorage.removeItem("panelToken");
-            localStorage.removeItem("panelRole");
-            setAuthorized(false);
-            setPanelRole(null);
-          }}
-          className="text-sm text-slate-500 hover:text-slate-800"
-        >
-          Cerrar sesión
-        </button>
       </header>
 
       {/* pestañas */}
@@ -831,7 +935,9 @@ export default function PanelPage() {
             className={`px-4 py-2 rounded-lg text-sm font-semibold ${
               activeTab === "bodega"
                 ? "bg-emerald-500 text-white"
-                : "bg-white text-slate-600"
+                : isDark
+                ? "bg-slate-900 text-slate-200 border border-slate-700"
+                : "bg-white text-slate-600 border border-slate-200"
             }`}
           >
             Entregas en bodega
@@ -843,7 +949,9 @@ export default function PanelPage() {
           className={`px-4 py-2 rounded-lg text-sm font-semibold ${
             activeTab === "domicilio"
               ? "bg-emerald-500 text-white"
-              : "bg-white text-slate-600"
+              : isDark
+              ? "bg-slate-900 text-slate-200 border border-slate-700"
+              : "bg-white text-slate-600 border border-slate-200"
           }`}
         >
           Entregas a domicilio
@@ -855,7 +963,9 @@ export default function PanelPage() {
             className={`px-4 py-2 rounded-lg text-sm font-semibold ${
               activeTab === "paqueteria"
                 ? "bg-emerald-500 text-white"
-                : "bg-white text-slate-600"
+                : isDark
+                ? "bg-slate-900 text-slate-200 border border-slate-700"
+                : "bg-white text-slate-600 border border-slate-200"
             }`}
           >
             Paquetería
@@ -864,41 +974,39 @@ export default function PanelPage() {
       </div>
 
       {/* filtros + bloqueador + caja */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between">
+      <div
+        className={`rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between ${
+          isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
+        }`}
+      >
         {/* filtros */}
         <div className="flex flex-wrap gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-700">
-              Desde
-            </label>
+            <label className="block text-sm font-medium mb-1">Desde</label>
             <input
               type="date"
               value={filterStart}
               onChange={(e) => setFilterStart(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
+              className={`${inputBase} ${inputTheme}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-700">
-              Hasta
-            </label>
+            <label className="block text-sm font-medium mb-1">Hasta</label>
             <input
               type="date"
               value={filterEnd}
               onChange={(e) => setFilterEnd(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm w-full md:w-48"
+              className={`${inputBase} ${inputTheme}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-700">
-              Instagram
-            </label>
+            <label className="block text-sm font-medium mb-1">Instagram</label>
             <input
               type="text"
               value={filterInstagram}
               onChange={(e) => setFilterInstagram(e.target.value)}
               placeholder="@usuario"
-              className="border rounded-lg px-3 py-2 text-sm w-full md:w-52"
+              className={`${inputBase.replace("md:w-48", "md:w-52")} ${inputTheme}`}
             />
           </div>
 
@@ -909,7 +1017,11 @@ export default function PanelPage() {
                 setFilterStart(todayInput);
                 setFilterEnd(todayInput);
               }}
-              className="text-sm bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-lg h-10 mt-6"
+              className={`text-sm px-3 py-2 rounded-lg h-10 mt-6 ${
+                isDark
+                  ? "bg-emerald-700 hover:bg-emerald-600 text-slate-50"
+                  : "bg-emerald-100 hover:bg-emerald-200 text-emerald-800"
+              }`}
             >
               Hoy
             </button>
@@ -921,12 +1033,24 @@ export default function PanelPage() {
               setFilterEnd("");
               setFilterInstagram("");
             }}
-            className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg h-10 mt-6"
+            className={`text-sm px-3 py-2 rounded-lg h-10 mt-6 ${
+              isDark
+                ? "bg-slate-800 hover:bg-slate-700 text-slate-100"
+                : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+            }`}
           >
             Limpiar filtro
           </button>
           {loadingData && (
-            <span className="text-xs text-slate-400 mt-8">Cargando…</span>
+            <span
+              className={
+                isDark
+                  ? "text-xs text-slate-400 mt-8"
+                  : "text-xs text-slate-400 mt-8"
+              }
+            >
+              Cargando…
+            </span>
           )}
         </div>
 
@@ -934,20 +1058,28 @@ export default function PanelPage() {
         {isAdmin && (
           <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
             {/* bloqueador */}
-            <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-80">
-              <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+            <div
+              className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-80 ${
+                isDark ? "bg-slate-950/60" : "bg-slate-50"
+              }`}
+            >
+              <p className="text-sm font-semibold flex items-center gap-1">
                 ⛔ Bloquear día
               </p>
               <input
                 type="date"
                 value={blockDate}
                 onChange={(e) => setBlockDate(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm"
+                className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
               />
               <select
                 value={blockType}
                 onChange={(e) => setBlockType(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm"
+                className={`border rounded-lg px-3 py-2 text-sm ${
+                  isDark
+                    ? "bg-slate-900 border-slate-700 text-slate-100"
+                    : "bg-white border-slate-300 text-slate-900"
+                }`}
               >
                 <option value="domicilio">Domicilio</option>
                 <option value="bodega">Bodega</option>
@@ -957,7 +1089,11 @@ export default function PanelPage() {
                 value={blockReason}
                 onChange={(e) => setBlockReason(e.target.value)}
                 placeholder="Motivo (opcional)"
-                className="border rounded-lg px-3 py-2 text-sm"
+                className={`border rounded-lg px-3 py-2 text-sm ${
+                  isDark
+                    ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
+                    : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"
+                }`}
               />
               <button
                 onClick={handleBlockDay}
@@ -969,22 +1105,26 @@ export default function PanelPage() {
 
             {/* caja Noreste */}
             {activeTab === "domicilio" && (
-              <div className="bg-slate-50 rounded-lg p-3 flex flex-col gap-2 w-full md:w-72">
-                <p className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+              <div
+                className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-72 ${
+                  isDark ? "bg-slate-950/60" : "bg-slate-50"
+                }`}
+              >
+                <p className="text-sm font-semibold flex items-center gap-1">
                   💵 Caja Noreste
                 </p>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs">
                   Dinero inicial: <strong>${CASHBOX_INITIAL}</strong>
                 </p>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs">
                   Entregado en efectivo desde último corte:{" "}
                   <strong>${deliveriesAmount}</strong>
                 </p>
-                <p className="text-xs text-slate-800 font-semibold">
+                <p className="text-xs font-semibold">
                   Total esperado en caja: <strong>${expectedCash}</strong>
                 </p>
                 {cashboxLastCut ? (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] opacity-80">
                     Último corte:{" "}
                     {cashboxLastCut.created_at
                       ? new Date(
@@ -995,7 +1135,7 @@ export default function PanelPage() {
                     Dif: ${cashboxLastCut.difference ?? 0}
                   </p>
                 ) : (
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] opacity-60">
                     Aún no hay cortes registrados.
                   </p>
                 )}
@@ -1015,7 +1155,7 @@ export default function PanelPage() {
                       fetchCashboxHistory();
                     }
                   }}
-                  className="mt-1 text-[11px] text-emerald-700 hover:text-emerald-900 underline text-left"
+                  className="mt-1 text-[11px] text-emerald-300 hover:text-emerald-200 underline text-left"
                 >
                   Ver historial de cortes
                 </button>
@@ -1031,17 +1171,89 @@ export default function PanelPage() {
         )}
       </div>
 
+      {/* STATS SOLO PARA HOY (domicilio) */}
+      {activeTab === "domicilio" && (
+        <div className="grid gap-4 md:grid-cols-3 mb-6">
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-emerald-400`}
+          >
+            <p className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wide">
+              Entregas realizadas (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayDeliveredDom}</p>
+            <p className="text-[11px] opacity-70">Marcadas como entregado</p>
+          </div>
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-slate-300`}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+              Entregas pendientes (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayPendingDom}</p>
+            <p className="text-[11px] opacity-70">Aún sin marcar estado</p>
+          </div>
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-red-400`}
+          >
+            <p className="text-[11px] font-semibold text-red-400 uppercase tracking-wide">
+              Entregas no realizadas (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayNotDeliveredDom}</p>
+            <p className="text-[11px] opacity-70">
+              Marcadas como no entregado
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* STATS SOLO PARA HOY (bodega) - NUEVO */}
+      {activeTab === "bodega" && (
+        <div className="grid gap-4 md:grid-cols-3 mb-6">
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-emerald-400`}
+          >
+            <p className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wide">
+              Entregas realizadas (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayDeliveredBod}</p>
+            <p className="text-[11px] opacity-70">Marcadas como entregado</p>
+          </div>
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-slate-300`}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+              Entregas pendientes (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayPendingBod}</p>
+            <p className="text-[11px] opacity-70">Aún sin marcar estado</p>
+          </div>
+          <div
+            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-red-400`}
+          >
+            <p className="text-[11px] font-semibold text-red-400 uppercase tracking-wide">
+              Entregas no realizadas (hoy)
+            </p>
+            <p className="text-2xl font-bold mt-1">{todayNotDeliveredBod}</p>
+            <p className="text-[11px] opacity-70">
+              Marcadas como no entregado
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* lista de bloqueos */}
       {isAdmin && blockedDays && blockedDays.length > 0 && (
-        <div className="bg-white rounded-xl shadow p-4 mb-6">
-          <h2 className="text-sm font-semibold text-slate-700 mb-3">
-            Días bloqueados
-          </h2>
+        <div
+          className={`rounded-xl shadow p-4 mb-6 ${
+            isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
+          }`}
+        >
+          <h2 className="text-sm font-semibold mb-3">Días bloqueados</h2>
           <div className="flex flex-wrap gap-2">
             {blockedDays.map((bd) => (
               <div
                 key={bd.id}
-                className="flex items-center gap-2 bg-slate-100 rounded-full px-3 py-1 text-xs"
+                className="flex items-center gap-2 bg-slate-800/60 text-xs rounded-full px-3 py-1"
               >
                 <span>
                   {formatBlockedMX(bd.date)} —{" "}
@@ -1050,7 +1262,7 @@ export default function PanelPage() {
                 </span>
                 <button
                   onClick={() => handleUnblock(bd.id)}
-                  className="text-red-500 hover:text-red-700 text-xs"
+                  className="text-red-400 hover:text-red-300 text-xs"
                 >
                   Quitar
                 </button>
@@ -1061,8 +1273,12 @@ export default function PanelPage() {
       )}
 
       {/* tarjetas de entregas */}
-      <div className="bg-white rounded-xl shadow">
-        <div className="px-4 py-3 border-b flex items-center justify-between">
+      <div
+        className={`rounded-xl shadow ${
+          isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
+        }`}
+      >
+        <div className="px-4 py-3 border-b border-slate-200/40 flex items-center justify-between">
           <h2 className="font-semibold">
             {activeTab === "bodega"
               ? "Entregas en bodega"
@@ -1070,14 +1286,14 @@ export default function PanelPage() {
               ? "Entregas a domicilio"
               : "Paquetería"}
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs opacity-60">
             {finalFilteredBookings.length} registro(s)
           </p>
         </div>
 
         <div className="p-4">
           {finalFilteredBookings.length === 0 ? (
-            <p className="text-center py-6 text-slate-400 text-sm">
+            <p className="text-center py-6 text-sm opacity-60">
               No hay entregas en este rango.
             </p>
           ) : (
@@ -1108,15 +1324,17 @@ export default function PanelPage() {
                           handleSelectBooking(bk);
                         }
                       }}
-                      className={`text-left bg-white rounded-2xl shadow-sm p-4 flex flex-col gap-2 border transition cursor-pointer hover:shadow-md hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
+                      className={`text-left rounded-2xl shadow-sm p-4 flex flex-col gap-2 border transition cursor-pointer hover:shadow-md hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
                         isSelected
                           ? "border-emerald-400 ring-2 ring-emerald-200"
-                          : "border-slate-100"
+                          : isDark
+                          ? "bg-slate-950/60 border-slate-800"
+                          : "bg-white border-slate-100"
                       }`}
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0">
-                          <p className="font-semibold text-sm text-slate-900 truncate">
+                          <p className="font-semibold text-sm truncate">
                             {bk.fullName}
                           </p>
                           {bk.instagram && (
@@ -1126,18 +1344,18 @@ export default function PanelPage() {
                                 e.stopPropagation();
                                 openHistoryForInstagram(bk.instagram);
                               }}
-                              className="text-xs text-emerald-600 hover:text-emerald-800 underline"
+                              className="text-xs text-emerald-400 hover:text-emerald-300 underline"
                             >
                               {bk.instagram}
                             </button>
                           )}
                           {bk.phone && (
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs opacity-80">
                               📞 {bk.phone}
                             </p>
                           )}
                           {bk.type === "bodega" && bk.day && (
-                            <p className="text-[11px] text-slate-400">
+                            <p className="text-[11px] opacity-60">
                               Día:{" "}
                               {bk.day === "tuesday"
                                 ? "Martes"
@@ -1149,7 +1367,7 @@ export default function PanelPage() {
                         </div>
 
                         <span
-                          className={`px-2 py-1 rounded-lg border text-[11px] font-medium whitespace-nowrap ${getDeliveryStatusClasses(
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-medium whitespace-nowrap bg-opacity-90 ${getDeliveryStatusClasses(
                             bk.delivery_status
                           )}`}
                         >
@@ -1157,7 +1375,7 @@ export default function PanelPage() {
                         </span>
                       </div>
 
-                      <div className="text-xs text-slate-700 mt-1 space-y-1">
+                      <div className="text-xs mt-1 space-y-1">
                         <p>
                           <strong>📦 Productos:</strong>{" "}
                           {bk.products || "— (sin capturar)"}
@@ -1173,7 +1391,7 @@ export default function PanelPage() {
                       </div>
 
                       {activeTab === "domicilio" && (
-                        <div className="text-[11px] text-slate-600 mt-1 space-y-1">
+                        <div className="text-[11px] mt-1 space-y-1">
                           <p>
                             <strong>📍 Dirección:</strong>{" "}
                             {bk.address || "—"}
@@ -1188,15 +1406,13 @@ export default function PanelPage() {
                             </p>
                           ) : null}
                           {bk.notes && (
-                            <p className="text-[11px] text-slate-500">
-                              📝 {bk.notes}
-                            </p>
+                            <p className="opacity-70">📝 {bk.notes}</p>
                           )}
                         </div>
                       )}
 
                       {activeTab === "paqueteria" && (
-                        <div className="text-[11px] text-slate-600 mt-1 space-y-1">
+                        <div className="text-[11px] mt-1 space-y-1">
                           <p>
                             <strong>📍 Dirección:</strong>{" "}
                             {bk.address || "—"}
@@ -1215,7 +1431,7 @@ export default function PanelPage() {
                       )}
 
                       <div className="mt-2 flex flex-col gap-1">
-                        <p className="text-[11px] text-slate-400">
+                        <p className="text-[11px] opacity-60">
                           Registrado:{" "}
                           {bk.createdAt
                             ? new Date(bk.createdAt).toLocaleString("es-MX")
@@ -1228,7 +1444,7 @@ export default function PanelPage() {
                               e.stopPropagation();
                               handleOpenReschedule(bk);
                             }}
-                            className="text-emerald-600 hover:text-emerald-800"
+                            className="text-emerald-400 hover:text-emerald-300"
                           >
                             Reagendar
                           </button>
@@ -1241,7 +1457,7 @@ export default function PanelPage() {
                                   e.stopPropagation();
                                   handleMarkCotizado(bk.id);
                                 }}
-                                className="text-emerald-600 hover:text-emerald-800"
+                                className="text-emerald-400 hover:text-emerald-300"
                               >
                                 Marcar cotizado
                               </button>
@@ -1255,7 +1471,7 @@ export default function PanelPage() {
                                 e.stopPropagation();
                                 handleCopyMessage(bk);
                               }}
-                              className="text-sky-600 hover:text-sky-800"
+                              className="text-sky-400 hover:text-sky-300"
                             >
                               {copiedBookingId === bk.id
                                 ? "Copiado ✓"
@@ -1269,7 +1485,7 @@ export default function PanelPage() {
                               e.stopPropagation();
                               handleDelete(bk.id);
                             }}
-                            className="text-red-500 hover:text-red-700"
+                            className="text-red-400 hover:text-red-300"
                           >
                             Eliminar
                           </button>
@@ -1284,7 +1500,7 @@ export default function PanelPage() {
       </div>
 
       {!selectedBooking && finalFilteredBookings.length > 0 && (
-        <p className="text-center text-sm text-slate-500 italic mt-4">
+        <p className="text-center text-sm opacity-60 mt-4 italic">
           Selecciona una entrega para editar productos, adeudo y estado de
           entrega.
         </p>
@@ -1310,13 +1526,15 @@ export default function PanelPage() {
               ✖
             </button>
 
-            <h2 className="text-lg font-semibold text-slate-900 mb-1">
+            <h2 className="text-lg font-semibold mb-1">
               Editar entrega
             </h2>
             <p className="text-sm text-slate-500 mb-4">
               Cliente:{" "}
-              <span className="font-medium">{selectedBooking.fullName}</span> ·{" "}
-              {selectedBooking.instagram}
+              <span className="font-medium">
+                {selectedBooking.fullName}
+              </span>{" "}
+              · {selectedBooking.instagram}
             </p>
 
             <div className="grid gap-4 md:grid-cols-[2fr,1fr] items-start mb-4">
@@ -1342,9 +1560,7 @@ export default function PanelPage() {
                   <input
                     type="number"
                     className="border rounded-lg px-2 py-1 text-sm"
-                    value={
-                      editForm.amount_due === 0 ? "" : editForm.amount_due
-                    }
+                    value={editForm.amount_due === 0 ? "" : editForm.amount_due}
                     placeholder="0"
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1583,7 +1799,7 @@ export default function PanelPage() {
             >
               ✖
             </button>
-            <h2 className="text-lg font-semibold text-slate-900 mb-1">
+            <h2 className="text-lg font-semibold mb-1">
               Historial de {historyInstagram}
             </h2>
             <p className="text-xs text-slate-500 mb-4">
@@ -1792,7 +2008,7 @@ function CashboxCutModal({
       return;
     }
     const numericCounted = Number(countedCash);
-    if (isNaN(numericCounted)) {
+       if (isNaN(numericCounted)) {
       alert("El monto contado debe ser un número válido.");
       return;
     }
@@ -1916,11 +2132,7 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
       {/* overlay clickeable para cerrar */}
-      <div
-        className="flex-1"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      <div className="flex-1" onClick={onClose} aria-hidden="true" />
 
       {/* panel derecho */}
       <div className="w-full max-w-md bg-white h-full shadow-xl flex flex-col">
@@ -1991,7 +2203,9 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className={`text-[11px] font-semibold ${diffClass}`}>
+                        <span
+                          className={`text-[11px] font-semibold ${diffClass}`}
+                        >
                           Dif: {diff >= 0 ? "+" : ""}
                           {diff}
                         </span>
@@ -2020,7 +2234,8 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                           <strong>${cut.expected_cash ?? 0}</strong>
                         </p>
                         <p>
-                          Contado: <strong>${cut.counted_cash ?? 0}</strong>
+                          Contado:{" "}
+                          <strong>${cut.counted_cash ?? 0}</strong>
                         </p>
                         <p>
                           Diferencia:{" "}
@@ -2046,6 +2261,11 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
     </div>
   );
 }
+
+
+
+
+
 
 
 
