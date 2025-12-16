@@ -57,6 +57,11 @@ function formatDateStringMX(dateStr) {
   });
 }
 
+function capitalizeFirst(str) {
+  if (!str) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 // lista de estados de México (para paquetería)
 const MEX_STATES = [
   "Aguascalientes",
@@ -105,9 +110,10 @@ export default function AgendarPage() {
 
   // "bodega" | "domicilio" | "paqueteria"
   const [mode, setMode] = useState("bodega");
-  const [slots, setSlots] = useState(null); // para bodega
+  const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [allBookings, setAllBookings] = useState([]); // para contar domicilio
-  const [blockedDays, setBlockedDays] = useState([]); // 🆕 lo que viene de Supabase
+  const [blockedDays, setBlockedDays] = useState([]); // lo que viene de Supabase
+  const [extraBodegaDays, setExtraBodegaDays] = useState([]); // ✅ NUEVO: días extra bodega públicos
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
@@ -121,10 +127,11 @@ export default function AgendarPage() {
   const [stateMx, setStateMx] = useState("Coahuila"); // paquetería
   const [deliveryDate, setDeliveryDate] = useState(null);
 
-  // 👇 NUEVOS para DOMICILIO
+  // DOMICILIO
   const [domicilioCity, setDomicilioCity] = useState("");
   const [domicilioState, setDomicilioState] = useState("");
   const [domicilioCP, setDomicilioCP] = useState("");
+  const [locationUrl, setLocationUrl] = useState(""); // URL de Maps
 
   // modal éxito
   const [successModal, setSuccessModal] = useState(false);
@@ -132,14 +139,16 @@ export default function AgendarPage() {
   const [successBooking, setSuccessBooking] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // modal ayuda ubicación
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
+
   // límite domicilio
   const DOMICILIO_LIMIT = 15;
 
-  const pickupDates = getNextPickupDates(6);
-
-  // traer bookings (para conteo) Y días bloqueados (públicos)
+  // traer bookings (para conteo) Y días bloqueados + extra bodega (públicos)
   useEffect(() => {
     const fetchData = async () => {
+      // bookings (este endpoint en tu backend está protegido por token; aquí solo lo usamos si responde ok)
       try {
         const res = await fetch("/api/bookings");
         if (res.ok) {
@@ -151,12 +160,14 @@ export default function AgendarPage() {
         console.error(err);
       }
 
+      // blocked-days público: ahora también trae extraBodegaDays
       try {
         const res2 = await fetch("/api/blocked-days");
         const data2 = await res2.json();
         setBlockedDays(data2.blockedDays || []);
+        setExtraBodegaDays(data2.extraBodegaDays || []);
       } catch (err) {
-        console.warn("No se pudieron leer los días bloqueados públicos", err);
+        console.warn("No se pudieron leer los días públicos", err);
       }
     };
     fetchData();
@@ -166,6 +177,33 @@ export default function AgendarPage() {
   const isBlocked = (dateStr, type) => {
     return blockedDays.some((bd) => bd.date === dateStr && bd.type === type);
   };
+
+  // ✅ construir tarjetas de BODEGA = mar/jue + extras (sin calendario)
+  const getBodegaCardDates = () => {
+    const base = getNextPickupDates(6);
+
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrowLocal = new Date(todayLocal);
+    tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
+
+    const extras = (extraBodegaDays || [])
+      .map((x) => new Date(x.date + "T00:00:00"))
+      .filter((d) => d >= tomorrowLocal);
+
+    // dedupe por YYYY-MM-DD
+    const map = new Map();
+    [...base, ...extras].forEach((d) => {
+      map.set(toInputDate(d), d);
+    });
+
+    // ordenado asc
+    const merged = Array.from(map.values()).sort((a, b) => a.getTime() - b.getTime());
+
+    return merged;
+  };
+
+  const bodegaCardDates = getBodegaCardDates();
 
   // fechas válidas para domicilio (mínimo mañana, máximo 30 días)
   const now = new Date();
@@ -219,7 +257,7 @@ export default function AgendarPage() {
       return;
     }
     if (!date) {
-      setError("Selecciona la fecha del martes/jueves.");
+      setError("Selecciona una fecha.");
       return;
     }
 
@@ -252,18 +290,24 @@ export default function AgendarPage() {
 
     try {
       setIsSubmitting(true);
+
+      // ✅ si es martes/jueves mandamos day; si es extra mandamos null
+      const weekdayNum = date.getDay();
+      const dayToSend = weekdayNum === 2 ? "tuesday" : weekdayNum === 4 ? "thursday" : null;
+
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "bodega",
-          day,
+          day: dayToSend, // ✅ null si es día extra
           date: toInputDate(date),
           instagram: instaValue,
           fullName,
           phone,
         }),
       });
+
       const data = await res.json();
       if (!res.ok) {
         setError(data.message || "No se pudo agendar.");
@@ -283,7 +327,7 @@ export default function AgendarPage() {
           {
             id: data.booking?.id || Date.now(),
             type: "bodega",
-            day,
+            day: dayToSend,
             date: toInputDate(date),
             instagram: instaValue,
             fullName,
@@ -378,6 +422,7 @@ export default function AgendarPage() {
           city: domicilioCity,
           state: domicilioState,
           postalCode: domicilioCP,
+          locationUrl,
         }),
       });
       const data = await res.json();
@@ -403,6 +448,7 @@ export default function AgendarPage() {
           state: domicilioState,
           postalCode: domicilioCP,
           price: 40,
+          locationUrl,
         });
         setSuccessModal(true);
 
@@ -416,6 +462,7 @@ export default function AgendarPage() {
         setDomicilioCity("");
         setDomicilioState("");
         setDomicilioCP("");
+        setLocationUrl("");
 
         // actualizar lista
         setAllBookings((prev) => [
@@ -432,6 +479,7 @@ export default function AgendarPage() {
             city: domicilioCity,
             state: domicilioState,
             postalCode: domicilioCP,
+            locationUrl,
           },
         ]);
       }
@@ -658,22 +706,36 @@ export default function AgendarPage() {
               />
             </div>
 
+            {/* ✅ TARJETAS: mar/jue + extras */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              {pickupDates.map((d) => {
-                const weekday = d.getDay() === 2 ? "tuesday" : "thursday";
+              {bodegaCardDates.map((d) => {
                 const dateStr = toInputDate(d);
                 const blocked = isBlocked(dateStr, "bodega");
+
+                const weekdayNum = d.getDay();
+                const weekdayKey =
+                  weekdayNum === 2
+                    ? "tuesday"
+                    : weekdayNum === 4
+                    ? "thursday"
+                    : null;
+
                 const disabled =
                   blocked ||
                   isSubmitting ||
-                  (slots &&
-                    slots[weekday] &&
-                    slots[weekday].disabled === true);
+                  (weekdayKey &&
+                    slots &&
+                    slots[weekdayKey] &&
+                    slots[weekdayKey].disabled === true);
+
+                const weekdayLabel = capitalizeFirst(
+                  d.toLocaleDateString("es-MX", { weekday: "long" })
+                );
 
                 return (
                   <button
-                    key={d.toISOString()}
-                    onClick={() => handleBodegaBooking(weekday, d)}
+                    key={dateStr}
+                    onClick={() => handleBodegaBooking(weekdayKey, d)}
                     disabled={disabled}
                     className={`border rounded-xl p-3 text-left transition ${
                       blocked
@@ -684,9 +746,14 @@ export default function AgendarPage() {
                     }`}
                   >
                     <p className="text-sm font-medium">{toNiceDate(d)}</p>
-                    <p className="text-[11px] text-slate-400">
-                      {weekday === "tuesday" ? "Martes" : "Jueves"}
-                    </p>
+                    <p className="text-[11px] text-slate-400">{weekdayLabel}</p>
+
+                    {weekdayKey === null && (
+                      <p className="text-[11px] text-emerald-700 mt-1">
+                        ✨ Día extra habilitado
+                      </p>
+                    )}
+
                     {blocked && (
                       <p className="text-[11px] text-red-600 mt-1">
                         ⛔ Este día no nos encontramos en bodega
@@ -701,8 +768,7 @@ export default function AgendarPage() {
           <form onSubmit={handleDomicilioBooking} className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Entregamos de <b>lunes a viernes</b> (sin horario exacto). Debes
-              agendar con al menos{" "}
-              <b>1 día de anticipación (no mismo día)</b>.
+              agendar con al menos <b>1 día de anticipación (no mismo día)</b>.
             </p>
 
             <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800">
@@ -778,6 +844,32 @@ export default function AgendarPage() {
                 required
                 className="w-full border rounded-lg px-3 py-2 text-sm"
                 placeholder="Ej. Calle Zaragoza 124, col. Centro..."
+              />
+            </div>
+
+            {/* ubicación de Google Maps */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium">
+                  Ubicación de Google Maps (muy recomendado)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowLocationHelp(true)}
+                  className="ml-2 text-xs text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
+                >
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-400 text-[10px] font-bold">
+                    i
+                  </span>
+                  Cómo hacerlo
+                </button>
+              </div>
+              <input
+                type="text"
+                value={locationUrl}
+                onChange={(e) => setLocationUrl(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Pega aquí el enlace de tu ubicación de Google Maps"
               />
             </div>
 
@@ -907,8 +999,9 @@ export default function AgendarPage() {
           // PAQUETERÍA
           <form onSubmit={handlePaqueteriaBooking} className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
-              Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena tus
-              datos y te contactaremos por privado para <b>cotizar tu envío</b>.
+              Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena
+              tus datos y te contactaremos por privado para{" "}
+              <b>cotizar tu envío</b>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
@@ -1089,6 +1182,12 @@ export default function AgendarPage() {
                     {successBooking.postalCode}
                   </p>
                 )}
+                {successBooking.locationUrl && (
+                  <p>
+                    <span className="font-medium">Ubicación Maps:</span>{" "}
+                    {successBooking.locationUrl}
+                  </p>
+                )}
                 {successBooking.notes && (
                   <p>
                     <span className="font-medium">Notas:</span>{" "}
@@ -1125,9 +1224,63 @@ export default function AgendarPage() {
           </div>
         </div>
       )}
+
+      {/* ℹ️ MODAL DE AYUDA PARA UBICACIÓN DE MAPS */}
+      {showLocationHelp && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+          <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-md text-sm text-slate-700 space-y-3">
+            <h2 className="text-base font-semibold text-slate-900">
+              ¿Cómo copiar tu ubicación desde Google Maps?
+            </h2>
+
+            <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm">
+              <li>Abre la app de <b>Google Maps</b> en tu celular.</li>
+              <li>
+                Busca tu casa o la dirección donde quieres recibir la entrega.
+              </li>
+              <li>
+                Mantén el dedo presionado unos segundos en el punto exacto hasta
+                que aparezca un pin rojo.
+              </li>
+              <li>
+                En la parte de abajo se abrirá una tarjeta con la dirección.
+                tócala.
+              </li>
+              <li>
+                Dentro de esa pantalla, busca la opción <b>Compartir</b> y
+                tócala.
+              </li>
+              <li>
+                Elige <b>Copiar enlace</b> (o &quot;Copiar al portapapeles&quot;).
+              </li>
+              <li>
+                Regresa a esta página y pega el enlace en el campo de
+                &quot;Ubicación de Google Maps&quot;.
+              </li>
+            </ol>
+
+            <p className="text-xs text-slate-500">
+              Tip: si se te complica, también puedes enviarte el enlace por
+              WhatsApp y copiarlo desde ahí para pegarlo en esta página.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowLocationHelp(false)}
+              className="mt-2 w-full bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-2 text-xs sm:text-sm font-semibold"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+
+
 
 
 

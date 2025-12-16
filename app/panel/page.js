@@ -129,6 +129,11 @@ export default function PanelPage() {
   const [blockType, setBlockType] = useState("domicilio");
   const [blockReason, setBlockReason] = useState("");
 
+  // ✅ DÍAS EXTRA BODEGA (NUEVO)
+  const [extraBodegaDays, setExtraBodegaDays] = useState([]);
+  const [extraDate, setExtraDate] = useState("");
+  const [extraReason, setExtraReason] = useState("");
+
   // modal entrega manual
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualType, setManualType] = useState("bodega");
@@ -240,6 +245,7 @@ export default function PanelPage() {
         setBookings([]);
         setSlots(null);
         setBlockedDays([]);
+        setExtraBodegaDays([]);
         return;
       }
 
@@ -247,6 +253,9 @@ export default function PanelPage() {
       setBookings(data.bookings || []);
       setSlots(data.slots || null);
       setBlockedDays(data.blockedDays || []);
+
+      // ✅ NUEVO: días extra bodega
+      setExtraBodegaDays(data.extraBodegaDays || []);
     } catch (err) {
       console.error("Error al leer entregas:", err);
     } finally {
@@ -448,6 +457,65 @@ export default function PanelPage() {
       } else {
         fetchBookings();
       }
+    } catch (err) {
+      alert("Error de conexión.");
+    }
+  };
+
+  // ✅ agregar día extra bodega (NUEVO)
+  const handleAddExtraBodegaDay = async () => {
+    if (!extraDate) {
+      alert("Selecciona una fecha para agregar.");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-panel-token": token,
+        },
+        body: JSON.stringify({
+          action: "add-bodega-extra-day",
+          date: extraDate,
+          reason: extraReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo agregar el día extra.");
+        return;
+      }
+
+      await fetchBookings();
+      setExtraDate("");
+      setExtraReason("");
+    } catch (err) {
+      alert("Error de conexión.");
+    }
+  };
+
+  // ✅ quitar día extra bodega (NUEVO)
+  const handleRemoveExtraBodegaDay = async (extraId) => {
+    if (!confirm("¿Quitar este día extra de bodega?")) return;
+
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/bookings?extraDayId=${extraId}`, {
+        method: "DELETE",
+        headers: { "x-panel-token": token },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "No se pudo quitar.");
+        return;
+      }
+
+      await fetchBookings();
     } catch (err) {
       alert("Error de conexión.");
     }
@@ -797,10 +865,6 @@ export default function PanelPage() {
     ? "min-h-screen bg-slate-950 text-slate-100"
     : "min-h-screen bg-slate-100 text-slate-900";
 
-  const cardSurface = isDark
-    ? "bg-slate-900/80 border border-slate-800"
-    : "bg-white border border-slate-100";
-
   const inputBase =
     "border rounded-lg px-3 py-2 text-sm w-full md:w-48 transition-colors";
   const inputTheme = isDark
@@ -1042,19 +1106,11 @@ export default function PanelPage() {
             Limpiar filtro
           </button>
           {loadingData && (
-            <span
-              className={
-                isDark
-                  ? "text-xs text-slate-400 mt-8"
-                  : "text-xs text-slate-400 mt-8"
-              }
-            >
-              Cargando…
-            </span>
+            <span className="text-xs text-slate-400 mt-8">Cargando…</span>
           )}
         </div>
 
-        {/* bloqueador + caja */}
+        {/* bloqueador + extra bodega + caja */}
         {isAdmin && (
           <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
             {/* bloqueador */}
@@ -1103,6 +1159,45 @@ export default function PanelPage() {
               </button>
             </div>
 
+            {/* ✅ NUEVO: agregar día extra solo en pestaña bodega */}
+            {activeTab === "bodega" && (
+              <div
+                className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-80 ${
+                  isDark ? "bg-slate-950/60" : "bg-slate-50"
+                }`}
+              >
+                <p className="text-sm font-semibold flex items-center gap-1">
+                  ➕ Agregar día extra (Bodega)
+                </p>
+
+                <input
+                  type="date"
+                  value={extraDate}
+                  onChange={(e) => setExtraDate(e.target.value)}
+                  className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
+                />
+
+                <input
+                  type="text"
+                  value={extraReason}
+                  onChange={(e) => setExtraReason(e.target.value)}
+                  placeholder="Motivo (opcional)"
+                  className={`border rounded-lg px-3 py-2 text-sm ${
+                    isDark
+                      ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
+                      : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"
+                  }`}
+                />
+
+                <button
+                  onClick={handleAddExtraBodegaDay}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm rounded-lg py-2"
+                >
+                  Guardar día extra
+                </button>
+              </div>
+            )}
+
             {/* caja Noreste */}
             {activeTab === "domicilio" && (
               <div
@@ -1127,9 +1222,7 @@ export default function PanelPage() {
                   <p className="text-[11px] opacity-80">
                     Último corte:{" "}
                     {cashboxLastCut.created_at
-                      ? new Date(
-                          cashboxLastCut.created_at
-                        ).toLocaleString("es-MX")
+                      ? new Date(cashboxLastCut.created_at).toLocaleString("es-MX")
                       : "—"}
                     {" · "}
                     Dif: ${cashboxLastCut.difference ?? 0}
@@ -1199,14 +1292,12 @@ export default function PanelPage() {
               Entregas no realizadas (hoy)
             </p>
             <p className="text-2xl font-bold mt-1">{todayNotDeliveredDom}</p>
-            <p className="text-[11px] opacity-70">
-              Marcadas como no entregado
-            </p>
+            <p className="text-[11px] opacity-70">Marcadas como no entregado</p>
           </div>
         </div>
       )}
 
-      {/* STATS SOLO PARA HOY (bodega) - NUEVO */}
+      {/* STATS SOLO PARA HOY (bodega) */}
       {activeTab === "bodega" && (
         <div className="grid gap-4 md:grid-cols-3 mb-6">
           <div
@@ -1234,9 +1325,7 @@ export default function PanelPage() {
               Entregas no realizadas (hoy)
             </p>
             <p className="text-2xl font-bold mt-1">{todayNotDeliveredBod}</p>
-            <p className="text-[11px] opacity-70">
-              Marcadas como no entregado
-            </p>
+            <p className="text-[11px] opacity-70">Marcadas como no entregado</p>
           </div>
         </div>
       )}
@@ -1262,6 +1351,36 @@ export default function PanelPage() {
                 </span>
                 <button
                   onClick={() => handleUnblock(bd.id)}
+                  className="text-red-400 hover:text-red-300 text-xs"
+                >
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ NUEVO: lista de días extra bodega */}
+      {isAdmin && activeTab === "bodega" && extraBodegaDays?.length > 0 && (
+        <div
+          className={`rounded-xl shadow p-4 mb-6 ${
+            isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
+          }`}
+        >
+          <h2 className="text-sm font-semibold mb-3">Días extra bodega</h2>
+          <div className="flex flex-wrap gap-2">
+            {extraBodegaDays.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center gap-2 bg-emerald-800/30 text-xs rounded-full px-3 py-1"
+              >
+                <span>
+                  {formatBlockedMX(d.date)}
+                  {d.reason ? ` · ${d.reason}` : ""}
+                </span>
+                <button
+                  onClick={() => handleRemoveExtraBodegaDay(d.id)}
                   className="text-red-400 hover:text-red-300 text-xs"
                 >
                   Quitar
@@ -1408,6 +1527,20 @@ export default function PanelPage() {
                           {bk.notes && (
                             <p className="opacity-70">📝 {bk.notes}</p>
                           )}
+
+                          {/* 🗺️ Botón Google Maps si hay ubicación */}
+                          {bk.location_url && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                window.open(bk.location_url, "_blank");
+                              }}
+                              className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 underline"
+                            >
+                              🗺 Ver en Google Maps
+                            </button>
+                          )}
                         </div>
                       )}
 
@@ -1463,8 +1596,7 @@ export default function PanelPage() {
                               </button>
                             )}
 
-                          {(bk.type === "domicilio" ||
-                            bk.type === "bodega") && (
+                          {(bk.type === "domicilio" || bk.type === "bodega") && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1526,15 +1658,11 @@ export default function PanelPage() {
               ✖
             </button>
 
-            <h2 className="text-lg font-semibold mb-1">
-              Editar entrega
-            </h2>
+            <h2 className="text-lg font-semibold mb-1">Editar entrega</h2>
             <p className="text-sm text-slate-500 mb-4">
               Cliente:{" "}
-              <span className="font-medium">
-                {selectedBooking.fullName}
-              </span>{" "}
-              · {selectedBooking.instagram}
+              <span className="font-medium">{selectedBooking.fullName}</span> ·{" "}
+              {selectedBooking.instagram}
             </p>
 
             <div className="grid gap-4 md:grid-cols-[2fr,1fr] items-start mb-4">
@@ -1653,9 +1781,7 @@ export default function PanelPage() {
             >
               ✖
             </button>
-            <h2 className="text-lg font-semibold mb-4">
-              Agregar entrega manual
-            </h2>
+            <h2 className="text-lg font-semibold mb-4">Agregar entrega manual</h2>
 
             <form onSubmit={handleManualSubmit} className="space-y-3">
               <div>
@@ -1718,8 +1844,7 @@ export default function PanelPage() {
                 />
               </div>
 
-              {(manualType === "domicilio" ||
-                manualType === "paqueteria") && (
+              {(manualType === "domicilio" || manualType === "paqueteria") && (
                 <div>
                   <label className="block text-sm font-medium mb-1">
                     Dirección
@@ -1755,9 +1880,7 @@ export default function PanelPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Fecha *
-                </label>
+                <label className="block text-sm font-medium mb-1">Fecha *</label>
                 <input
                   type="date"
                   value={manualForm.date}
@@ -1848,6 +1971,17 @@ export default function PanelPage() {
                       <p className="text-[11px] text-slate-400 mt-1">
                         📝 {h.notes}
                       </p>
+                    )}
+
+                    {/* 🗺️ botón Maps en historial si existe ubicación */}
+                    {h.location_url && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(h.location_url, "_blank")}
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] text-sky-500 hover:text-sky-600 underline"
+                      >
+                        🗺 Ver en Google Maps
+                      </button>
                     )}
                   </li>
                 ))}
@@ -1999,16 +2133,12 @@ function CashboxCutModal({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (
-      countedCash === null ||
-      countedCash === undefined ||
-      countedCash === ""
-    ) {
+    if (countedCash === null || countedCash === undefined || countedCash === "") {
       alert("Captura cuánto dinero hay en la caja.");
       return;
     }
     const numericCounted = Number(countedCash);
-       if (isNaN(numericCounted)) {
+    if (isNaN(numericCounted)) {
       alert("El monto contado debe ser un número válido.");
       return;
     }
@@ -2037,8 +2167,7 @@ function CashboxCutModal({
         <h2 className="text-lg font-semibold mb-2">Corte de caja Noreste</h2>
         {lastCut && lastCut.created_at && (
           <p className="text-[11px] text-slate-500 mb-2">
-            Último corte:{" "}
-            {new Date(lastCut.created_at).toLocaleString("es-MX")}
+            Último corte: {new Date(lastCut.created_at).toLocaleString("es-MX")}
           </p>
         )}
 
@@ -2131,10 +2260,8 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
-      {/* overlay clickeable para cerrar */}
       <div className="flex-1" onClick={onClose} aria-hidden="true" />
 
-      {/* panel derecho */}
       <div className="w-full max-w-md bg-white h-full shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div>
@@ -2165,9 +2292,7 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
           {loading ? (
             <p className="text-xs text-slate-400">Cargando historial…</p>
           ) : sortedCuts.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              Aún no hay cortes registrados.
-            </p>
+            <p className="text-sm text-slate-400">Aún no hay cortes registrados.</p>
           ) : (
             <ul className="space-y-2">
               {sortedCuts.map((cut) => {
@@ -2193,9 +2318,7 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                       <div className="text-left">
                         <p className="font-medium text-slate-800">
                           {cut.created_at
-                            ? new Date(
-                                cut.created_at
-                              ).toLocaleString("es-MX")
+                            ? new Date(cut.created_at).toLocaleString("es-MX")
                             : "Sin fecha"}
                         </p>
                         <p className="text-[11px] text-slate-500">
@@ -2203,9 +2326,7 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span
-                          className={`text-[11px] font-semibold ${diffClass}`}
-                        >
+                        <span className={`text-[11px] font-semibold ${diffClass}`}>
                           Dif: {diff >= 0 ? "+" : ""}
                           {diff}
                         </span>
@@ -2219,23 +2340,17 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                       <div className="px-3 pb-3 text-[11px] text-slate-700 space-y-1">
                         {cut.from_datetime && (
                           <p className="text-slate-500">
-                            Desde:{" "}
-                            {new Date(
-                              cut.from_datetime
-                            ).toLocaleString("es-MX")}
+                            Desde: {new Date(cut.from_datetime).toLocaleString("es-MX")}
                           </p>
                         )}
                         <p>
-                          Inicial en caja:{" "}
-                          <strong>${cut.initial_cash ?? 0}</strong>
+                          Inicial en caja: <strong>${cut.initial_cash ?? 0}</strong>
                         </p>
                         <p>
-                          Total esperado:{" "}
-                          <strong>${cut.expected_cash ?? 0}</strong>
+                          Total esperado: <strong>${cut.expected_cash ?? 0}</strong>
                         </p>
                         <p>
-                          Contado:{" "}
-                          <strong>${cut.counted_cash ?? 0}</strong>
+                          Contado: <strong>${cut.counted_cash ?? 0}</strong>
                         </p>
                         <p>
                           Diferencia:{" "}
@@ -2245,9 +2360,7 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
                           </strong>
                         </p>
                         {cut.note && (
-                          <p className="mt-1 text-slate-500">
-                            Nota: {cut.note}
-                          </p>
+                          <p className="mt-1 text-slate-500">Nota: {cut.note}</p>
                         )}
                       </div>
                     )}
@@ -2261,6 +2374,8 @@ function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
     </div>
   );
 }
+
+
 
 
 

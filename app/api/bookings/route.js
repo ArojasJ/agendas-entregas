@@ -43,7 +43,7 @@ let SLOTS = {
   thursday: { used: 0, capacity: 12, disabled: false },
 };
 
-// 🟢 GET → obtener todas las agendas, los slots y los días bloqueados
+// 🟢 GET → obtener todas las agendas, los slots, los días bloqueados y días extra de bodega
 export async function GET(req) {
   // 🔒 solo el panel puede leer
   if (!validatePanelToken(req)) {
@@ -62,14 +62,21 @@ export async function GET(req) {
     .select("*")
     .order("date", { ascending: true });
 
-  if (error || blockedErr) {
-    console.error(error || blockedErr);
+  // 3) bodega_extra_days
+  const { data: extraBodegaDays, error: extraErr } = await supabase
+    .from("bodega_extra_days")
+    .select("*")
+    .order("date", { ascending: true });
+
+  if (error || blockedErr || extraErr) {
+    console.error(error || blockedErr || extraErr);
     return Response.json(
       {
         message: "Error al leer",
         bookings: bookings || [],
         slots: SLOTS,
         blockedDays: blockedDays || [],
+        extraBodegaDays: extraBodegaDays || [],
       },
       { status: 500 }
     );
@@ -79,13 +86,63 @@ export async function GET(req) {
     bookings: bookings || [],
     slots: SLOTS,
     blockedDays: blockedDays || [],
+    extraBodegaDays: extraBodegaDays || [],
   });
 }
 
-// 🟢 POST → crear agenda o bloquear día (según venga)
+// 🟢 POST → crear agenda o bloquear día o agregar día extra (según venga)
 export async function POST(req) {
   try {
     const body = await req.json();
+
+    // 0️⃣ agregar día EXTRA de bodega (solo panel)
+    if (body.action === "add-bodega-extra-day") {
+      if (!validatePanelToken(req)) {
+        return Response.json({ message: "No autorizado" }, { status: 401 });
+      }
+
+      const { date, reason } = body;
+      if (!date) {
+        return Response.json(
+          { message: "Falta la fecha del día extra." },
+          { status: 400 }
+        );
+      }
+
+      const dateToSave = normalizeDateString(date);
+
+      const { data, error } = await supabase
+        .from("bodega_extra_days")
+        .insert([
+          {
+            date: dateToSave,
+            reason: reason || null,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        // unique violation
+        if (error.code === "23505") {
+          return Response.json(
+            { message: "Ese día ya está habilitado como bodega." },
+            { status: 400 }
+          );
+        }
+
+        console.error(error);
+        return Response.json(
+          { message: "No se pudo agregar el día extra." },
+          { status: 500 }
+        );
+      }
+
+      return Response.json({
+        message: "Día extra de bodega agregado.",
+        extraDay: data,
+      });
+    }
 
     // 1️⃣ si viene desde el panel para BLOQUEAR un día
     if (body.action === "block-day") {
@@ -145,6 +202,8 @@ export async function POST(req) {
       amountDue,
       deliveryStatus,
       paymentMethod,
+      // 🆕 URL de ubicación de Google Maps
+      locationUrl,
     } = body;
 
     if (!type || !instagram || !fullName || !phone || !date) {
@@ -232,6 +291,8 @@ export async function POST(req) {
             delivery_status: deliveryStatusToSave,
             payment_method: paymentMethodToSave,
             delivered_at: deliveredAtToSave,
+            // 🆕 ubicación de Google Maps
+            location_url: locationUrl || null,
           },
         ])
         .select()
@@ -272,13 +333,35 @@ export async function POST(req) {
       }
     }
 
-    // 🟣 BODEGA
+    // 🟣 BODEGA → martes/jueves O día extra en bodega_extra_days
     if (type === "bodega") {
-      if (!day || (day !== "tuesday" && day !== "thursday")) {
+      const { data: extraDay, error: extraCheckErr } = await supabase
+        .from("bodega_extra_days")
+        .select("id")
+        .eq("date", dateToSave)
+        .maybeSingle();
+
+      if (extraCheckErr) {
+        console.error(extraCheckErr);
         return Response.json(
-          { message: "Día de bodega inválido." },
+          { message: "No se pudo validar el día extra de bodega." },
+          { status: 500 }
+        );
+      }
+
+      const isNormalDay = day === "tuesday" || day === "thursday";
+      const isExtraDay = !!extraDay;
+
+      if (!isNormalDay && !isExtraDay) {
+        return Response.json(
+          { message: "Ese día no está habilitado para entregas en bodega." },
           { status: 400 }
         );
+      }
+
+      // si es día extra, guardamos day en null
+      if (isExtraDay) {
+        body.day = null;
       }
     }
 
@@ -330,7 +413,7 @@ export async function POST(req) {
       .insert([
         {
           type,
-          day: day || null,
+          day: body.day || day || null,
           date: dateToSave,
           instagram,
           fullName,
@@ -349,6 +432,8 @@ export async function POST(req) {
           delivery_status: deliveryStatusToSave,
           payment_method: paymentMethodToSave,
           delivered_at: deliveredAtToSave,
+          // 🆕 ubicación de Google Maps
+          location_url: locationUrl || null,
         },
       ])
       .select()
@@ -372,7 +457,7 @@ export async function POST(req) {
   }
 }
 
-// 🟠 DELETE → eliminar una agenda por id (solo panel)
+// 🟠 DELETE → eliminar una agenda por id (solo panel) o quitar bloqueo o quitar día extra
 export async function DELETE(req) {
   if (!validatePanelToken(req)) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
@@ -381,6 +466,7 @@ export async function DELETE(req) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   const blockedId = searchParams.get("blockedId");
+  const extraDayId = searchParams.get("extraDayId");
 
   if (blockedId) {
     const { error } = await supabase
@@ -397,6 +483,23 @@ export async function DELETE(req) {
     }
 
     return Response.json({ message: "Bloqueo eliminado." });
+  }
+
+  if (extraDayId) {
+    const { error } = await supabase
+      .from("bodega_extra_days")
+      .delete()
+      .eq("id", extraDayId);
+
+    if (error) {
+      console.error(error);
+      return Response.json(
+        { message: "No se pudo quitar el día extra." },
+        { status: 500 }
+      );
+    }
+
+    return Response.json({ message: "Día extra de bodega eliminado." });
   }
 
   if (!id) {
@@ -515,7 +618,6 @@ export async function PATCH(req) {
         finalStatus = allowed.includes(normalized) ? normalized : "pendiente";
         updateData.delivery_status = finalStatus;
       } else {
-        // si no viene en el body, mantenemos el actual
         updateData.delivery_status = finalStatus;
       }
 
@@ -530,11 +632,7 @@ export async function PATCH(req) {
         updateData.payment_method = finalPayment;
       }
 
-      // lógica de delivered_at:
-      // - si queda ENTREGADO + EFECTIVO:
-      //    - si ya tenía delivered_at, lo dejamos igual
-      //    - si no tenía, lo ponemos ahora
-      // - si no, lo ponemos en null
+      // lógica de delivered_at
       let newDeliveredAt = existing.delivered_at || null;
 
       const isDeliveredCash =
@@ -597,6 +695,9 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
+
+
 
 
 
