@@ -9,7 +9,7 @@ import { registerLocale } from "react-datepicker";
 
 registerLocale("es", es);
 
-// 🔹 genera los siguientes martes y jueves válidos (siempre a partir de MAÑANA)
+// 🔹 genera los siguientes días válidos LUN-VIE (siempre a partir de MAÑANA)
 function getNextPickupDates(count = 6) {
   const result = [];
   const now = new Date();
@@ -20,9 +20,9 @@ function getNextPickupDates(count = 6) {
   d.setDate(d.getDate() + 1);
 
   while (result.length < count) {
-    const day = d.getDay();
-    // martes (2) o jueves (4)
-    if (day === 2 || day === 4) {
+    const day = d.getDay(); // 0 dom, 1 lun, ... 6 sáb
+    // lunes(1) a viernes(5)
+    if (day >= 1 && day <= 5) {
       result.push(new Date(d));
     }
     d.setDate(d.getDate() + 1);
@@ -113,7 +113,7 @@ export default function AgendarPage() {
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [allBookings, setAllBookings] = useState([]); // para contar domicilio
   const [blockedDays, setBlockedDays] = useState([]); // lo que viene de Supabase
-  const [extraBodegaDays, setExtraBodegaDays] = useState([]); // ✅ NUEVO: días extra bodega públicos
+  const [extraBodegaDays, setExtraBodegaDays] = useState([]); // ✅ días extra bodega públicos
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
@@ -162,7 +162,9 @@ export default function AgendarPage() {
 
       // blocked-days público: ahora también trae extraBodegaDays
       try {
-        const res2 = await fetch("/api/blocked-days");
+        const res2 = await fetch("/api/blocked-days", {
+          cache: "no-store",
+        });
         const data2 = await res2.json();
         setBlockedDays(data2.blockedDays || []);
         setExtraBodegaDays(data2.extraBodegaDays || []);
@@ -178,29 +180,41 @@ export default function AgendarPage() {
     return blockedDays.some((bd) => bd.date === dateStr && bd.type === type);
   };
 
-  // ✅ construir tarjetas de BODEGA = mar/jue + extras (sin calendario)
+  // ✅ construir tarjetas de BODEGA = lun-vie + extras (sin calendario)
   const getBodegaCardDates = () => {
-    const base = getNextPickupDates(6);
+    const baseDates = getNextPickupDates(6);
 
     const now = new Date();
     const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrowLocal = new Date(todayLocal);
     tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
 
-    const extras = (extraBodegaDays || [])
-      .map((x) => new Date(x.date + "T00:00:00"))
-      .filter((d) => d >= tomorrowLocal);
-
-    // dedupe por YYYY-MM-DD
     const map = new Map();
-    [...base, ...extras].forEach((d) => {
-      map.set(toInputDate(d), d);
+
+    // lun-vie normales
+    baseDates.forEach((d) => {
+      map.set(toInputDate(d), {
+        date: d,
+        isExtra: false,
+      });
     });
 
-    // ordenado asc
-    const merged = Array.from(map.values()).sort((a, b) => a.getTime() - b.getTime());
+    // días extra con horario
+    (extraBodegaDays || []).forEach((x) => {
+      const d = new Date(x.date + "T00:00:00");
+      if (d >= tomorrowLocal) {
+        map.set(x.date, {
+          date: d,
+          isExtra: true,
+          start_time: x.start_time,
+          end_time: x.end_time,
+        });
+      }
+    });
 
-    return merged;
+    return Array.from(map.values()).sort(
+      (a, b) => a.date.getTime() - b.date.getTime()
+    );
   };
 
   const bodegaCardDates = getBodegaCardDates();
@@ -247,7 +261,7 @@ export default function AgendarPage() {
       : DOMICILIO_LIMIT;
 
   // 🟢 BODEGA
-  const handleBodegaBooking = async (day, date) => {
+  const handleBodegaBooking = async (day, date, extraInfo = {}) => {
     if (isSubmitting) return;
     setMsg("");
     setError("");
@@ -291,16 +305,18 @@ export default function AgendarPage() {
     try {
       setIsSubmitting(true);
 
-      // ✅ si es martes/jueves mandamos day; si es extra mandamos null
-      const weekdayNum = date.getDay();
-      const dayToSend = weekdayNum === 2 ? "tuesday" : weekdayNum === 4 ? "thursday" : null;
+      const isExtraDay = !!extraInfo?.isExtra;
+
+      // day SOLO aplica para lun-vie normales, si es extra debe ir null
+      const dayToSend = isExtraDay ? null : (day || null);
 
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "bodega",
-          day: dayToSend, // ✅ null si es día extra
+          day: dayToSend,      // ✅ null si es extra
+          isExtra: isExtraDay, // ✅ true si es extra
           date: toInputDate(date),
           instagram: instaValue,
           fullName,
@@ -313,13 +329,24 @@ export default function AgendarPage() {
         setError(data.message || "No se pudo agendar.");
       } else {
         setSuccessText("✅ Tu entrega en bodega quedó registrada.");
+
+        const horario =
+          isExtraDay && extraInfo?.start_time && extraInfo?.end_time
+            ? `${extraInfo.start_time} – ${extraInfo.end_time}`
+            : "5:00 pm – 7:00 pm";
+
         setSuccessBooking({
           type: "bodega",
           instagram: instaValue,
           date: toInputDate(date),
           fullName,
           phone,
+          isExtra: isExtraDay,
+          start_time: isExtraDay ? extraInfo?.start_time : null,
+          end_time: isExtraDay ? extraInfo?.end_time : null,
+          horario,
         });
+
         setSuccessModal(true);
 
         setAllBookings((prev) => [
@@ -447,7 +474,7 @@ export default function AgendarPage() {
           city: domicilioCity,
           state: domicilioState,
           postalCode: domicilioCP,
-          price: 40,
+          price: 45,
           locationUrl,
         });
         setSuccessModal(true);
@@ -609,12 +636,10 @@ export default function AgendarPage() {
 
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Agenda tu entrega
-            </h1>
+            <h1 className="text-2xl font-bold text-slate-900">Agenda tu entrega</h1>
             <p className="text-sm text-slate-500">
-              Nuestros productos son ORIGINALES, de las mejores marcas y con
-              precios justos 🇺🇸
+              Nuestros productos son ORIGINALES, de las mejores marcas y con precios
+              justos 🇺🇸
             </p>
           </div>
         </div>
@@ -657,20 +682,18 @@ export default function AgendarPage() {
         {mode === "bodega" ? (
           <div className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
-              Las entregas en bodega son <b>martes y jueves</b> de{" "}
-              <b>6:00 pm a 8:00 pm</b>. Debes agendar con al menos{" "}
+              Las entregas en bodega son <b>de lunes a viernes</b> de{" "}
+              <b>5:00 pm a 7:00 pm</b>. Debes agendar con al menos{" "}
               <b>1 día de anticipación (no mismo día)</b>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
               <p className="font-semibold mb-1">POLÍTICA ENTREGA EN BODEGA</p>
-              <p>Entregas únicamente de 6:00 pm a 8:00 pm sin excepción.</p>
+              <p>Entregas únicamente de 5:00 pm a 7:00 pm sin excepción.</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Instagram *
-              </label>
+              <label className="block text-sm font-medium mb-1">Instagram *</label>
               <input
                 value={insta}
                 onChange={(e) => setInsta(e.target.value)}
@@ -706,18 +729,24 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* ✅ TARJETAS: mar/jue + extras */}
+            {/* ✅ TARJETAS: lun-vie + extras */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              {bodegaCardDates.map((d) => {
+              {bodegaCardDates.map(({ date: d, isExtra, start_time, end_time }) => {
                 const dateStr = toInputDate(d);
                 const blocked = isBlocked(dateStr, "bodega");
 
                 const weekdayNum = d.getDay();
                 const weekdayKey =
-                  weekdayNum === 2
+                  weekdayNum === 1
+                    ? "monday"
+                    : weekdayNum === 2
                     ? "tuesday"
+                    : weekdayNum === 3
+                    ? "wednesday"
                     : weekdayNum === 4
                     ? "thursday"
+                    : weekdayNum === 5
+                    ? "friday"
                     : null;
 
                 const disabled =
@@ -735,7 +764,13 @@ export default function AgendarPage() {
                 return (
                   <button
                     key={dateStr}
-                    onClick={() => handleBodegaBooking(weekdayKey, d)}
+                    onClick={() =>
+                      handleBodegaBooking(weekdayKey, d, {
+                        isExtra,
+                        start_time,
+                        end_time,
+                      })
+                    }
                     disabled={disabled}
                     className={`border rounded-xl p-3 text-left transition ${
                       blocked
@@ -748,9 +783,15 @@ export default function AgendarPage() {
                     <p className="text-sm font-medium">{toNiceDate(d)}</p>
                     <p className="text-[11px] text-slate-400">{weekdayLabel}</p>
 
-                    {weekdayKey === null && (
+                    {isExtra && (
                       <p className="text-[11px] text-emerald-700 mt-1">
                         ✨ Día extra habilitado
+                      </p>
+                    )}
+
+                    {isExtra && start_time && end_time && (
+                      <p className="text-[11px] text-slate-600 mt-1">
+                        🕒 Horario especial: {start_time} – {end_time}
                       </p>
                     )}
 
@@ -773,31 +814,25 @@ export default function AgendarPage() {
 
             <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800">
               <p className="font-semibold mb-1">
-                Costo de entrega a domicilio: <b>$40 MXN</b>
+                Costo de entrega a domicilio: <b>$45 MXN</b>
               </p>
-              <p className="text-xs">
-                Puedes pagar por transferencia o en efectivo.
-              </p>
+              <p className="text-xs">Puedes pagar por transferencia o en efectivo.</p>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
-              <p className="font-semibold mb-1">
-                POLÍTICA DE ENTREGA DOMICILIO
-              </p>
+              <p className="font-semibold mb-1">POLÍTICA DE ENTREGA DOMICILIO</p>
               <p className="mb-1">
-                Nuestro repartidor tiene una ruta optimizada de entrega por lo
-                que no tenemos hora exacta.
+                Nuestro repartidor tiene una ruta optimizada de entrega por lo que no
+                tenemos hora exacta.
               </p>
               <p>
-                Llamaremos 2 veces al llegar, en caso de no tener respuesta el
-                envío deberá ser pagado nuevamente.
+                Llamaremos 2 veces al llegar, en caso de no tener respuesta el envío
+                deberá ser pagado nuevamente.
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Instagram *
-              </label>
+              <label className="block text-sm font-medium mb-1">Instagram *</label>
               <input
                 value={insta}
                 onChange={(e) => setInsta(e.target.value)}
@@ -876,9 +911,7 @@ export default function AgendarPage() {
             {/* ciudad + estado + cp */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Ciudad *
-                </label>
+                <label className="block text-sm font-medium mb-1">Ciudad *</label>
                 <select
                   value={domicilioCity}
                   onChange={handleDomicilioCityChange}
@@ -894,9 +927,7 @@ export default function AgendarPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Estado *
-                </label>
+                <label className="block text-sm font-medium mb-1">Estado *</label>
                 <select
                   value={domicilioState}
                   onChange={(e) => setDomicilioState(e.target.value)}
@@ -972,9 +1003,7 @@ export default function AgendarPage() {
             {deliveryDate && (
               <p
                 className={`text-sm ${
-                  domicilioRemaining > 0
-                    ? "text-emerald-600"
-                    : "text-red-500 font-medium"
+                  domicilioRemaining > 0 ? "text-emerald-600" : "text-red-500 font-medium"
                 }`}
               >
                 {domicilioRemaining > 0
@@ -999,9 +1028,8 @@ export default function AgendarPage() {
           // PAQUETERÍA
           <form onSubmit={handlePaqueteriaBooking} className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
-              Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena
-              tus datos y te contactaremos por privado para{" "}
-              <b>cotizar tu envío</b>.
+              Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena tus
+              datos y te contactaremos por privado para <b>cotizar tu envío</b>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
@@ -1010,9 +1038,7 @@ export default function AgendarPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Instagram *
-              </label>
+              <label className="block text-sm font-medium mb-1">Instagram *</label>
               <input
                 value={insta}
                 onChange={(e) => setInsta(e.target.value)}
@@ -1061,9 +1087,7 @@ export default function AgendarPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Ciudad *
-                </label>
+                <label className="block text-sm font-medium mb-1">Ciudad *</label>
                 <input
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
@@ -1073,9 +1097,7 @@ export default function AgendarPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Estado *
-                </label>
+                <label className="block text-sm font-medium mb-1">Estado *</label>
                 <select
                   value={stateMx}
                   onChange={(e) => setStateMx(e.target.value)}
@@ -1194,12 +1216,18 @@ export default function AgendarPage() {
                     {successBooking.notes}
                   </p>
                 )}
-                {successBooking.date && (
-                  <p>
-                    <span className="font-medium">Fecha:</span>{" "}
-                    {formatDateStringMX(successBooking.date)}
-                  </p>
+
+                {successBooking.type === "bodega" && successBooking.horario && (
+                  <div className="mt-3 p-3 rounded-lg bg-amber-100 border border-amber-300 text-center">
+                    <p className="text-sm text-amber-900 font-semibold uppercase">
+                      Horario de entrega
+                    </p>
+                    <p className="text-2xl font-extrabold text-amber-900 mt-1">
+                      {successBooking.horario}
+                    </p>
+                  </div>
                 )}
+
                 {successBooking.price && (
                   <p>
                     <span className="font-medium">Costo envío:</span>{" "}
@@ -1234,21 +1262,19 @@ export default function AgendarPage() {
             </h2>
 
             <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm">
-              <li>Abre la app de <b>Google Maps</b> en tu celular.</li>
               <li>
-                Busca tu casa o la dirección donde quieres recibir la entrega.
+                Abre la app de <b>Google Maps</b> en tu celular.
+              </li>
+              <li>Busca tu casa o la dirección donde quieres recibir la entrega.</li>
+              <li>
+                Mantén el dedo presionado unos segundos en el punto exacto hasta que
+                aparezca un pin rojo.
               </li>
               <li>
-                Mantén el dedo presionado unos segundos en el punto exacto hasta
-                que aparezca un pin rojo.
+                En la parte de abajo se abrirá una tarjeta con la dirección. tócala.
               </li>
               <li>
-                En la parte de abajo se abrirá una tarjeta con la dirección.
-                tócala.
-              </li>
-              <li>
-                Dentro de esa pantalla, busca la opción <b>Compartir</b> y
-                tócala.
+                Dentro de esa pantalla, busca la opción <b>Compartir</b> y tócala.
               </li>
               <li>
                 Elige <b>Copiar enlace</b> (o &quot;Copiar al portapapeles&quot;).
@@ -1260,8 +1286,8 @@ export default function AgendarPage() {
             </ol>
 
             <p className="text-xs text-slate-500">
-              Tip: si se te complica, también puedes enviarte el enlace por
-              WhatsApp y copiarlo desde ahí para pegarlo en esta página.
+              Tip: si se te complica, también puedes enviarte el enlace por WhatsApp
+              y copiarlo desde ahí para pegarlo en esta página.
             </p>
 
             <button
@@ -1277,6 +1303,7 @@ export default function AgendarPage() {
     </div>
   );
 }
+
 
 
 

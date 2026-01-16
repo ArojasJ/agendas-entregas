@@ -37,10 +37,14 @@ function makeLocalDate(dateStr) {
 // máximo de domicilios por día
 const DOMICILIO_LIMIT = 15;
 
-// slots fijos solo para la UI (no vienen de la DB aún)
+// ✅ slots fijos solo para la UI (no vienen de la DB aún)
+// BODEGA ahora es LUNES a VIERNES
 let SLOTS = {
+  monday: { used: 0, capacity: 12, disabled: false },
   tuesday: { used: 0, capacity: 12, disabled: false },
+  wednesday: { used: 0, capacity: 12, disabled: false },
   thursday: { used: 0, capacity: 12, disabled: false },
+  friday: { used: 0, capacity: 12, disabled: false },
 };
 
 // 🟢 GET → obtener todas las agendas, los slots, los días bloqueados y días extra de bodega
@@ -101,10 +105,18 @@ export async function POST(req) {
         return Response.json({ message: "No autorizado" }, { status: 401 });
       }
 
-      const { date, reason } = body;
+      const { date, reason, start_time, end_time } = body;
+
       if (!date) {
         return Response.json(
           { message: "Falta la fecha del día extra." },
+          { status: 400 }
+        );
+      }
+
+      if (start_time && end_time && start_time >= end_time) {
+        return Response.json(
+          { message: "La hora inicial debe ser menor a la hora final." },
           { status: 400 }
         );
       }
@@ -117,6 +129,8 @@ export async function POST(req) {
           {
             date: dateToSave,
             reason: reason || null,
+            start_time: start_time || null,
+            end_time: end_time || null,
           },
         ])
         .select()
@@ -235,12 +249,11 @@ export async function POST(req) {
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
     if (!override && (type === "bodega" || type === "domicilio")) {
-      const { data: blockedForThatDay, error: blockedCheckErr } =
-        await supabase
-          .from("blocked_days")
-          .select("id")
-          .eq("date", dateToSave)
-          .eq("type", type);
+      const { data: blockedForThatDay, error: blockedCheckErr } = await supabase
+        .from("blocked_days")
+        .select("id")
+        .eq("date", dateToSave)
+        .eq("type", type);
 
       if (blockedCheckErr) {
         console.error(blockedCheckErr);
@@ -315,11 +328,7 @@ export async function POST(req) {
     // 🔸 validaciones normales de fecha → NO paquetería
     if (type === "bodega" || type === "domicilio") {
       const now = new Date();
-      const todayLocal = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate()
-      );
+      const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const selectedLocalDate = makeLocalDate(dateToSave);
 
       if (selectedLocalDate <= todayLocal) {
@@ -333,7 +342,9 @@ export async function POST(req) {
       }
     }
 
-    // 🟣 BODEGA → martes/jueves O día extra en bodega_extra_days
+    // 🟣 BODEGA → LUN-VIE O día extra en bodega_extra_days
+    let dayToSave = day || null;
+
     if (type === "bodega") {
       const { data: extraDay, error: extraCheckErr } = await supabase
         .from("bodega_extra_days")
@@ -349,7 +360,13 @@ export async function POST(req) {
         );
       }
 
-      const isNormalDay = day === "tuesday" || day === "thursday";
+      const isNormalDay =
+        day === "monday" ||
+        day === "tuesday" ||
+        day === "wednesday" ||
+        day === "thursday" ||
+        day === "friday";
+
       const isExtraDay = !!extraDay;
 
       if (!isNormalDay && !isExtraDay) {
@@ -359,10 +376,8 @@ export async function POST(req) {
         );
       }
 
-      // si es día extra, guardamos day en null
-      if (isExtraDay) {
-        body.day = null;
-      }
+      // ✅ si es día extra: day = null, si es normal: day = monday..friday
+      dayToSave = isExtraDay ? null : day;
     }
 
     // 🟣 DOMICILIO → validar máximo por día + validar ciudad/estado/CP
@@ -370,8 +385,7 @@ export async function POST(req) {
       if (!city || !state || !postalCode) {
         return Response.json(
           {
-            message:
-              "Faltan datos de ubicación: ciudad, estado o código postal.",
+            message: "Faltan datos de ubicación: ciudad, estado o código postal.",
           },
           { status: 400 }
         );
@@ -413,7 +427,7 @@ export async function POST(req) {
       .insert([
         {
           type,
-          day: body.day || day || null,
+          day: type === "bodega" ? dayToSave : (day || null),
           date: dateToSave,
           instagram,
           fullName,
@@ -546,19 +560,19 @@ export async function PATCH(req) {
 
       const normalizedDate = normalizeDateString(date);
       const d = makeLocalDate(normalizedDate);
-      const weekday = d.getDay(); // 0 dom, 1 lun, 2 mar, 3 mié, 4 jue...
+      const weekday = d.getDay(); // 0 dom, 1 lun, 2 mar, 3 mié, 4 jue, 5 vie...
 
       const updateData = {
         date: normalizedDate,
       };
 
-      if (weekday === 2) {
-        updateData.day = "tuesday";
-      } else if (weekday === 4) {
-        updateData.day = "thursday";
-      } else {
-        updateData.day = null;
-      }
+      // ✅ BODEGA ahora maneja lunes a viernes
+      if (weekday === 1) updateData.day = "monday";
+      else if (weekday === 2) updateData.day = "tuesday";
+      else if (weekday === 3) updateData.day = "wednesday";
+      else if (weekday === 4) updateData.day = "thursday";
+      else if (weekday === 5) updateData.day = "friday";
+      else updateData.day = null;
 
       const { data, error } = await supabase
         .from("bookings")
@@ -695,6 +709,7 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
 
 
 

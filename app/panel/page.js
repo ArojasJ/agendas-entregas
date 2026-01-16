@@ -99,7 +99,7 @@ ${products}
 
 Aún queda pendiente $${adeudo} , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
-Puedes pasar a recoger tus productos de 6 a 8pm✨
+Puedes pasar a recoger tus productos de 5 a 7pm✨
 
 Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones🖤
 
@@ -133,6 +133,10 @@ export default function PanelPage() {
   const [extraBodegaDays, setExtraBodegaDays] = useState([]);
   const [extraDate, setExtraDate] = useState("");
   const [extraReason, setExtraReason] = useState("");
+  // ⏰ horario especial para día extra
+  const [extraStartTime, setExtraStartTime] = useState("18:00");
+  const [extraEndTime, setExtraEndTime] = useState("20:00");
+
 
   // modal entrega manual
   const [showManualModal, setShowManualModal] = useState(false);
@@ -478,10 +482,13 @@ export default function PanelPage() {
           "x-panel-token": token,
         },
         body: JSON.stringify({
-          action: "add-bodega-extra-day",
-          date: extraDate,
-          reason: extraReason,
-        }),
+  action: "add-bodega-extra-day",
+  date: extraDate,
+  reason: extraReason,
+  start_time: extraStartTime,
+  end_time: extraEndTime,
+}),
+
       });
 
       const data = await res.json();
@@ -491,6 +498,8 @@ export default function PanelPage() {
       }
 
       await fetchBookings();
+      setExtraStartTime("18:00");
+      setExtraEndTime("20:00");
       setExtraDate("");
       setExtraReason("");
     } catch (err) {
@@ -1177,6 +1186,22 @@ export default function PanelPage() {
                   className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
                 />
 
+                <div className="flex gap-2">
+  <input
+    type="time"
+    value={extraStartTime}
+    onChange={(e) => setExtraStartTime(e.target.value)}
+    className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
+  />
+  <input
+    type="time"
+    value={extraEndTime}
+    onChange={(e) => setExtraEndTime(e.target.value)}
+    className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
+  />
+</div>
+
+
                 <input
                   type="text"
                   value={extraReason}
@@ -1376,9 +1401,13 @@ export default function PanelPage() {
                 className="flex items-center gap-2 bg-emerald-800/30 text-xs rounded-full px-3 py-1"
               >
                 <span>
-                  {formatBlockedMX(d.date)}
-                  {d.reason ? ` · ${d.reason}` : ""}
-                </span>
+  {formatBlockedMX(d.date)}
+  {d.start_time && d.end_time
+    ? ` · ${d.start_time}–${d.end_time}`
+    : ""}
+  {d.reason ? ` · ${d.reason}` : ""}
+</span>
+
                 <button
                   onClick={() => handleRemoveExtraBodegaDay(d.id)}
                   className="text-red-400 hover:text-red-300 text-xs"
