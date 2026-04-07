@@ -9,6 +9,9 @@ import { registerLocale } from "react-datepicker";
 
 registerLocale("es", es);
 
+// 🚩 VARIABLE DE CONTROL: Cambia a true para volver a mostrar la opción de Bodega
+const BODEGA_ACTIVA = false;
+
 // 🔹 genera los siguientes días válidos LUN-VIE (siempre a partir de MAÑANA)
 function getNextPickupDates(count = 6) {
   const result = [];
@@ -109,7 +112,8 @@ export default function AgendarPage() {
   const router = useRouter();
 
   // "bodega" | "domicilio" | "paqueteria"
-  const [mode, setMode] = useState("bodega");
+  // 🟢 AJUSTE: Iniciamos en domicilio porque bodega está pausada
+  const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [allBookings, setAllBookings] = useState([]); // para contar domicilio
   const [blockedDays, setBlockedDays] = useState([]); // lo que viene de Supabase
@@ -148,7 +152,6 @@ export default function AgendarPage() {
   // traer bookings (para conteo) Y días bloqueados + extra bodega (públicos)
   useEffect(() => {
     const fetchData = async () => {
-      // bookings (este endpoint en tu backend está protegido por token; aquí solo lo usamos si responde ok)
       try {
         const res = await fetch("/api/bookings");
         if (res.ok) {
@@ -160,7 +163,6 @@ export default function AgendarPage() {
         console.error(err);
       }
 
-      // blocked-days público: ahora también trae extraBodegaDays
       try {
         const res2 = await fetch("/api/blocked-days", {
           cache: "no-store",
@@ -175,23 +177,18 @@ export default function AgendarPage() {
     fetchData();
   }, []);
 
-  // helpers de bloqueos
   const isBlocked = (dateStr, type) => {
     return blockedDays.some((bd) => bd.date === dateStr && bd.type === type);
   };
 
-  // ✅ construir tarjetas de BODEGA = lun-vie + extras (sin calendario)
   const getBodegaCardDates = () => {
     const baseDates = getNextPickupDates(6);
-
     const now = new Date();
     const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrowLocal = new Date(todayLocal);
     tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
 
     const map = new Map();
-
-    // lun-vie normales
     baseDates.forEach((d) => {
       map.set(toInputDate(d), {
         date: d,
@@ -199,7 +196,6 @@ export default function AgendarPage() {
       });
     });
 
-    // días extra con horario
     (extraBodegaDays || []).forEach((x) => {
       const d = new Date(x.date + "T00:00:00");
       if (d >= tomorrowLocal) {
@@ -219,17 +215,13 @@ export default function AgendarPage() {
 
   const bodegaCardDates = getBodegaCardDates();
 
-  // fechas válidas para domicilio (mínimo mañana, máximo 30 días)
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
   const minDate = new Date(today);
   minDate.setDate(minDate.getDate() + 1);
-
   const maxDate = new Date(today);
   maxDate.setDate(maxDate.getDate() + 30);
 
-  // lista de fechas bloqueadas SOLO para domicilio (react-datepicker las pinta grises)
   const blockedForDomicilio = blockedDays
     .filter((b) => b.type === "domicilio")
     .map((b) => new Date(b.date + "T00:00:00"));
@@ -237,17 +229,11 @@ export default function AgendarPage() {
   const isWeekday = (date) => {
     const day = date.getDay();
     const dateStr = date.toISOString().split("T")[0];
-
-    // día bloqueado en Supabase
     if (isBlocked(dateStr, "domicilio")) return false;
-
-    // solo lunes a viernes
     if (day === 0 || day === 6) return false;
-
     return true;
   };
 
-  // cuántos hay ya para la fecha seleccionada (solo domicilio)
   let domicilioCountForSelected = 0;
   if (deliveryDate && allBookings.length > 0) {
     const selectedStr = toInputDate(deliveryDate);
@@ -260,8 +246,8 @@ export default function AgendarPage() {
       ? Math.max(DOMICILIO_LIMIT - domicilioCountForSelected, 0)
       : DOMICILIO_LIMIT;
 
-  // 🟢 BODEGA
   const handleBodegaBooking = async (day, date, extraInfo = {}) => {
+    if (!BODEGA_ACTIVA) return; // Protección extra
     if (isSubmitting) return;
     setMsg("");
     setError("");
@@ -281,7 +267,6 @@ export default function AgendarPage() {
       return;
     }
 
-    // ❌ No permitir agendar para el mismo día
     const nowLocal = new Date();
     const todayLocal = new Date(
       nowLocal.getFullYear(),
@@ -304,10 +289,7 @@ export default function AgendarPage() {
 
     try {
       setIsSubmitting(true);
-
       const isExtraDay = !!extraInfo?.isExtra;
-
-      // day SOLO aplica para lun-vie normales, si es extra debe ir null
       const dayToSend = isExtraDay ? null : (day || null);
 
       const res = await fetch("/api/bookings", {
@@ -315,8 +297,8 @@ export default function AgendarPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "bodega",
-          day: dayToSend,      // ✅ null si es extra
-          isExtra: isExtraDay, // ✅ true si es extra
+          day: dayToSend,
+          isExtra: isExtraDay,
           date: toInputDate(date),
           instagram: instaValue,
           fullName,
@@ -329,7 +311,6 @@ export default function AgendarPage() {
         setError(data.message || "No se pudo agendar.");
       } else {
         setSuccessText("✅ Tu entrega en bodega quedó registrada.");
-
         const horario =
           isExtraDay && extraInfo?.start_time && extraInfo?.end_time
             ? `${extraInfo.start_time} – ${extraInfo.end_time}`
@@ -348,7 +329,6 @@ export default function AgendarPage() {
         });
 
         setSuccessModal(true);
-
         setAllBookings((prev) => [
           ...prev,
           {
@@ -369,7 +349,6 @@ export default function AgendarPage() {
     }
   };
 
-  // 🟢 DOMICILIO
   const handleDomicilioBooking = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -404,7 +383,6 @@ export default function AgendarPage() {
       return;
     }
 
-    // ❌ No permitir agendar para el mismo día
     const nowLocal = new Date();
     const todayLocal = new Date(
       nowLocal.getFullYear(),
@@ -479,7 +457,6 @@ export default function AgendarPage() {
         });
         setSuccessModal(true);
 
-        // limpiar
         setInsta("");
         setFullName("");
         setPhone("");
@@ -491,7 +468,6 @@ export default function AgendarPage() {
         setDomicilioCP("");
         setLocationUrl("");
 
-        // actualizar lista
         setAllBookings((prev) => [
           ...prev,
           {
@@ -517,7 +493,6 @@ export default function AgendarPage() {
     }
   };
 
-  // 🟢 PAQUETERÍA
   const handlePaqueteriaBooking = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -569,7 +544,6 @@ export default function AgendarPage() {
         });
         setSuccessModal(true);
 
-        // limpiar
         setInsta("");
         setFullName("");
         setPhone("");
@@ -599,19 +573,16 @@ export default function AgendarPage() {
     }
   };
 
-  // handler de teléfono: solo números y máximo 10 dígitos
   const handlePhoneChange = (e) => {
     const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
     setPhone(onlyNums);
   };
 
-  // handler de CP: 5 dígitos
   const handleCPChange = (e) => {
     const onlyNums = e.target.value.replace(/[^0-9]/g, "").slice(0, 5);
     setDomicilioCP(onlyNums);
   };
 
-  // handler ciudad domicilio: autollenar estado
   const handleDomicilioCityChange = (e) => {
     const value = e.target.value;
     setDomicilioCity(value);
@@ -646,16 +617,19 @@ export default function AgendarPage() {
 
         {/* selector */}
         <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => setMode("bodega")}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
-              mode === "bodega"
-                ? "bg-emerald-500 text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            Recoger en bodega
-          </button>
+          {/* 🟢 AJUSTE: Botón de Bodega solo si está activa */}
+          {BODEGA_ACTIVA && (
+            <button
+              onClick={() => setMode("bodega")}
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
+                mode === "bodega"
+                  ? "bg-emerald-500 text-white"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              Recoger en bodega
+            </button>
+          )}
           <button
             onClick={() => setMode("domicilio")}
             className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
@@ -679,7 +653,8 @@ export default function AgendarPage() {
         </div>
 
         {/* contenido */}
-        {mode === "bodega" ? (
+        {/* 🟢 AJUSTE: Contenido de Bodega solo si está activa */}
+        {mode === "bodega" && BODEGA_ACTIVA ? (
           <div className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Las entregas en bodega son <b>de lunes a viernes</b> de{" "}
@@ -729,7 +704,6 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* ✅ TARJETAS: lun-vie + extras */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               {bodegaCardDates.map(({ date: d, isExtra, start_time, end_time }) => {
                 const dateStr = toInputDate(d);
@@ -868,7 +842,6 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* dirección */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Dirección completa (calle, número, colonia) *
@@ -882,7 +855,6 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* ubicación de Google Maps */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium">
@@ -908,7 +880,6 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* ciudad + estado + cp */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Ciudad *</label>
@@ -955,7 +926,6 @@ export default function AgendarPage() {
               </div>
             </div>
 
-            {/* notas */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Referencia / notas para el repartidor
@@ -969,7 +939,6 @@ export default function AgendarPage() {
               />
             </div>
 
-            {/* fecha */}
             <div>
               <label className="block text-sm font-medium mb-1">
                 Fecha de entrega (lunes a viernes) *
@@ -1025,7 +994,6 @@ export default function AgendarPage() {
             </button>
           </form>
         ) : (
-          // PAQUETERÍA
           <form onSubmit={handlePaqueteriaBooking} className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena tus
@@ -1262,33 +1230,14 @@ export default function AgendarPage() {
             </h2>
 
             <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm">
-              <li>
-                Abre la app de <b>Google Maps</b> en tu celular.
-              </li>
+              <li>Abre la app de <b>Google Maps</b> en tu celular.</li>
               <li>Busca tu casa o la dirección donde quieres recibir la entrega.</li>
-              <li>
-                Mantén el dedo presionado unos segundos en el punto exacto hasta que
-                aparezca un pin rojo.
-              </li>
-              <li>
-                En la parte de abajo se abrirá una tarjeta con la dirección. tócala.
-              </li>
-              <li>
-                Dentro de esa pantalla, busca la opción <b>Compartir</b> y tócala.
-              </li>
-              <li>
-                Elige <b>Copiar enlace</b> (o &quot;Copiar al portapapeles&quot;).
-              </li>
-              <li>
-                Regresa a esta página y pega el enlace en el campo de
-                &quot;Ubicación de Google Maps&quot;.
-              </li>
+              <li>Mantén el dedo presionado unos segundos hasta que aparezca un pin rojo.</li>
+              <li>En la parte de abajo se abrirá una tarjeta con la dirección. tócala.</li>
+              <li>Busca la opción <b>Compartir</b> y tócala.</li>
+              <li>Elige <b>Copiar enlace</b>.</li>
+              <li>Pega el enlace en el campo de &quot;Ubicación de Google Maps&quot;.</li>
             </ol>
-
-            <p className="text-xs text-slate-500">
-              Tip: si se te complica, también puedes enviarte el enlace por WhatsApp
-              y copiarlo desde ahí para pegarlo en esta página.
-            </p>
 
             <button
               type="button"
