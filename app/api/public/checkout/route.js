@@ -1,0 +1,114 @@
+import { supabase } from "@/lib/supabaseClient";
+
+export async function POST(req) {
+  try {
+    const body = await req.json();
+    const { cart, clientData } = body;
+
+    if (!cart || cart.length === 0) {
+      return Response.json({ message: "El carrito está vacío." }, { status: 400 });
+    }
+
+    if (!clientData || !clientData.name || !clientData.phone || !clientData.instagram) {
+      return Response.json({ message: "Faltan datos obligatorios del cliente." }, { status: 400 });
+    }
+
+    // 1. Validar stock y recalcular total en el servidor
+    let total = 0;
+    const itemsToInsert = [];
+    
+    for (let item of cart) {
+      const { data: product } = await supabase
+        .from("products")
+        .select("price, stock")
+        .eq("id", item.id)
+        .single();
+        
+      if (!product || product.stock < item.quantity) {
+        return Response.json({ message: `No hay suficiente stock para uno de los productos.` }, { status: 400 });
+      }
+      
+      total += Number(product.price) * item.quantity;
+      itemsToInsert.push({
+        product_id: item.id,
+        quantity: item.quantity,
+        unit_price: product.price,
+        delivery_status: "pending"
+      });
+    }
+
+    // 2. Buscar o crear cliente
+    let clientId = null;
+    
+    // Buscar por instagram o telefono
+    const { data: existingClient } = await supabase
+      .from("clients")
+      .select("id")
+      .or(`instagram.ilike.%${clientData.instagram.replace('@', '')}%,phone.eq.${clientData.phone}`)
+      .limit(1)
+      .single();
+
+    if (existingClient) {
+      clientId = existingClient.id;
+    } else {
+      // Crear nuevo
+      const { data: newClient, error: clientErr } = await supabase
+        .from("clients")
+        .insert([{
+          name: clientData.name,
+          instagram: clientData.instagram.replace('@', ''),
+          phone: clientData.phone
+        }])
+        .select()
+        .single();
+        
+      if (!clientErr && newClient) {
+        clientId = newClient.id;
+      }
+    }
+
+    // 3. Crear venta
+    const { data: newSale, error: saleError } = await supabase
+      .from("sales")
+      .insert([{
+        client_id: clientId,
+        total: total,
+        down_payment: 0,
+        discount: 0,
+        status: 'catalog_pending',
+        payment_method: 'pendiente'
+      }])
+      .select()
+      .single();
+
+    if (saleError) throw saleError;
+
+    // 4. Insertar items y descontar stock
+    for (let item of itemsToInsert) {
+      item.sale_id = newSale.id;
+      
+      await supabase.from("sale_items").insert([item]);
+      
+      // Descontar inventario
+      const { data: productToUpdate } = await supabase
+        .from("products")
+        .select("stock")
+        .eq("id", item.product_id)
+        .single();
+        
+      if (productToUpdate) {
+        const newStock = Math.max(0, productToUpdate.stock - item.quantity);
+        await supabase
+          .from("products")
+          .update({ stock: newStock })
+          .eq("id", item.product_id);
+      }
+    }
+
+    return Response.json({ message: "Pedido registrado exitosamente.", sale: newSale });
+    
+  } catch (err) {
+    console.error("Error en checkout:", err);
+    return Response.json({ message: "Error en el servidor al procesar pedido." }, { status: 500 });
+  }
+}

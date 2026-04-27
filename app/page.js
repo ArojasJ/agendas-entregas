@@ -1,16 +1,44 @@
 "use client";
 import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+
+// 🚩 Cambia a true cuando la base de datos esté lista
+const CUENTA_Y_CATALOGO_ACTIVO = false;
 
 export default function HomePage() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [profile, setProfile] = useState(null);
+  
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+      if (session) {
+        fetch("/api/clients/me", { cache: "no-store" })
+          .then(res => res.json())
+          .then(data => {
+            if (data.client) setProfile(data.client);
+          });
+      }
+    });
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-emerald-50 to-white flex flex-col relative overflow-hidden">
-      {/* BOTÓN ARRIBA IZQUIERDA */}
-      <a
-        href="/panel" // <- tu ruta de empleados
-        className="absolute top-6 left-6 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow"
-      >
-        Ingresar
-      </a>
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden">
+      {/* BOTÓN ARRIBA DERECHA: MI CUENTA */}
+      {CUENTA_Y_CATALOGO_ACTIVO ? (
+        <a
+          href={isLoggedIn ? "/perfil" : "/login"}
+          className="absolute top-6 right-6 bg-white hover:bg-slate-50 text-slate-700 font-bold px-6 py-2.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95 z-10"
+        >
+          <span>👤</span> {profile ? profile.instagram : (isLoggedIn ? "Mi Cuenta" : "Iniciar Sesión")}
+        </a>
+      ) : (
+        <div className="absolute top-6 right-6 bg-slate-100 text-slate-400 font-bold px-6 py-2.5 rounded-full border border-slate-200 flex items-center gap-2 cursor-not-allowed select-none z-10">
+          <span>🔒</span> Mi Cuenta
+        </div>
+      )}
 
       {/* CONTENIDO CENTRADO */}
       <main className="flex-1 flex flex-col items-center justify-center text-center gap-6 px-4">
@@ -31,7 +59,7 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.25 }}
         >
-          Agenda tus entregas en segundos
+          Noreste Clothes and More.
         </motion.h1>
 
         {/* DESCRIPCIÓN */}
@@ -41,36 +69,72 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.35 }}
         >
-          Domicilio y paquetería.
+          Nuestros productos son ORIGINALES, de las mejores marcas y con precios justos 🇺🇸
         </motion.p>
 
-        {/* BOTÓN PRINCIPAL */}
-        <motion.a
-          href="/agendar" // <- aquí tu ruta real del formulario
-          className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-9 py-3 rounded-full shadow-lg"
+        {/* BOTONES PRINCIPALES */}
+        <motion.div
+          className="flex flex-col sm:flex-row items-center gap-4 mt-2"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.5 }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.985 }}
         >
-          Agendar Entrega
-        </motion.a>
+          <motion.a
+            href="/agendar" // <- aquí tu ruta real del formulario
+            className="bg-white hover:bg-slate-50 text-slate-800 font-bold px-8 py-3.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.985 }}
+          >
+            <span>📦</span> Agendar Entrega
+          </motion.a>
+          
+          {CUENTA_Y_CATALOGO_ACTIVO ? (
+            <motion.a
+              href="/catalogo"
+              className="bg-white hover:bg-slate-50 text-slate-800 font-bold px-8 py-3.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.985 }}
+            >
+              <span>🛍️</span> Ver Catálogo
+            </motion.a>
+          ) : (
+            <div className="bg-slate-100 text-slate-400 font-bold px-8 py-3.5 rounded-full border border-slate-200 flex items-center gap-2 cursor-not-allowed select-none">
+              <span>🔒</span> Ver Catálogo
+            </div>
+          )}
+
+          {isLoggedIn && (
+            <motion.a
+              href="/perfil"
+              className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-8 py-3.5 rounded-full shadow-lg shadow-slate-900/20 flex items-center gap-2 transition-all active:scale-95"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.985 }}
+            >
+              <span>📜</span> Mi Historial
+            </motion.a>
+          )}
+        </motion.div>
 
         {/* TEXTO CHIQUITO */}
         <motion.p
-          className="text-xs text-slate-400"
+          className="text-xs text-slate-500"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.7 }}
         >
-          Disponible 24/7 
+          Disponible 24/7
         </motion.p>
       </main>
 
       {/* FOOTER */}
-      <footer className="py-4 text-center text-xs text-slate-300">
-        © {new Date().getFullYear()} Agéndalo TRC
+      {/* FOOTER */}
+      <footer className="py-6 flex flex-col items-center gap-2 z-10 relative">
+        <div className="opacity-30 hover:opacity-100 transition-opacity">
+          <a href="/panel" className="text-xs text-slate-500 hover:text-emerald-600 font-medium tracking-widest uppercase">
+            Acceso Empleados
+          </a>
+        </div>
+        <p className="text-xs text-slate-700">© {new Date().getFullYear()} Noreste CM</p>
       </footer>
     </div>
   );

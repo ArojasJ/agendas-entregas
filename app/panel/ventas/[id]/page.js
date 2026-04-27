@@ -1,0 +1,500 @@
+"use client";
+import { useEffect, useState } from "react";
+import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
+
+export default function SaleDetailPage() {
+  const router = useRouter();
+  const { id } = useParams();
+  const [sale, setSale] = useState(null);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Estados del modal de pago (Catálogo)
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [paymentMode, setPaymentMode] = useState("paid"); // "paid" o "credit"
+  const [downPayment, setDownPayment] = useState("");
+
+  const [showAbonoModal, setShowAbonoModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [abonoAmount, setAbonoAmount] = useState("");
+  const [savingAbono, setSavingAbono] = useState(false);
+  const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+
+  const showToast = (message, type = "success") => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: "", type: "success" }), 4000);
+  };
+
+  useEffect(() => {
+    if (id) fetchSaleDetail();
+  }, [id]);
+
+  const fetchSaleDetail = async () => {
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/sales/${id}`, {
+        headers: { "x-panel-token": token },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        
+        if (data.sale && data.sale.status === "catalog_pending") {
+          await fetch(`/api/sales/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", "x-panel-token": token },
+            body: JSON.stringify({ status: "catalog_viewed" })
+          });
+          data.sale.status = "catalog_viewed";
+        }
+
+        setSale(data.sale);
+        // Cargar bookings para detectar intentos fallidos por item
+        const bRes = await fetch("/api/bookings", { headers: { "x-panel-token": token } });
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          setBookings(bData.bookings || []);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="p-10 text-center opacity-50">Cargando detalles de la venta...</div>;
+  }
+
+  if (!sale) {
+    return (
+      <div className="p-10 text-center">
+        <h1 className="text-2xl font-bold mb-4">Venta no encontrada</h1>
+        <button onClick={() => router.back()} className="px-4 py-2 bg-slate-100 rounded-xl text-slate-700">Regresar</button>
+      </div>
+    );
+  }
+
+  const date = new Date(sale.created_at).toLocaleString("es-MX", {
+    day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+  });
+
+  const isCatalog = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
+  const isCredit = sale.status === 'credit';
+  const totalPagadoAbonos = (sale.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
+  const totalPagado = isCatalog ? 0 : Number(sale.down_payment) + totalPagadoAbonos;
+  const deuda = isCatalog ? Number(sale.total) : isCredit ? Math.max(0, Number(sale.total) - totalPagado) : 0;
+  
+  const handleConfirmCatalog = async (e) => {
+    e.preventDefault();
+    if (paymentMode === "credit" && (!downPayment || Number(downPayment) <= 0)) {
+      return showToast("Ingresa un enganche válido", "error");
+    }
+
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const finalStatus = paymentMode === "credit" ? "credit" : "paid";
+      const finalDownPayment = paymentMode === "credit" ? Number(downPayment) : Number(sale.total);
+
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ 
+          status: finalStatus,
+          payment_method: "Pedido Web",
+          down_payment: finalDownPayment
+        })
+      });
+
+      if (res.ok) {
+        showToast("Venta confirmada exitosamente", "success");
+        setShowConfirmModal(false);
+        fetchSaleDetail();
+      } else {
+        showToast("Error al confirmar", "error");
+      }
+    } catch (err) {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+  
+  const handleCancelForfeit = async () => {
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ action: "cancel_forfeit" })
+      });
+      if (res.ok) {
+        showToast("Venta penalizada correctamente", "success");
+        setShowCancelModal(false);
+        fetchSaleDetail();
+      } else {
+        showToast("Error al penalizar", "error");
+      }
+    } catch (err) {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
+  const handleAbono = async (e) => {
+    e.preventDefault();
+    if (!abonoAmount || Number(abonoAmount) <= 0) return showToast("Ingresa una cantidad válida", "error");
+    if (Number(abonoAmount) > deuda) return showToast("El abono no puede ser mayor al adeudo", "error");
+
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ sale_id: sale.id, amount: Number(abonoAmount) })
+      });
+      if (res.ok) {
+        showToast("Abono registrado con éxito", "success");
+        setShowAbonoModal(false);
+        setAbonoAmount("");
+        fetchSaleDetail(); // Recargar venta
+      } else {
+        showToast("Error al registrar abono", "error");
+      }
+    } catch (err) {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
+  const igDisplay = sale.clients?.instagram ? sale.clients.instagram : (sale.clients?.name || "Público General");
+
+  return (
+    <main className="max-w-4xl mx-auto px-4 md:px-8 py-8 relative">
+      {/* TOAST */}
+      <div className={`fixed top-6 right-6 z-[60] transition-all duration-500 transform ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-10 opacity-0 pointer-events-none"}`}>
+        <div className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-md ${toast.type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}>
+          <span className="text-xl">{toast.type === 'error' ? '⚠️' : '✓'}</span>
+          <span className="font-semibold text-sm">{toast.message}</span>
+        </div>
+      </div>
+      <button 
+        onClick={() => router.back()} 
+        className="mb-6 flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition-colors"
+      >
+        <span>←</span> Volver atrás
+      </button>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900">Detalle de Venta</h1>
+          <p className="text-sm mt-1 text-slate-500">ID: {sale.id} • {date}</p>
+        </div>
+        <div className="flex flex-col items-end">
+          {sale.client_id ? (
+            <Link 
+              href={`/panel/clientes?search=${sale.clients?.instagram || sale.clients?.name}`}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-colors"
+            >
+              👤 Ver Cliente: {igDisplay}
+            </Link>
+          ) : (
+            <span className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl font-bold">👤 Público General</span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Total de la Venta</span>
+          <span className="text-3xl font-black text-slate-900">${sale.total}</span>
+          <p className="text-xs text-slate-500 mt-2">Método: {sale.payment_method}</p>
+        </div>
+        
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
+          <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
+          <p className="text-xs text-slate-500 mt-2">
+            {isCatalog ? "Pendiente de confirmación" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+          </p>
+        </div>
+
+        <div className={`border rounded-2xl p-6 shadow-sm ${sale.status === 'cancelled' ? 'bg-red-50 border-red-100' : deuda > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
+          <span className={`text-[10px] font-black uppercase tracking-widest block mb-1 ${sale.status === 'cancelled' ? 'text-red-500' : deuda > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+            Estado / Deuda
+          </span>
+          <span className={`text-3xl font-black ${sale.status === 'cancelled' ? 'text-red-600' : deuda > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+            {sale.status === 'cancelled' ? "PENALIZACIÓN" : deuda > 0 ? `$${deuda.toFixed(2)}` : "Liquidada"}
+          </span>
+          <p className={`text-xs mt-2 ${sale.status === 'cancelled' ? 'text-red-600/70' : deuda > 0 ? 'text-amber-600/70' : 'text-slate-500'}`}>
+            {sale.status === 'cancelled' ? "PENALIZACIÓN POR IMPAGO" : isCatalog ? "Pedido Web sin confirmar" : deuda > 0 ? "Pendiente de pago" : "Sin adeudo restante"}
+          </p>
+        </div>
+      </div>
+
+      {isCatalog && (
+        <div className="mb-8 p-6 bg-indigo-50 border border-indigo-200 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div>
+            <h2 className="text-lg font-black text-indigo-900 flex items-center gap-2">
+              <span>🛒</span> Pedido Web Pendiente
+            </h2>
+            <p className="text-sm text-indigo-700/80 mt-1">Confirma el pago de este pedido para registrar el ingreso y quitarlo de la lista de pendientes.</p>
+          </div>
+          <button 
+            onClick={() => setShowConfirmModal(true)}
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl shadow-lg shadow-indigo-500/30 transition-all active:scale-95 whitespace-nowrap"
+          >
+            ✓ Confirmar Pago
+          </button>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          {/* PRODUCTOS */}
+          <section>
+            <h2 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
+              <span className="text-xl">📦</span> Productos
+            </h2>
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-100">
+              {sale.sale_items && sale.sale_items.map((item) => (
+                <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    {item.products?.image_url ? (
+                      <img src={item.products.image_url} alt="Producto" className="w-12 h-12 object-cover rounded-lg border border-slate-200" />
+                    ) : (
+                      <div className="w-12 h-12 bg-slate-100 rounded-lg border border-slate-200 flex items-center justify-center text-xl">📸</div>
+                    )}
+                    <div>
+                      <h4 className="font-bold text-slate-900">{item.products?.name || "Producto Borrado"}</h4>
+                      <p className="text-xs text-slate-500">{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} a ${item.unit_price} c/u</p>
+                      {item.delivery_status === 'delivered' ? (
+                        <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
+                          ✓ Entregado
+                        </span>
+                      ) : (() => {
+                        const failedBk = bookings.find(bk => {
+                          let ids = bk.sale_item_ids || [];
+                          if (typeof ids === 'string') { try { ids = JSON.parse(ids); } catch(e) { ids = []; } }
+                          return Array.isArray(ids) && ids.includes(item.id) && bk.delivery_status === 'no_entregado';
+                        });
+                        const failedDate = failedBk?.date
+                          ? new Date(failedBk.date + "T00:00:00").toLocaleDateString("es-MX", { day: 'numeric', month: 'short', year: 'numeric' })
+                          : null;
+                        return (
+                          <div className="flex flex-col gap-1 mt-1">
+                            {failedBk && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-600 text-[10px] font-black uppercase rounded-md border border-rose-100">
+                                ⚠ Intento fallido{failedDate ? ` — ${failedDate}` : ""}
+                              </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-[10px] font-black uppercase rounded-md border border-amber-100">
+                              ⌛ Pendiente de Entrega
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  {item.product_id && (
+                    <Link 
+                      href={`/panel/inventario?id=${item.product_id}`}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+                    >
+                      Ver en Inventario
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ABONOS */}
+          {isCredit && (
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <span className="text-xl">💸</span> Historial de Abonos
+                </h2>
+                {deuda > 0 && (
+                  <button 
+                    onClick={() => { setAbonoAmount(deuda); setShowAbonoModal(true); }}
+                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                  >
+                    + Registrar Abono
+                  </button>
+                )}
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                {sale.payments && sale.payments.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {sale.payments.map(p => (
+                      <div key={p.id} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                        <div>
+                          <p className="font-bold text-slate-900">${p.amount}</p>
+                          <p className="text-xs text-slate-500">
+                            {new Date(p.created_at).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-slate-500 text-sm">
+                    No se han registrado abonos adicionales a esta venta.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* COLUMNA LATERAL (LOG/METADATA SI ES NECESARIO) */}
+        <div className="space-y-6">
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+            <h3 className="font-bold text-sm uppercase tracking-widest text-slate-500 mb-4">Acciones de Venta</h3>
+            <div className="space-y-3 text-sm">
+              {sale.status !== 'cancelled' && (
+                <button 
+                  onClick={() => setShowCancelModal(true)}
+                  className="w-full py-2.5 bg-white border border-red-200 text-red-600 font-bold rounded-xl hover:bg-red-50 transition-colors"
+                >
+                  ⚠️ Cancelar y Penalizar
+                </button>
+              )}
+              <div className="pt-2 border-t border-slate-200 mt-2">
+                <div className="flex justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500">Registrado por:</span>
+                  <span className="font-bold text-emerald-600">{sale.staff?.display_name || "Sistema"}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-200 pb-2">
+                  <span className="text-slate-500">Corte de Caja:</span>
+                  <span className="font-medium text-slate-900">{sale.pos_cut_id ? `Corte #${sale.pos_cut_id}` : "Pendiente"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Descuento:</span>
+                  <span className="font-medium text-slate-900">${sale.discount || 0}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* MODAL DE CONFIRMAR PEDIDO CATÁLOGO */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in">
+            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white rounded-t-3xl">
+              <h2 className="text-lg font-bold">Confirmar Pago</h2>
+              <button onClick={() => setShowConfirmModal(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center">✕</button>
+            </div>
+            
+            <form onSubmit={handleConfirmCatalog} className="p-6">
+              
+              <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-xl">
+                <button type="button" onClick={() => setPaymentMode("paid")} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${paymentMode === 'paid' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>Pago Completo</button>
+                <button type="button" onClick={() => setPaymentMode("credit")} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${paymentMode === 'credit' ? 'bg-white text-amber-500 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>Dejó Apartado</button>
+              </div>
+
+              {paymentMode === "credit" && (
+                <div className="mb-6 animate-in slide-in-from-top-2">
+                  <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">¿Con cuánto apartó?</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      required
+                      max={sale.total}
+                      value={downPayment}
+                      onChange={e => setDownPayment(e.target.value)}
+                      className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowConfirmModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button type="submit" disabled={savingAbono} className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition-all active:scale-95">
+                  {savingAbono ? "Guardando..." : "Confirmar Venta"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE ABONO */}
+      {showAbonoModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in">
+            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white rounded-t-3xl">
+              <h2 className="text-lg font-bold">Registrar Abono</h2>
+              <button onClick={() => setShowAbonoModal(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center">✕</button>
+            </div>
+            
+            <form onSubmit={handleAbono} className="p-6">
+              <div className="text-center mb-6">
+                <p className="text-sm text-slate-500 mb-1">Adeudo actual</p>
+                <p className="text-3xl font-black text-amber-500">${deuda.toFixed(2)}</p>
+              </div>
+
+              <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">Cantidad a abonar</label>
+              <div className="relative mb-6">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  required
+                  max={deuda}
+                  value={abonoAmount}
+                  onChange={e => setAbonoAmount(e.target.value)}
+                  className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowAbonoModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button type="submit" disabled={savingAbono} className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition-all active:scale-95">
+                  {savingAbono ? "Guardando..." : "Guardar Pago"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL DE PENALIZACIÓN */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4 text-2xl">
+                ⚠️
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 mb-2">¿Confirmar Penalización?</h2>
+              <p className="text-sm text-slate-500">
+                Los productos regresarán al inventario automáticamente. <br/>
+                <strong>El dinero recibido se quedará como penalización por impago.</strong>
+              </p>
+            </div>
+            
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
+              <button onClick={() => setShowCancelModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Cancelar</button>
+              <button onClick={handleCancelForfeit} disabled={savingAbono} className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/20 disabled:opacity-50 transition-all active:scale-95">
+                {savingAbono ? "Procesando..." : "Sí, Penalizar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

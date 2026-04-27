@@ -1,41 +1,41 @@
 // app/api/login-panel/route.js
+import { supabase } from "@/lib/supabaseClient";
 
 export async function POST(request) {
   try {
-    const { password } = await request.json();
-
-    // 🔑 contraseñas por rol
-    const adminPassword = process.env.PANEL_PASSWORD || "MELANNY";
-    const driverPassword = process.env.PANEL_DRIVER_PASSWORD || "REPARTIDOR";
+    const { username, password } = await request.json();
 
     const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
 
-    if (!password) {
+    if (!username || !password) {
       return new Response(
-        JSON.stringify({ success: false, message: "Falta la contraseña." }),
+        JSON.stringify({ success: false, message: "Faltan credenciales." }),
         { status: 400 }
       );
     }
 
-    let role = null;
+    // 🔍 Buscar en la tabla staff
+    const { data: user, error } = await supabase
+      .from("staff")
+      .select("*")
+      .eq("username", username.toLowerCase())
+      .eq("password", password) // En un sistema real usaríamos bcrypt, pero seguiremos la estructura simple solicitada
+      .single();
 
-    if (password === adminPassword) {
-      role = "admin";
-    } else if (password === driverPassword) {
-      role = "driver";
-    }
-
-    if (!role) {
+    if (error || !user) {
       return new Response(
-        JSON.stringify({ success: false, message: "Contraseña incorrecta." }),
+        JSON.stringify({ success: false, message: "Usuario o contraseña incorrectos." }),
         { status: 401 }
       );
     }
 
-    // ✅ token con rol incluido
+    // ✅ token con info completa
     const payload = {
       issuedAt: Date.now(),
-      role,
+      staffId: user.id,
+      username: user.username,
+      role: user.role,
+      displayName: user.display_name
     };
 
     const token = Buffer.from(
@@ -47,7 +47,9 @@ export async function POST(request) {
         success: true,
         message: "Acceso autorizado.",
         token,
-        role, // 👈 lo usamos en el frontend para saber qué mostrar
+        role: user.role,
+        displayName: user.display_name,
+        staffId: user.id
       }),
       { status: 200 }
     );

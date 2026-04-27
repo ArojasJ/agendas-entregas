@@ -125,7 +125,11 @@ export default function AgendarPage() {
   const [insta, setInsta] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [street, setStreet] = useState("");
+  const [houseNum, setHouseNum] = useState("");
+  const [colonia, setColonia] = useState("");
+  const [references, setReferences] = useState("");
+  const [address, setAddress] = useState(""); // Se usará para paquetería o como respaldo
   const [notes, setNotes] = useState("");
   const [city, setCity] = useState(""); // solo paquetería
   const [stateMx, setStateMx] = useState("Coahuila"); // paquetería
@@ -142,6 +146,13 @@ export default function AgendarPage() {
   const [successText, setSuccessText] = useState("");
   const [successBooking, setSuccessBooking] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Perfil Inteligente
+  const [clientProfile, setClientProfile] = useState(null);
+  const [clientSales, setClientSales] = useState([]);
+  const [clientBookings, setClientBookings] = useState([]);
+  const [selectedItems, setSelectedItems] = useState([]); // items seleccionados
+  const [calculatingDebt, setCalculatingDebt] = useState(0);
 
   // modal ayuda ubicación
   const [showLocationHelp, setShowLocationHelp] = useState(false);
@@ -175,6 +186,27 @@ export default function AgendarPage() {
       }
     };
     fetchData();
+
+    // Cargar perfil inteligente
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch("/api/clients/me/dashboard");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.client) {
+            setClientProfile(data.client);
+            setInsta(data.client.instagram || "");
+            setFullName(data.client.name || "");
+            setPhone(data.client.phone || "");
+            setClientSales(data.sales || []);
+            setClientBookings(data.bookings || []);
+          }
+        }
+      } catch (err) {
+        console.warn("No logged in", err);
+      }
+    };
+    fetchProfile();
   }, []);
 
   const isBlocked = (dateStr, type) => {
@@ -246,6 +278,37 @@ export default function AgendarPage() {
       ? Math.max(DOMICILIO_LIMIT - domicilioCountForSelected, 0)
       : DOMICILIO_LIMIT;
 
+  // Penalización por intento fallido: solo si el último no_entregado no fue seguido de un entregado
+  const lastFailed = clientBookings
+    .filter(bk => bk.delivery_status === "no_entregado")
+    .sort((a, b) => new Date(b.date) - new Date(a.date))[0] || null;
+  const hasPendingFailedAttempt = !!lastFailed && !clientBookings.some(
+    bk => bk.delivery_status === "entregado" && new Date(bk.date) > new Date(lastFailed.date)
+  );
+
+  // Calcular deuda de productos seleccionados
+  useEffect(() => {
+    let debt = 0;
+    const debtBySale = new Map();
+    selectedItems.forEach(item => {
+      const sale = clientSales.find(s => s.id === item.sale_id);
+      if (sale && (sale.status === 'credit' || sale.status === 'catalog_pending' || sale.status === 'catalog_viewed')) {
+        // Calculamos cuánto se ha pagado en total (enganche + abonos)
+        const totalPaid = Number(sale.down_payment || 0) + (sale.payments ? sale.payments.reduce((acc, p) => acc + p.amount, 0) : 0);
+        const saleDebt = Math.max(0, Number(sale.total) - totalPaid);
+        
+        // Si la venta tiene deuda, mostramos la deuda total de la venta para que el cliente sepa qué falta liquidar
+        // Para evitar confusiones, sumaremos la deuda de la venta a la que pertenece el item
+        // Pero solo una vez por venta para no duplicar si hay varios items de la misma venta
+        if (!debtBySale.has(sale.id)) {
+          debtBySale.set(sale.id, saleDebt);
+          debt += saleDebt;
+        }
+      }
+    });
+    setCalculatingDebt(debt);
+  }, [selectedItems, clientSales]);
+
   const handleBodegaBooking = async (day, date, extraInfo = {}) => {
     if (!BODEGA_ACTIVA) return; // Protección extra
     if (isSubmitting) return;
@@ -292,6 +355,11 @@ export default function AgendarPage() {
       const isExtraDay = !!extraInfo?.isExtra;
       const dayToSend = isExtraDay ? null : (day || null);
 
+      let productsString = "";
+      if (selectedItems.length > 0) {
+        productsString = selectedItems.map(i => `${i.quantity}x ${i.product_name}`).join(", ");
+      }
+
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -303,6 +371,8 @@ export default function AgendarPage() {
           instagram: instaValue,
           fullName,
           phone,
+          products: productsString || null,
+          amountDue: calculatingDebt
         }),
       });
 
@@ -359,12 +429,15 @@ export default function AgendarPage() {
       !insta ||
       !fullName ||
       !phone ||
-      !address ||
+      !street ||
+      !houseNum ||
+      !colonia ||
+      !references ||
       !domicilioCity ||
       !domicilioState ||
       !domicilioCP
     ) {
-      setError("Llena todos los campos (incluye ciudad, estado y C.P.).");
+      setError("Llena todos los campos (incluye calle, número, colonia y referencias).");
       return;
     }
     if (domicilioCP.length !== 5) {
@@ -413,6 +486,14 @@ export default function AgendarPage() {
 
     try {
       setIsSubmitting(true);
+      
+      let productsString = "";
+      if (selectedItems.length > 0) {
+        productsString = selectedItems.map(i => `${i.quantity}x ${i.product_name}`).join(", ");
+      }
+
+      const deliveryFee = hasPendingFailedAttempt ? 90 : 45;
+
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -421,13 +502,15 @@ export default function AgendarPage() {
           instagram: instaValue,
           fullName,
           phone,
-          address,
+          address: `Calle: ${street}, Num: ${houseNum}, Col: ${colonia}, Ref: ${references}`,
           notes,
           date: selectedStr,
           city: domicilioCity,
           state: domicilioState,
           postalCode: domicilioCP,
           locationUrl,
+          products: productsString || null,
+          amountDue: calculatingDebt + deliveryFee
         }),
       });
       const data = await res.json();
@@ -447,7 +530,7 @@ export default function AgendarPage() {
           date: selectedStr,
           fullName,
           phone,
-          address,
+          address: `Calle: ${street}, Num: ${houseNum}, Col: ${colonia}, Ref: ${references}`,
           notes,
           city: domicilioCity,
           state: domicilioState,
@@ -460,6 +543,10 @@ export default function AgendarPage() {
         setInsta("");
         setFullName("");
         setPhone("");
+        setStreet("");
+        setHouseNum("");
+        setColonia("");
+        setReferences("");
         setAddress("");
         setNotes("");
         setDeliveryDate(null);
@@ -467,6 +554,7 @@ export default function AgendarPage() {
         setDomicilioState("");
         setDomicilioCP("");
         setLocationUrl("");
+        setSelectedItems([]);
 
         setAllBookings((prev) => [
           ...prev,
@@ -477,12 +565,14 @@ export default function AgendarPage() {
             instagram: instaValue,
             fullName,
             phone,
-            address,
+            address: `Calle: ${street}, Num: ${houseNum}, Col: ${colonia}, Ref: ${references}`,
             notes,
             city: domicilioCity,
             state: domicilioState,
             postalCode: domicilioCP,
             locationUrl,
+            products: productsString || null,
+            amount_due: calculatingDebt + deliveryFee
           },
         ]);
       }
@@ -593,64 +683,137 @@ export default function AgendarPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center py-10 px-4">
-      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6 md:p-8">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-20">
+      <div className="w-full max-w-3xl mx-auto px-4 pt-6 pb-2">
         {/* botón inicio */}
         <div className="mb-4">
           <a
             href="/"
-            className="inline-flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+            className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 font-bold transition-colors"
           >
-            🏠 Inicio
+            <span>←</span> Volver a Inicio
           </a>
         </div>
 
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Agenda tu entrega</h1>
-            <p className="text-sm text-slate-500">
-              Nuestros productos son ORIGINALES, de las mejores marcas y con precios
-              justos 🇺🇸
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Agenda tu entrega</h1>
+            <p className="text-sm text-slate-500 font-medium mt-1">
+              Productos originales y al mejor precio 🇺🇸
             </p>
           </div>
+          {!clientProfile && (
+            <a href="/login" className="bg-slate-900 hover:bg-slate-800 text-white shadow-lg shadow-slate-900/20 text-xs font-bold px-5 py-2.5 rounded-full transition-all flex items-center gap-2">
+              <span>👤</span> Iniciar Sesión
+            </a>
+          )}
         </div>
 
-        {/* selector */}
-        <div className="flex gap-2 mb-6">
-          {/* 🟢 AJUSTE: Botón de Bodega solo si está activa */}
+        {/* SELECTOR DE MODO PREMIUM */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
           {BODEGA_ACTIVA && (
             <button
               onClick={() => setMode("bodega")}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
+              className={`py-4 px-4 rounded-3xl text-sm font-black transition-all flex items-center justify-center gap-3 border-2 ${
                 mode === "bodega"
-                  ? "bg-emerald-500 text-white"
-                  : "bg-slate-100 text-slate-600"
+                  ? "bg-slate-900 border-slate-900 text-white shadow-xl scale-105"
+                  : "bg-white border-slate-100 text-slate-400"
               }`}
             >
-              Recoger en bodega
+              <span className="text-xl">🏪</span> Bodega
             </button>
           )}
           <button
             onClick={() => setMode("domicilio")}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
+            className={`py-4 px-4 rounded-3xl text-sm font-black transition-all flex items-center justify-center gap-3 border-2 ${
               mode === "domicilio"
-                ? "bg-emerald-500 text-white"
-                : "bg-slate-100 text-slate-600"
+                ? "bg-sky-500 border-sky-500 text-white shadow-xl scale-105"
+                : "bg-white border-slate-100 text-slate-400"
             }`}
           >
-            Entrega a domicilio
+            <span className="text-xl">🛵</span> Domicilio
           </button>
           <button
             onClick={() => setMode("paqueteria")}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${
+            className={`py-4 px-4 rounded-3xl text-sm font-black transition-all flex items-center justify-center gap-3 border-2 ${
               mode === "paqueteria"
-                ? "bg-emerald-500 text-white"
-                : "bg-slate-100 text-slate-600"
+                ? "bg-sky-500 border-sky-500 text-white shadow-xl scale-105"
+                : "bg-white border-slate-100 text-slate-400"
             }`}
           >
-            Paquetería 📦
+            <span className="text-xl">📦</span> Paquetería
           </button>
         </div>
+
+        {/* SELECCIÓN DE PRODUCTOS (INTERFAZ TÁCTIL) */}
+        {clientProfile && clientSales.some(s => s.status !== 'cancelled' && s.sale_items?.some(i => i.delivery_status !== 'delivered')) && mode !== "paqueteria" && (
+          <div className="mb-8 bg-white border-2 border-slate-100 rounded-[2.5rem] p-6 shadow-sm overflow-hidden relative">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 bg-sky-500/10 text-sky-600 rounded-xl flex items-center justify-center text-xl">📦</div>
+              <div>
+                <h3 className="font-black text-slate-900 leading-tight">Tus artículos listos</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Toca para seleccionar qué enviar</p>
+              </div>
+            </div>
+            
+            <div className="grid gap-3 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+              {clientSales.map(sale => {
+                if (sale.status === 'cancelled') return null;
+                const pendingItems = sale.sale_items?.filter(item => item.delivery_status !== 'delivered') || [];
+                if (pendingItems.length === 0) return null;
+                return pendingItems.map(item => {
+                  const isItemSelected = selectedItems.some(i => i.id === item.id);
+                  return (
+                    <div 
+                      key={item.id} 
+                      onClick={() => {
+                        if (isItemSelected) {
+                          setSelectedItems(selectedItems.filter(i => i.id !== item.id));
+                        } else {
+                          setSelectedItems([...selectedItems, { ...item, sale_id: sale.id, product_name: item.products?.name }]);
+                        }
+                      }}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                        isItemSelected
+                          ? "bg-sky-50 border-sky-500 shadow-md"
+                          : "bg-slate-50/50 border-slate-100 hover:border-slate-200"
+                      }`}
+                    >
+                      <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-colors ${
+                        isItemSelected ? "bg-sky-500 border-sky-500 text-white" : "bg-white border-slate-200"
+                      }`}>
+                        {isItemSelected && <span className="text-xs font-black">✓</span>}
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-sm font-black ${isItemSelected ? "text-sky-900" : "text-slate-800"}`}>
+                          {item.quantity}x {item.products?.name}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
+                            sale.status === 'credit' ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                          }`}>
+                            {sale.status === 'credit' ? "A crédito" : "Pagado"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })}
+            </div>
+            
+            <div className="mt-6 pt-5 border-t border-slate-100 flex justify-between items-center bg-white">
+              <div>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-1">Total a liquidar</span>
+                <span className="text-2xl font-black text-slate-900">${calculatingDebt.toFixed(2)}</span>
+              </div>
+              <div className="text-right">
+                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] block mb-1">Seleccionados</span>
+                 <span className="text-xl font-black text-emerald-500">{selectedItems.length} items</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* contenido */}
         {/* 🟢 AJUSTE: Contenido de Bodega solo si está activa */}
@@ -750,12 +913,12 @@ export default function AgendarPage() {
                       blocked
                         ? "bg-red-100 border-red-200 text-red-700 cursor-not-allowed"
                         : disabled
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        ? "bg-slate-100 text-slate-500 cursor-not-allowed"
                         : "bg-white hover:border-emerald-400"
                     }`}
                   >
                     <p className="text-sm font-medium">{toNiceDate(d)}</p>
-                    <p className="text-[11px] text-slate-400">{weekdayLabel}</p>
+                    <p className="text-[11px] text-slate-500">{weekdayLabel}</p>
 
                     {isExtra && (
                       <p className="text-[11px] text-emerald-700 mt-1">
@@ -780,315 +943,364 @@ export default function AgendarPage() {
             </div>
           </div>
         ) : mode === "domicilio" ? (
-          <form onSubmit={handleDomicilioBooking} className="space-y-4 mb-4">
-            <p className="text-sm text-slate-600">
-              Entregamos de <b>lunes a viernes</b> (sin horario exacto). Debes
-              agendar con al menos <b>1 día de anticipación (no mismo día)</b>.
-            </p>
-
-            <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800">
-              <p className="font-semibold mb-1">
-                Costo de entrega a domicilio: <b>$45 MXN</b>
-              </p>
-              <p className="text-xs">Puedes pagar por transferencia o en efectivo.</p>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
-              <p className="font-semibold mb-1">POLÍTICA DE ENTREGA DOMICILIO</p>
-              <p className="mb-1">
-                Nuestro repartidor tiene una ruta optimizada de entrega por lo que no
-                tenemos hora exacta.
-              </p>
-              <p>
-                Llamaremos 2 veces al llegar, en caso de no tener respuesta el envío
-                deberá ser pagado nuevamente.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Instagram *</label>
-              <input
-                value={insta}
-                onChange={(e) => setInsta(e.target.value)}
-                required
-                placeholder="@tuusuario"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Nombre completo *
-              </label>
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Nombre y apellidos"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Teléfono / WhatsApp *
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={handlePhoneChange}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="871..."
-                inputMode="numeric"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Dirección completa (calle, número, colonia) *
-              </label>
-              <textarea
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Ej. Calle Zaragoza 124, col. Centro..."
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium">
-                  Ubicación de Google Maps (muy recomendado)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowLocationHelp(true)}
-                  className="ml-2 text-xs text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
-                >
-                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-400 text-[10px] font-bold">
-                    i
-                  </span>
-                  Cómo hacerlo
-                </button>
+          <form onSubmit={handleDomicilioBooking} className="space-y-5 mb-8">
+            {clientProfile && hasPendingFailedAttempt && (
+              <div className="bg-rose-50 border-2 border-rose-200 rounded-2xl p-4 shadow-sm">
+                <p className="font-black text-rose-700 flex items-center gap-2 mb-1"><span>⚠️</span> Doble costo de envío aplicado</p>
+                <p className="text-rose-600 text-xs leading-relaxed">
+                  Tuvimos un intento de entrega fallido en tu dirección. Por política, el siguiente envío tiene un costo de <b>$90.00 MXN</b> en lugar de $45.00.
+                </p>
               </div>
-              <input
-                type="text"
-                value={locationUrl}
-                onChange={(e) => setLocationUrl(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Pega aquí el enlace de tu ubicación de Google Maps"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Ciudad *</label>
-                <select
-                  value={domicilioCity}
-                  onChange={handleDomicilioCityChange}
-                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
-                  required
-                >
-                  <option value="">Selecciona ciudad</option>
-                  {LAGUNA_CITIES.map((c) => (
-                    <option key={c.city} value={c.city}>
-                      {c.city}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Estado *</label>
-                <select
-                  value={domicilioState}
-                  onChange={(e) => setDomicilioState(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
-                  required
-                >
-                  <option value="">Selecciona estado</option>
-                  <option value="Coahuila">Coahuila</option>
-                  <option value="Durango">Durango</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Código Postal *
-                </label>
-                <input
-                  value={domicilioCP}
-                  onChange={handleCPChange}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="35000"
-                  inputMode="numeric"
-                  maxLength={5}
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Referencia / notas para el repartidor
-              </label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Casa de portón negro, dejar con vecino, llamar antes..."
-                rows={2}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Fecha de entrega (lunes a viernes) *
-              </label>
-              <DatePicker
-                selected={deliveryDate}
-                onChange={(date) => {
-                  if (!date) {
-                    setDeliveryDate(null);
-                    return;
-                  }
-                  const dateStr = toInputDate(date);
-                  if (isBlocked(dateStr, "domicilio")) {
-                    setError("Ese día no estamos entregando a domicilio.");
-                    setDeliveryDate(null);
-                    return;
-                  }
-                  setError("");
-                  setDeliveryDate(date);
-                }}
-                minDate={minDate}
-                maxDate={maxDate}
-                filterDate={isWeekday}
-                excludeDates={blockedForDomicilio}
-                locale="es"
-                dateFormat="EEEE d 'de' MMMM"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-
-            {deliveryDate && (
-              <p
-                className={`text-sm ${
-                  domicilioRemaining > 0 ? "text-emerald-600" : "text-red-500 font-medium"
-                }`}
-              >
-                {domicilioRemaining > 0
-                  ? `Quedan ${domicilioRemaining} lugar(es) para este día.`
-                  : "Ya no hay lugares para este día."}
-              </p>
             )}
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className={`w-full py-2 rounded-lg text-sm font-semibold ${
-                isSubmitting
-                  ? "bg-slate-300 cursor-not-allowed text-slate-600"
-                  : "bg-emerald-500 hover:bg-emerald-600 text-white"
-              }`}
-            >
-              {isSubmitting ? "Agendando..." : "Agendar entrega a domicilio"}
-            </button>
+            <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">🛵</div>
+              <div className="relative z-10">
+                {clientProfile && hasPendingFailedAttempt ? (
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <span className="font-bold text-sm tracking-wide text-slate-300 block">COSTO DE ENVÍO</span>
+                      <span className="text-[10px] text-rose-400 font-bold uppercase">Penalización por intento fallido</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-black text-xl text-rose-400">$90.00 MXN</span>
+                      <span className="text-slate-500 text-xs line-through block">$45.00</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="font-bold text-sm tracking-wide text-slate-300">COSTO DE ENVÍO</span>
+                    <span className="font-black text-xl">$45.00 MXN</span>
+                  </div>
+                )}
+
+                {clientProfile && selectedItems.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
+                    <div className="flex justify-between text-sm text-slate-300 font-medium">
+                      <span>Adeudo de artículos:</span>
+                      <span>${calculatingDebt.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-black text-lg text-emerald-400 pt-1">
+                      <span>TOTAL A PAGAR:</span>
+                      <span>${(calculatingDebt + (hasPendingFailedAttempt ? 90 : 45)).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-4 text-sm text-amber-900 shadow-sm">
+              <p className="font-bold mb-1 flex items-center gap-2"><span>⚠️</span> POLÍTICA DE ENTREGA</p>
+              <p className="text-amber-800/80 leading-relaxed text-xs">
+                Nuestro repartidor tiene una ruta optimizada, por lo que <b>no tenemos hora exacta</b>.
+                Llamaremos 2 veces al llegar; en caso de no tener respuesta el envío deberá ser pagado nuevamente.
+              </p>
+            </div>
+
+            <div className="grid gap-6 bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 shadow-sm animate-in fade-in slide-in-from-bottom duration-500">
+              <div className="grid grid-cols-1 gap-5">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Instagram de contacto</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">@</span>
+                    <input
+                      value={insta}
+                      onChange={(e) => setInsta(e.target.value)}
+                      required
+                      placeholder="tu_usuario"
+                      className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl pl-10 pr-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Nombre</label>
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    placeholder="Escribe tu nombre"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">WhatsApp de contacto</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={handlePhoneChange}
+                    required
+                    className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    placeholder="10 dígitos sin espacios"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-50">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Calle *</label>
+                    <input
+                      value={street}
+                      onChange={(e) => setStreet(e.target.value)}
+                      required
+                      placeholder="Nombre de la calle"
+                      className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Número (Ext/Int) *</label>
+                    <input
+                      value={houseNum}
+                      onChange={(e) => setHouseNum(e.target.value)}
+                      required
+                      placeholder="Ej: 123 o 123-A"
+                      className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Colonia *</label>
+                    <input
+                      value={colonia}
+                      onChange={(e) => setColonia(e.target.value)}
+                      required
+                      placeholder="Nombre de la colonia"
+                      className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Referencias *</label>
+                    <input
+                      value={references}
+                      onChange={(e) => setReferences(e.target.value)}
+                      required
+                      placeholder="Color de casa, entre calles, etc."
+                      className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Ciudad</label>
+                  <select
+                    value={domicilioCity}
+                    onChange={handleDomicilioCityChange}
+                    className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    required
+                  >
+                    <option value="">Selecciona</option>
+                    {LAGUNA_CITIES.map((c) => (
+                      <option key={c.city} value={c.city}>{c.city}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">C.P.</label>
+                  <input
+                    value={domicilioCP}
+                    onChange={handleCPChange}
+                    className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                    placeholder="35000"
+                    inputMode="numeric"
+                    maxLength={5}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Ubicación Google Maps</label>
+                  <button type="button" onClick={() => setShowLocationHelp(true)} className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">¿CÓMO HACERLO?</button>
+                </div>
+                <input
+                  type="text"
+                  value={locationUrl}
+                  onChange={(e) => setLocationUrl(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  placeholder="Pega el enlace aquí"
+                />
+              </div>
+
+              <div className="pt-6 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fecha de Entrega</label>
+                  {deliveryDate && (
+                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full animate-pulse">
+                      ¡HAY CUPO! {domicilioRemaining} DISP.
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <DatePicker
+                    selected={deliveryDate}
+                    onChange={(date) => {
+                      if (!date) { setDeliveryDate(null); return; }
+                      const dateStr = toInputDate(date);
+                      if (isBlocked(dateStr, "domicilio")) {
+                        setError("Ese día no estamos entregando a domicilio.");
+                        setDeliveryDate(null);
+                        return;
+                      }
+                      setError("");
+                      setDeliveryDate(date);
+                    }}
+                    filterDate={isWeekday}
+                    minDate={minDate}
+                    maxDate={maxDate}
+                    excludeDates={blockedForDomicilio}
+                    placeholderText="Toca para elegir fecha"
+                    className="w-full bg-emerald-500 text-slate-900 border-none rounded-2xl px-4 py-5 text-base font-black text-center focus:outline-none shadow-lg shadow-emerald-500/20"
+                    locale="es"
+                    dateFormat="EEEE d 'de' MMMM"
+                    inline
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Notas adicionales (Opcional)</label>
+                <input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl px-4 py-4 text-sm font-bold focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                  placeholder="Timbres, color de casa, etc..."
+                />
+              </div>
+
+              <div className="bg-indigo-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-600/20 relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-150 transition-transform duration-700 text-4xl">🛵</div>
+                <div className="flex justify-between items-center mb-4 relative z-10">
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Resumen de Envío</span>
+                  <span className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-black">ENTREGA LOCAL</span>
+                </div>
+                <div className="flex justify-between items-end relative z-10">
+                  <div>
+                    <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Costo de envío</p>
+                    <p className="text-3xl font-black">$45.00</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Total a Pagar</p>
+                    <p className="text-3xl font-black">${(calculatingDebt + 45).toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black py-5 rounded-[2rem] shadow-2xl shadow-emerald-500/30 transition-all active:scale-[0.97] flex items-center justify-center gap-3 disabled:opacity-50 mt-2"
+              >
+                {isSubmitting ? (
+                  <div className="w-6 h-6 border-4 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>CONFIRMAR ENTREGA</span>
+                    <span className="text-xl">🛵</span>
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         ) : (
-          <form onSubmit={handlePaqueteriaBooking} className="space-y-4 mb-4">
-            <p className="text-sm text-slate-600">
-              Envíos por paquetería 📦 para clientes fuera de la ciudad. Llena tus
-              datos y te contactaremos por privado para <b>cotizar tu envío</b>.
-            </p>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
-              <p className="font-semibold mb-1">POLÍTICA PAQUETERÍA</p>
-              <p>Agenda tu entrega para cotizar tu paquete.</p>
+          <form onSubmit={handlePaqueteriaBooking} className="space-y-5 mb-8">
+            <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10 text-4xl">📦</div>
+              <div className="relative z-10">
+                <p className="font-bold text-sm tracking-wide text-slate-300 mb-2">ENVÍOS FORÁNEOS</p>
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Envíos por paquetería para clientes fuera de la ciudad. Llena tus datos y te contactaremos por privado para <b>cotizar tu envío</b>.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Instagram *</label>
-              <input
-                value={insta}
-                onChange={(e) => setInsta(e.target.value)}
-                required
-                placeholder="@tuusuario"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Nombre completo *
-              </label>
-              <input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Nombre y apellidos"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Teléfono / WhatsApp *
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={handlePhoneChange}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="871..."
-                inputMode="numeric"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Dirección completa de envío *
-              </label>
-              <textarea
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Calle, número, colonia, referencias..."
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid gap-5 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
               <div>
-                <label className="block text-sm font-medium mb-1">Ciudad *</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Instagram *</label>
                 <input
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
+                  value={insta}
+                  onChange={(e) => setInsta(e.target.value)}
                   required
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Torreón, Gómez, Durango..."
+                  placeholder="@tuusuario"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Estado *</label>
-                <select
-                  value={stateMx}
-                  onChange={(e) => setStateMx(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Nombre completo *</label>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
                   required
-                >
-                  <option value="">Selecciona un estado</option>
-                  {MEX_STATES.map((st) => (
-                    <option key={st} value={st}>
-                      {st}
-                    </option>
-                  ))}
-                </select>
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                  placeholder="Nombre y apellidos"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Teléfono / WhatsApp *</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={handlePhoneChange}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                  placeholder="871..."
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Dirección completa de envío *</label>
+                <textarea
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                  placeholder="Calle, número, colonia, referencias..."
+                  rows={2}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Ciudad *</label>
+                  <input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Ej. Monterrey"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Estado *</label>
+                  <select
+                    value={stateMx}
+                    onChange={(e) => setStateMx(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all"
+                    required
+                  >
+                    <option value="">Selecciona un estado</option>
+                    {MEX_STATES.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full py-2 rounded-lg text-sm font-semibold ${
+              className={`w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 ${
                 isSubmitting
-                  ? "bg-slate-300 cursor-not-allowed text-slate-600"
-                  : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/30"
               }`}
             >
               {isSubmitting ? "Enviando..." : "COTIZAR"}
@@ -1108,122 +1320,79 @@ export default function AgendarPage() {
         )}
       </div>
 
-      {/* 🟢 MODAL DE ÉXITO */}
+      {/* 🟢 MODAL DE ÉXITO PREMIUM */}
       {successModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm text-center space-y-4">
-            <h2 className="text-xl font-semibold text-emerald-600">
-              Entrega agendada
-            </h2>
-            <p className="text-sm text-slate-600">{successText}</p>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-300">
+            <div className="bg-emerald-500 p-8 text-center relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl">✨</div>
+              <div className="w-20 h-20 bg-white rounded-[2rem] flex items-center justify-center text-4xl shadow-xl mx-auto mb-4 relative z-10">
+                {successBooking.type === "domicilio" ? "🛵" : successBooking.type === "bodega" ? "🏪" : "📦"}
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 leading-tight relative z-10">¡Todo listo!</h2>
+              <p className="text-[10px] font-black text-slate-900/60 uppercase tracking-widest mt-1 relative z-10">Tu entrega ha sido agendada</p>
+            </div>
 
-            {successBooking && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-left text-sm text-slate-700">
-                <p className="text-xs uppercase text-slate-400 mb-1">
-                  Detalles de tu entrega
-                </p>
-                <p>
-                  <span className="font-medium">Tipo:</span>{" "}
-                  {successBooking.type === "bodega"
-                    ? "Entrega en bodega"
-                    : successBooking.type === "domicilio"
-                    ? "Entrega a domicilio"
-                    : "Paquetería"}
-                </p>
-                {successBooking.instagram && (
-                  <p>
-                    <span className="font-medium">Instagram:</span>{" "}
-                    {successBooking.instagram}
-                  </p>
-                )}
-                {successBooking.fullName && (
-                  <p>
-                    <span className="font-medium">Cliente:</span>{" "}
-                    {successBooking.fullName}
-                  </p>
-                )}
-                {successBooking.phone && (
-                  <p>
-                    <span className="font-medium">Teléfono:</span>{" "}
-                    {successBooking.phone}
-                  </p>
-                )}
+            <div className="p-8">
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">👤</div>
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Cliente</p>
+                    <p className="text-sm font-bold text-slate-900">{successBooking.fullName}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg">📅</div>
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fecha</p>
+                    <p className="text-sm font-bold text-slate-900">{formatDateStringMX(successBooking.date)}</p>
+                  </div>
+                </div>
+
                 {successBooking.address && (
-                  <p>
-                    <span className="font-medium">Dirección:</span>{" "}
-                    {successBooking.address}
-                  </p>
-                )}
-                {successBooking.city && (
-                  <p>
-                    <span className="font-medium">Ciudad:</span>{" "}
-                    {successBooking.city}
-                  </p>
-                )}
-                {successBooking.state && (
-                  <p>
-                    <span className="font-medium">Estado:</span>{" "}
-                    {successBooking.state}
-                  </p>
-                )}
-                {successBooking.postalCode && (
-                  <p>
-                    <span className="font-medium">C.P.:</span>{" "}
-                    {successBooking.postalCode}
-                  </p>
-                )}
-                {successBooking.locationUrl && (
-                  <p>
-                    <span className="font-medium">Ubicación Maps:</span>{" "}
-                    {successBooking.locationUrl}
-                  </p>
-                )}
-                {successBooking.notes && (
-                  <p>
-                    <span className="font-medium">Notas:</span>{" "}
-                    {successBooking.notes}
-                  </p>
-                )}
-
-                {successBooking.type === "bodega" && successBooking.horario && (
-                  <div className="mt-3 p-3 rounded-lg bg-amber-100 border border-amber-300 text-center">
-                    <p className="text-sm text-amber-900 font-semibold uppercase">
-                      Horario de entrega
-                    </p>
-                    <p className="text-2xl font-extrabold text-amber-900 mt-1">
-                      {successBooking.horario}
-                    </p>
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-lg shrink-0">📍</div>
+                    <div>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Destino</p>
+                      <p className="text-xs font-bold text-slate-900 leading-relaxed">{successBooking.address}, {successBooking.city}</p>
+                    </div>
                   </div>
                 )}
 
-                {successBooking.price && (
-                  <p>
-                    <span className="font-medium">Costo envío:</span>{" "}
-                    ${successBooking.price} MXN
-                  </p>
+                {successBooking.type === "bodega" && successBooking.horario && (
+                  <div className="bg-amber-50 rounded-2xl p-4 border-2 border-amber-100">
+                    <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1 text-center">Horario de Recolección</p>
+                    <p className="text-xl font-black text-amber-900 text-center">{successBooking.horario}</p>
+                  </div>
                 )}
               </div>
-            )}
 
-            <button
-              onClick={() => {
-                setSuccessModal(false);
-                router.push("/");
-              }}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg w-full text-sm font-semibold"
-            >
-              Aceptar
-            </button>
-            <p className="text-[10px] text-slate-400">
-              Puedes tomar captura de pantalla de estos datos 📸
-            </p>
+              <div className="bg-slate-50 rounded-2xl p-4 mb-8 flex items-center justify-between">
+                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID de Registro</p>
+                 <p className="text-xs font-mono font-black text-slate-900">#AG-{Math.floor(1000 + Math.random() * 9000)}</p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setSuccessModal(false);
+                  router.push("/");
+                }}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-4 rounded-2xl shadow-xl active:scale-[0.97] transition-all"
+              >
+                CERRAR Y VOLVER
+              </button>
+              
+              <p className="text-center text-[10px] font-bold text-slate-400 mt-4 uppercase tracking-widest">📸 ¡Toma una captura!</p>
+            </div>
           </div>
         </div>
       )}
 
       {/* ℹ️ MODAL DE AYUDA PARA UBICACIÓN DE MAPS */}
       {showLocationHelp && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+        <div className="fixed inset-0 bg-slate-50/40 flex items-center justify-center z-40">
           <div className="bg-white rounded-2xl shadow-xl p-5 w-full max-w-md text-sm text-slate-700 space-y-3">
             <h2 className="text-base font-semibold text-slate-900">
               ¿Cómo copiar tu ubicación desde Google Maps?
@@ -1242,7 +1411,7 @@ export default function AgendarPage() {
             <button
               type="button"
               onClick={() => setShowLocationHelp(false)}
-              className="mt-2 w-full bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-2 text-xs sm:text-sm font-semibold"
+              className="mt-2 w-full bg-emerald-500 hover:bg-emerald-600 text-slate-900 rounded-lg py-2 text-xs sm:text-sm font-semibold"
             >
               Entendido
             </button>

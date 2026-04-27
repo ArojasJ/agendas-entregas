@@ -1,23 +1,24 @@
-// app/api/bookings/route.js
-import { supabase } from "@/lib/supabaseClient";
+// app/api/bookings/route.js — CACHE BUST v2 (23-04-2026 11:35)
+import { supabase as supabaseAnon } from "@/lib/supabaseClient";
+import { createClient } from "@supabase/supabase-js";
+
+// Creamos un cliente con Service Role para saltar RLS si la llave existe
+const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY 
+  ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  : supabaseAnon;
 
 // 🔐 helper para validar token del panel
-function validatePanelToken(req) {
+function getPanelSession(req) {
   const headerToken = req.headers.get("x-panel-token");
   const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
-
-  if (!headerToken) return false;
-
+  if (!headerToken) return null;
   try {
     const decoded = Buffer.from(headerToken, "base64").toString("utf8");
     const [json, sig] = decoded.split("|");
-
-    if (sig !== secret) return false;
-
-    return true;
+    if (sig !== secret) return null;
+    return JSON.parse(json);
   } catch (err) {
-    console.error("Error al validar token:", err);
-    return false;
+    return null;
   }
 }
 
@@ -50,7 +51,8 @@ let SLOTS = {
 // 🟢 GET → obtener todas las agendas, los slots, los días bloqueados y días extra de bodega
 export async function GET(req) {
   // 🔒 solo el panel puede leer
-  if (!validatePanelToken(req)) {
+  const session = getPanelSession(req);
+  if (!session) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
@@ -101,7 +103,8 @@ export async function POST(req) {
 
     // 0️⃣ agregar día EXTRA de bodega (solo panel)
     if (body.action === "add-bodega-extra-day") {
-      if (!validatePanelToken(req)) {
+      const session = getPanelSession(req);
+  if (!session) {
         return Response.json({ message: "No autorizado" }, { status: 401 });
       }
 
@@ -160,7 +163,8 @@ export async function POST(req) {
 
     // 1️⃣ si viene desde el panel para BLOQUEAR un día
     if (body.action === "block-day") {
-      if (!validatePanelToken(req)) {
+      const session = getPanelSession(req);
+  if (!session) {
         return Response.json({ message: "No autorizado" }, { status: 401 });
       }
 
@@ -211,11 +215,12 @@ export async function POST(req) {
       notes,
       override,
       postalCode,
-      // 🆕 campos nuevos (pueden venir vacíos)
+      // 🆕 campos nuevos
       products,
       amountDue,
       deliveryStatus,
       paymentMethod,
+      sale_item_ids,
       // 🆕 URL de ubicación de Google Maps
       locationUrl,
     } = body;
@@ -276,7 +281,8 @@ export async function POST(req) {
 
     // 🔸 si viene con override (desde panel), lo guardamos directo PERO pidiendo token
     if (override) {
-      if (!validatePanelToken(req)) {
+      const session = getPanelSession(req);
+  if (!session) {
         return Response.json({ message: "No autorizado" }, { status: 401 });
       }
 
@@ -298,14 +304,13 @@ export async function POST(req) {
             override: true,
             status: type === "paqueteria" ? "pendiente" : null,
             createdAt: new Date().toISOString(),
-            // 🆕 campos nuevos
             products: productsToSave,
             amount_due: amountDueToSave,
             delivery_status: deliveryStatusToSave,
             payment_method: paymentMethodToSave,
             delivered_at: deliveredAtToSave,
-            // 🆕 ubicación de Google Maps
             location_url: locationUrl || null,
+            sale_item_ids: sale_item_ids || []
           },
         ])
         .select()
@@ -314,13 +319,66 @@ export async function POST(req) {
       if (error) {
         console.error(error);
         return Response.json(
-          { message: "No se pudo registrar." },
+          { message: "No se pudo registrar la entrega manual." },
           { status: 500 }
         );
       }
 
+      // --- LÓGICA DE POST-ENTREGA (Vaciado, marcado de items y gestión de deuda) ---
+      if (deliveryStatusToSave === "entregado") {
+        try {
+          const igNorm = instagram ? instagram.trim() : "";
+          const igToSearch = igNorm.replace(/^@/, '');
+          let sItemIds = sale_item_ids || [];
+          if (typeof sItemIds === 'string') { try { sItemIds = JSON.parse(sItemIds); } catch(e) { sItemIds = []; } }
+
+          if (igNorm) {
+            // 1. Marcar items por ID
+            if (Array.isArray(sItemIds) && sItemIds.length > 0) {
+              await supabase.from("sale_items").update({ delivery_status: "delivered" }).in("id", sItemIds);
+            } 
+            
+            // 2. Respaldo por nombre
+            if (productsToSave) {
+              const { data: client } = await supabase.from("clients").select("id")
+                .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`).single();
+              if (client) {
+                const pLines = productsToSave.split('\n');
+                for (const line of pLines) {
+                  const match = line.match(/(?:\d+x\s+)?(.+)/i);
+                  if (match) {
+                    const pName = match[1].trim().toLowerCase();
+                    const { data: sales } = await supabase.from("sales").select("id").eq("client_id", client.id);
+                    if (sales?.length > 0) {
+                      const sIds = sales.map(s => s.id);
+                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).neq("delivery_status", "delivered");
+                      const matched = items?.find(it => it.products?.name?.toLowerCase().trim() === pName);
+                      if (matched) await supabase.from("sale_items").update({ delivery_status: "delivered" }).eq("id", matched.id);
+                    }
+                  }
+                }
+              }
+            }
+
+            // 3. Liquidar deudas
+            const { data: clientForDebt } = await supabase.from("clients").select("id")
+              .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`).single();
+            if (clientForDebt) {
+              const { data: activeSales } = await supabase.from("sales").select("id, total").eq("client_id", clientForDebt.id).eq("status", "credit");
+              for (const s of activeSales || []) {
+                const { data: pItems } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).neq("delivery_status", "delivered");
+                if (!pItems || pItems.length === 0) {
+                  await supabase.from("sales").update({ status: 'paid', down_payment: s.total }).eq("id", s.id);
+                }
+              }
+            }
+          }
+        } catch (err) { console.error("Error en post-entrega (POST):", err); }
+      }
+      // ------------------------------------------------------------------
+
       return Response.json({
-        message: "Entrega manual registrada (override).",
+        message: "Entrega manual registrada exitosamente.",
         booking: data,
       });
     }
@@ -473,7 +531,8 @@ export async function POST(req) {
 
 // 🟠 DELETE → eliminar una agenda por id (solo panel) o quitar bloqueo o quitar día extra
 export async function DELETE(req) {
-  if (!validatePanelToken(req)) {
+  const session = getPanelSession(req);
+  if (!session) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
@@ -483,36 +542,14 @@ export async function DELETE(req) {
   const extraDayId = searchParams.get("extraDayId");
 
   if (blockedId) {
-    const { error } = await supabase
-      .from("blocked_days")
-      .delete()
-      .eq("id", blockedId);
-
-    if (error) {
-      console.error(error);
-      return Response.json(
-        { message: "No se pudo quitar el bloqueo." },
-        { status: 500 }
-      );
-    }
-
+    const { error } = await supabase.from("blocked_days").delete().eq("id", blockedId);
+    if (error) return Response.json({ message: "No se pudo quitar el bloqueo." }, { status: 500 });
     return Response.json({ message: "Bloqueo eliminado." });
   }
 
   if (extraDayId) {
-    const { error } = await supabase
-      .from("bodega_extra_days")
-      .delete()
-      .eq("id", extraDayId);
-
-    if (error) {
-      console.error(error);
-      return Response.json(
-        { message: "No se pudo quitar el día extra." },
-        { status: 500 }
-      );
-    }
-
+    const { error } = await supabase.from("bodega_extra_days").delete().eq("id", extraDayId);
+    if (error) return Response.json({ message: "No se pudo quitar el día extra." }, { status: 500 });
     return Response.json({ message: "Día extra de bodega eliminado." });
   }
 
@@ -520,19 +557,42 @@ export async function DELETE(req) {
     return Response.json({ message: "Falta id" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("bookings").delete().eq("id", id);
+  try {
+    // 1. Obtener la entrega antes de borrar para revertir estados si estaba entregada
+    const { data: existing } = await supabase.from("bookings").select("*").eq("id", id).single();
+    
+    if (existing) {
+      let sItemIds = existing.sale_item_ids || [];
+      if (typeof sItemIds === 'string') { try { sItemIds = JSON.parse(sItemIds); } catch(e) { sItemIds = []; } }
+      
+      if (existing.delivery_status === 'entregado' && Array.isArray(sItemIds) && sItemIds.length > 0) {
+        // Revertir items a pending
+        await supabase.from("sale_items").update({ delivery_status: "pending" }).in("id", sItemIds);
+        
+        // Revertir ventas a credit
+        const { data: items } = await supabase.from("sale_items").select("sale_id").in("id", sItemIds);
+        const uIds = [...new Set(items?.map(it => it.sale_id) || [])];
+        for (const sid of uIds) {
+          await supabase.from("sales").update({ status: 'credit' }).eq("id", sid);
+        }
+      }
+    }
 
-  if (error) {
-    console.error(error);
-    return Response.json({ message: "No se pudo eliminar." }, { status: 500 });
+    // 2. Borrar la entrega definitivamente
+    const { error } = await supabase.from("bookings").delete().eq("id", id);
+    if (error) throw error;
+
+    return Response.json({ message: "Entrega eliminada y estados revertidos correctamente." });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ message: "Error al eliminar la entrega." }, { status: 500 });
   }
-
-  return Response.json({ message: "Entrega eliminada correctamente." });
 }
 
 // 🟣 PATCH → reagendar, marcar paquetería como cotizada o actualizar info de entrega
 export async function PATCH(req) {
-  if (!validatePanelToken(req)) {
+  const session = getPanelSession(req);
+  if (!session) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
@@ -547,7 +607,30 @@ export async function PATCH(req) {
       amountDue,
       deliveryStatus,
       paymentMethod,
+      address,
+      city,
+      state,
     } = body;
+
+    // 0) ACTUALIZAR DIRECCIÓN
+    if (action === "update-address") {
+      if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
+      const updateData = {};
+      if (address !== undefined) updateData.address = address || null;
+      if (city !== undefined) updateData.city = city || null;
+      if (state !== undefined) updateData.state = state || null;
+      const { data, error } = await supabase
+        .from("bookings")
+        .update(updateData)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) {
+        console.error(error);
+        return Response.json({ message: "No se pudo actualizar la dirección." }, { status: 500 });
+      }
+      return Response.json({ booking: data });
+    }
 
     // 1) REAGENDAR
     if (action === "reschedule") {
@@ -598,17 +681,17 @@ export async function PATCH(req) {
         return Response.json({ message: "Falta id" }, { status: 400 });
       }
 
-      // leemos el registro actual para decidir qué hacer con delivered_at
+      // leemos el registro actual para decidir qué hacer con delivered_at y obtener IDs de items
       const { data: existing, error: existingErr } = await supabase
         .from("bookings")
-        .select("delivery_status, payment_method, delivered_at")
+        .select("*")
         .eq("id", id)
         .single();
 
       if (existingErr) {
-        console.error(existingErr);
+        console.error("Error leyendo booking:", existingErr.message, existingErr.code, existingErr.details);
         return Response.json(
-          { message: "No se pudo leer la entrega para actualizar." },
+          { message: "No se pudo leer la entrega: " + existingErr.message + " (code:" + existingErr.code + ")" },
           { status: 500 }
         );
       }
@@ -670,11 +753,92 @@ export async function PATCH(req) {
         .single();
 
       if (error) {
-        console.error(error);
+        console.error("[UDI-UPDATE-ERR]", error.message, error.code);
         return Response.json(
-          { message: "No se pudo actualizar la info de entrega." },
+          { message: "[UDI] Error al guardar booking: " + error.message },
           { status: 500 }
         );
+      }
+
+      // --- LÓGICA DE POST-ENTREGA (Vaciado, marcado de items y gestión de deuda) ---
+      const igNorm = existing.instagram ? existing.instagram.trim() : "";
+      let sItemIds = existing.sale_item_ids || [];
+      if (typeof sItemIds === 'string') { try { sItemIds = JSON.parse(sItemIds); } catch(e) { sItemIds = []; } }
+
+      if (finalStatus === "entregado") {
+        try {
+          const igToSearch = igNorm.replace(/^@/, '');
+          if (igNorm) {
+            // 1. Vaciar cajas si no hay más pendientes
+            const { data: pCount } = await supabase.from("bookings").select("id", { count: 'exact', head: true })
+              .eq("instagram", existing.instagram).neq("id", id).or('delivery_status.eq.pendiente,delivery_status.is.null');
+            if (!pCount || pCount.length === 0) {
+              await supabase.from("clients").update({ box_1: null, box_2: null })
+                .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`);
+            }
+
+            // 2. Marcar items como 'delivered' (Por ID + Respaldo por nombre)
+            let itemsUpdatedCount = 0;
+            if (Array.isArray(sItemIds) && sItemIds.length > 0) {
+              const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered" }).in("id", sItemIds);
+              if (!updErr) itemsUpdatedCount += sItemIds.length;
+            } 
+            
+            if (existing.products) {
+              const { data: client } = await supabase.from("clients").select("id")
+                .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`).single();
+              if (client) {
+                const pLines = existing.products.split('\n');
+                for (const line of pLines) {
+                  const match = line.match(/(?:\d+x\s+)?(.+)/i);
+                  if (match) {
+                    const pName = match[1].trim().toLowerCase();
+                    // Buscamos en todas las ventas de este cliente que estén pendientes
+                    const { data: sales } = await supabase.from("sales").select("id").eq("client_id", client.id);
+                    if (sales?.length > 0) {
+                      const sIds = sales.map(s => s.id);
+                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).neq("delivery_status", "delivered");
+                      // Buscamos coincidencia exacta de nombre
+                      const matchedItems = items?.filter(it => it.products?.name?.toLowerCase().trim() === pName) || [];
+                      for (const m of matchedItems) {
+                        const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered" }).eq("id", m.id);
+                        if (!updErr) itemsUpdatedCount++;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            // 3. Liquidar deudas de las ventas involucradas
+            const { data: cDebt } = await supabase.from("clients").select("id")
+              .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`).single();
+            if (cDebt) {
+              const { data: activeS } = await supabase.from("sales").select("id, total").eq("client_id", cDebt.id).eq("status", "credit");
+              for (const s of activeS || []) {
+                const { data: pending } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).neq("delivery_status", "delivered");
+                if (!pending || pending.length === 0) {
+                  await supabase.from("sales").update({ status: 'paid', down_payment: s.total }).eq("id", s.id);
+                }
+              }
+            }
+            
+            return Response.json({
+              message: `Entrega actualizada. Se marcaron ${itemsUpdatedCount} productos como entregados.`,
+              booking: data,
+            });
+          }
+        } catch (err) { console.error("Error entregando:", err); }
+      } else if (finalStatus === "pendiente" || !finalStatus) {
+        // REVERSIÓN: Si vuelve a pendiente, regresar items a pending y venta a credit
+        try {
+          if (Array.isArray(sItemIds) && sItemIds.length > 0) {
+            await supabase.from("sale_items").update({ delivery_status: "pending" }).in("id", sItemIds);
+            const { data: items } = await supabase.from("sale_items").select("sale_id").in("id", sItemIds);
+            const uIds = [...new Set(items?.map(it => it.sale_id) || [])];
+            for (const sid of uIds) { await supabase.from("sales").update({ status: 'credit' }).eq("id", sid); }
+          }
+        } catch (err) { console.error("Error revirtiendo:", err); }
       }
 
       return Response.json({
@@ -696,9 +860,9 @@ export async function PATCH(req) {
       .single();
 
     if (error) {
-      console.error(error);
+      console.error("[GENERIC-PATCH-ERR]", error.message, error.code);
       return Response.json(
-        { message: "No se pudo actualizar." },
+        { message: "[GENERIC] Error paquetería: " + error.message },
         { status: 500 }
       );
     }
@@ -709,6 +873,8 @@ export async function PATCH(req) {
     return Response.json({ message: "Error en el servidor." }, { status: 500 });
   }
 }
+
+
 
 
 

@@ -1,2442 +1,363 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 
-// 🔑 leemos de env (Vercel) o dejamos MELANNY como fallback
-const PANEL_PASSWORD_ENV =
-  process.env.NEXT_PUBLIC_PANEL_PASSWORD ||
-  process.env.PANEL_PASSWORD ||
-  "MELANNY";
+const COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e'];
 
-// 💵 dinero inicial en caja Noreste
-const CASHBOX_INITIAL = 300;
+export default function DashboardPage() {
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Modal State
+  const [activeChart, setActiveChart] = useState(null); // 'ventas', 'facturacion', 'productos', 'clientes'
+  const [timeFilter, setTimeFilter] = useState("30d"); // hoy, ayer, 7d, 30d, 90d, historico
 
-// 👇 helpers fechas
-function parseLocalDate(dateStr) {
-  if (!dateStr) return null;
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d); // local
-}
-
-function formatShortMX(dateStr) {
-  const d = parseLocalDate(dateStr);
-  if (!d) return "—";
-  return d.toLocaleDateString("es-MX", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
-
-function formatBlockedMX(dateStr) {
-  const d = parseLocalDate(dateStr);
-  if (!d) return "—";
-  return d.toLocaleDateString("es-MX", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
-
-// ✅ para poner la fecha de HOY en los filtros
-function getTodayInputDate() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-// ✅ para comparar IG
-function normalizeInstagram(ig) {
-  if (!ig) return "";
-  let v = ig.trim();
-  if (v.startsWith("@")) v = v.slice(1);
-  return v.toLowerCase();
-}
-
-// ✅ estilos según estado de entrega
-function getDeliveryStatusClasses(status) {
-  const value = (status || "pendiente").toLowerCase();
-
-  if (value === "entregado") {
-    return "bg-emerald-100 text-emerald-700 border-emerald-300";
-  }
-
-  if (value === "no_entregado") {
-    return "bg-red-100 text-red-700 border-red-300";
-  }
-
-  // pendiente
-  return "bg-slate-100 text-slate-700 border-slate-300";
-}
-
-// 📝 arma el mensaje de confirmación según tipo de entrega
-function buildConfirmationMessage(bk) {
-  const products =
-    (bk.products && bk.products.trim()) || "— (sin productos capturados)";
-
-  const adeudo =
-    bk.amount_due !== undefined && bk.amount_due !== null ? bk.amount_due : 0;
-
-  if (bk.type === "domicilio") {
-    return `Hola sólo para confirmar lo que se te entregará :
-
-${products}
-
-Aún queda pendiente $${adeudo} , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
-
-Tu entrega será después de las 3pm✨
-
-Recuerda revisar tus productos al recibirlos con el repartidor ya que una vez entregados no hay cambios ni devoluciones. Solo podemos permanecer 10 min en el domicilio en caso de exceder este tiempo deberás agendar tu entrega nuevamente 🚚 🖤
-
-Es correcto?✨`;
-  }
-
-  if (bk.type === "bodega") {
-    return `Hola sólo para confirmar lo que se te entregará :
-
-${products}
-
-Aún queda pendiente $${adeudo} , puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
-
-Puedes pasar a recoger tus productos de 5 a 7pm✨
-
-Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones🖤
-
-Es correcto?✨`;
-  }
-
-  // para paquetería u otros tipos no definimos mensaje
-  return "";
-}
-
-export default function PanelPage() {
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [authorized, setAuthorized] = useState(false);
-  const [panelRole, setPanelRole] = useState(null); // 👈 admin | driver
-  const [bookings, setBookings] = useState([]);
-  const [slots, setSlots] = useState(null);
-  const [blockedDays, setBlockedDays] = useState([]);
-  const [loadingData, setLoadingData] = useState(false);
-  const [filterStart, setFilterStart] = useState("");
-  const [filterEnd, setFilterEnd] = useState("");
-  const [activeTab, setActiveTab] = useState("bodega");
-  const [filterInstagram, setFilterInstagram] = useState("");
-
-  // bloqueo rápido
-  const [blockDate, setBlockDate] = useState("");
-  const [blockType, setBlockType] = useState("domicilio");
-  const [blockReason, setBlockReason] = useState("");
-
-  // ✅ DÍAS EXTRA BODEGA (NUEVO)
-  const [extraBodegaDays, setExtraBodegaDays] = useState([]);
-  const [extraDate, setExtraDate] = useState("");
-  const [extraReason, setExtraReason] = useState("");
-  // ⏰ horario especial para día extra
-  const [extraStartTime, setExtraStartTime] = useState("18:00");
-  const [extraEndTime, setExtraEndTime] = useState("20:00");
-
-
-  // modal entrega manual
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualType, setManualType] = useState("bodega");
-  const [manualForm, setManualForm] = useState({
-    instagram: "",
-    fullName: "",
-    phone: "",
-    address: "",
-    date: "",
-    city: "",
-  });
-  const [manualMsg, setManualMsg] = useState("");
-  const [manualError, setManualError] = useState("");
-
-  // modal historial por IG
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [historyInstagram, setHistoryInstagram] = useState("");
-  const [historyBookings, setHistoryBookings] = useState([]);
-
-  // modal reagendar
-  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
-  const [bookingToReschedule, setBookingToReschedule] = useState(null);
-
-  // selección para formulario de edición (productos / adeudo / estado / pago)
-  const [selectedBooking, setSelectedBooking] = useState(null);
-  const [editForm, setEditForm] = useState({
-    products: "",
-    amount_due: 0,
-    delivery_status: "pendiente",
-    payment_method: "efectivo",
-  });
-
-  // 💵 caja Noreste
-  const [cashboxLastCut, setCashboxLastCut] = useState(null);
-  const [cashboxLoading, setCashboxLoading] = useState(false);
-  const [showCashboxModal, setShowCashboxModal] = useState(false);
-  const [cashboxHistory, setCashboxHistory] = useState([]);
-  const [cashboxHistoryLoading, setCashboxHistoryLoading] = useState(false);
-  const [showCashboxHistoryModal, setShowCashboxHistoryModal] = useState(false);
-
-  // botón Copiar → Copiado ✓
-  const [copiedBookingId, setCopiedBookingId] = useState(null);
-
-  // 🌗 tema (claro/oscuro)
-  const [isDark, setIsDark] = useState(false);
-
-  const isDriver = panelRole === "driver";
-  const isAdmin = !isDriver;
-
-  // leer si ya estaba loggeado
   useEffect(() => {
-    const saved = localStorage.getItem("panelAuth");
-    const savedRole = localStorage.getItem("panelRole");
-    if (saved === "true") {
-      setAuthorized(true);
-      if (savedRole) setPanelRole(savedRole);
-    }
-
-    const savedTheme = localStorage.getItem("panelTheme");
-    if (savedTheme === "dark") {
-      setIsDark(true);
-      document.documentElement.classList.add("dark");
-    }
+    fetchAnalytics();
   }, []);
 
-  // guardar tema
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("panelTheme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("panelTheme", "light");
-    }
-  }, [isDark]);
-
-  // si es repartidor, siempre forzamos pestaña domicilio
-  useEffect(() => {
-    if (authorized && isDriver) {
-      setActiveTab("domicilio");
-    }
-  }, [authorized, isDriver]);
-
-  // obtener bookings desde API
-  const fetchBookings = async () => {
-    setLoadingData(true);
+  const fetchAnalytics = async () => {
+    setLoading(true);
     try {
       const token = localStorage.getItem("panelToken") || "";
-
-      const res = await fetch("/api/bookings", {
-        headers: {
-          "x-panel-token": token,
-        },
-      });
-
-      if (!res.ok) {
-        console.warn("No autorizado para leer bookings");
-
-        // 👇 si el backend responde 401/403, limpiamos sesión y mandamos a login
-        if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem("panelAuth");
-          localStorage.removeItem("panelToken");
-          localStorage.removeItem("panelRole");
-          setAuthorized(false);
-          setPanelRole(null);
-          return;
-        }
-
-        setBookings([]);
-        setSlots(null);
-        setBlockedDays([]);
-        setExtraBodegaDays([]);
-        return;
+      const res = await fetch("/api/analytics", { headers: { "x-panel-token": token } });
+      if (res.ok) {
+        const data = await res.json();
+        setSales(data.sales || []);
       }
-
-      const data = await res.json();
-      setBookings(data.bookings || []);
-      setSlots(data.slots || null);
-      setBlockedDays(data.blockedDays || []);
-
-      // ✅ NUEVO: días extra bodega
-      setExtraBodegaDays(data.extraBodegaDays || []);
-    } catch (err) {
-      console.error("Error al leer entregas:", err);
+    } catch (e) {
+      console.error(e);
     } finally {
-      setLoadingData(false);
+      setLoading(false);
     }
   };
 
-  // leer info de caja (último corte)
-  const fetchCashboxInfo = async () => {
-    try {
-      setCashboxLoading(true);
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/cashbox", {
-        headers: {
-          "x-panel-token": token,
-        },
-      });
-      if (!res.ok) {
-        console.warn("No se pudo leer info de caja");
-        setCashboxLastCut(null);
-        return;
-      }
-      const data = await res.json();
-      setCashboxLastCut(data.lastCut || null);
-    } catch (err) {
-      console.error("Error al leer caja:", err);
-      setCashboxLastCut(null);
-    } finally {
-      setCashboxLoading(false);
-    }
-  };
+  // ── FILTRADO POR TIEMPO ──
+  const filteredSales = useMemo(() => {
+    if (timeFilter === "historico") return sales;
+    
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
 
-  // leer historial de cortes
-  const fetchCashboxHistory = async () => {
-    try {
-      setCashboxHistoryLoading(true);
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/cashbox?history=1", {
-        headers: {
-          "x-panel-token": token,
-        },
-      });
-      if (!res.ok) {
-        console.warn("No se pudo leer historial de caja");
-        setCashboxHistory([]);
-        return;
-      }
-      const data = await res.json();
-      setCashboxHistory(data.cuts || []);
-    } catch (err) {
-      console.error("Error al leer historial de caja:", err);
-      setCashboxHistory([]);
-    } finally {
-      setCashboxHistoryLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (authorized) {
-      fetchBookings();
-      if (isAdmin) {
-        fetchCashboxInfo();
-      }
-    }
-  }, [authorized, isAdmin]);
-
-  // login
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setMessage("Verificando...");
-
-    try {
-      const res = await fetch("/api/login-panel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success && data.token) {
-        localStorage.setItem("panelAuth", "true");
-        localStorage.setItem("panelToken", data.token);
-        localStorage.setItem("panelRole", data.role || "admin");
-        setPanelRole(data.role || "admin");
-        setAuthorized(true);
-        setMessage("");
-        return;
-      }
-    } catch (err) {
-      console.warn("Error al conectar con la API de login:", err);
+    if (timeFilter === "hoy") {
+      // startDate is already today 00:00
+    } else if (timeFilter === "ayer") {
+      startDate.setDate(startDate.getDate() - 1);
+      now.setDate(now.getDate() - 1); // El fin es ayer 23:59
+    } else if (timeFilter === "7d") {
+      startDate.setDate(startDate.getDate() - 7);
+    } else if (timeFilter === "30d") {
+      startDate.setDate(startDate.getDate() - 30);
+    } else if (timeFilter === "90d") {
+      startDate.setDate(startDate.getDate() - 90);
     }
 
-    // 🔙 fallback viejo: si coincide con env, lo dejamos como admin
-    if (password === PANEL_PASSWORD_ENV) {
-      setAuthorized(true);
-      setPanelRole("admin");
-      localStorage.setItem("panelAuth", "true");
-      localStorage.setItem("panelRole", "admin");
-      setMessage("");
-    } else {
-      setMessage("❌ Contraseña incorrecta.");
-    }
-  };
-
-  // marcar paquetería como cotizada
-  const handleMarkCotizado = async (id) => {
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/bookings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({ id, status: "cotizado" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo actualizar.");
-        return;
-      }
-      fetchBookings();
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // eliminar
-  const handleDelete = async (id) => {
-    if (!confirm("¿Eliminar esta entrega?")) return;
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch(`/api/bookings?id=${id}`, {
-        method: "DELETE",
-        headers: {
-          "x-panel-token": token,
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo eliminar.");
-      } else {
-        fetchBookings();
-        if (isAdmin) fetchCashboxInfo();
-      }
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // bloquear día
-  const handleBlockDay = async () => {
-    if (!blockDate) {
-      alert("Selecciona una fecha para bloquear.");
-      return;
-    }
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-          action: "block-day",
-          date: blockDate,
-          type: blockType,
-          reason: blockReason,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo bloquear el día.");
-        return;
-      }
-      await fetchBookings();
-      setBlockDate("");
-      setBlockReason("");
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // quitar bloqueo
-  const handleUnblock = async (blockedId) => {
-    if (!confirm("¿Quitar este bloqueo?")) return;
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch(`/api/bookings?blockedId=${blockedId}`, {
-        method: "DELETE",
-        headers: {
-          "x-panel-token": token,
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo quitar.");
-      } else {
-        fetchBookings();
-      }
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // ✅ agregar día extra bodega (NUEVO)
-  const handleAddExtraBodegaDay = async () => {
-    if (!extraDate) {
-      alert("Selecciona una fecha para agregar.");
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-  action: "add-bodega-extra-day",
-  date: extraDate,
-  reason: extraReason,
-  start_time: extraStartTime,
-  end_time: extraEndTime,
-}),
-
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo agregar el día extra.");
-        return;
-      }
-
-      await fetchBookings();
-      setExtraStartTime("18:00");
-      setExtraEndTime("20:00");
-      setExtraDate("");
-      setExtraReason("");
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // ✅ quitar día extra bodega (NUEVO)
-  const handleRemoveExtraBodegaDay = async (extraId) => {
-    if (!confirm("¿Quitar este día extra de bodega?")) return;
-
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch(`/api/bookings?extraDayId=${extraId}`, {
-        method: "DELETE",
-        headers: { "x-panel-token": token },
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo quitar.");
-        return;
-      }
-
-      await fetchBookings();
-    } catch (err) {
-      alert("Error de conexión.");
-    }
-  };
-
-  // agregar manual
-  const handleManualSubmit = async (e) => {
-    e.preventDefault();
-    setManualError("");
-    setManualMsg("");
-
-    const { instagram, fullName, phone, address, date, city } = manualForm;
-    if (!instagram || !fullName || !phone || !date) {
-      setManualError("Faltan campos obligatorios.");
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-          type: manualType,
-          instagram,
-          fullName,
-          phone,
-          address,
-          city,
-          date,
-          override: true,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setManualError(data.message || "Error al crear entrega.");
-      } else {
-        setManualMsg("✅ Entrega manual agregada correctamente.");
-        await fetchBookings();
-        setManualForm({
-          instagram: "",
-          fullName: "",
-          phone: "",
-          address: "",
-          date: "",
-          city: "",
-        });
-        setTimeout(() => setShowManualModal(false), 1000);
-      }
-    } catch {
-      setManualError("Error de conexión con el servidor.");
-    }
-  };
-
-  // historial por IG
-  const openHistoryForInstagram = (igRaw) => {
-    const igNorm = normalizeInstagram(igRaw);
-    if (!igNorm) return;
-    const allForThisUser = bookings
-      .filter((bk) => normalizeInstagram(bk.instagram) === igNorm)
-      .sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
-      });
-    setHistoryInstagram(igRaw);
-    setHistoryBookings(allForThisUser);
-    setShowHistoryModal(true);
-  };
-
-  // abrir modal reagendar
-  const handleOpenReschedule = (booking) => {
-    setBookingToReschedule(booking);
-    setShowRescheduleModal(true);
-  };
-
-  // al hacer click en tarjeta
-  const handleSelectBooking = (bk) => {
-    setSelectedBooking(bk);
-    setEditForm({
-      products: bk.products || "",
-      amount_due:
-        bk.amount_due !== undefined && bk.amount_due !== null
-          ? bk.amount_due
-          : 0,
-      delivery_status: bk.delivery_status || "pendiente",
-      payment_method: bk.payment_method || "efectivo",
+    return sales.filter(s => {
+      const saleDate = new Date(s.created_at);
+      return saleDate >= startDate && saleDate <= now;
     });
-  };
+  }, [sales, timeFilter]);
 
-  // guardar info de entrega
-  const handleSaveDeliveryInfo = async () => {
-    if (!selectedBooking) return;
-
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/bookings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-          action: "update-delivery-info",
-          id: selectedBooking.id,
-          products: editForm.products || "",
-          amountDue: editForm.amount_due || 0,
-          deliveryStatus: editForm.delivery_status || "pendiente",
-          paymentMethod: editForm.payment_method || "efectivo",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo guardar la información.");
-        return;
+  // ── PROCESAMIENTO DE DATOS PARA GRÁFICAS ──
+  
+  // 1. Ventas y Facturación a lo largo del tiempo
+  const timeSeriesData = useMemo(() => {
+    const map = new Map();
+    
+    filteredSales.forEach(s => {
+      // Agrupar por día (YYYY-MM-DD)
+      const dateKey = new Date(s.created_at).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+      
+      if (!map.has(dateKey)) {
+        map.set(dateKey, { name: dateKey, ventas: 0, facturacion: 0 });
       }
+      
+      const dayData = map.get(dateKey);
+      dayData.ventas += 1;
+      
+      // Sumar pagos recibidos en esa venta y enganches
+      const totalPagado = Number(s.down_payment || 0) + (s.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
+      dayData.facturacion += totalPagado;
+    });
 
-      setBookings((prev) =>
-        prev.map((b) => (b.id === selectedBooking.id ? data.booking : b))
-      );
+    return Array.from(map.values());
+  }, [filteredSales]);
 
-      if (isAdmin) fetchCashboxInfo();
-
-      setSelectedBooking(null);
-      setEditForm({
-        products: "",
-        amount_due: 0,
-        delivery_status: "pendiente",
-        payment_method: "efectivo",
+  // 2. Productos Más Vendidos
+  const topProductsData = useMemo(() => {
+    const map = new Map();
+    filteredSales.forEach(s => {
+      (s.sale_items || []).forEach(item => {
+        const prodName = item.products?.name || "Producto Borrado";
+        if (!map.has(prodName)) {
+          map.set(prodName, { name: prodName, cantidad: 0 });
+        }
+        map.get(prodName).cantidad += Number(item.quantity);
       });
-    } catch (err) {
-      alert("Error de conexión.");
+    });
+    return Array.from(map.values()).sort((a, b) => b.cantidad - a.cantidad).slice(0, 10);
+  }, [filteredSales]);
+
+  // 3. Clientes con Más Compras
+  const topClientsData = useMemo(() => {
+    const map = new Map();
+    filteredSales.forEach(s => {
+      const igRaw = s.clients?.instagram || "";
+      const ig = igRaw ? (igRaw.startsWith("@") ? igRaw : `@${igRaw}`) : (s.clients?.name || "General");
+      if (!map.has(ig)) {
+        map.set(ig, { name: ig, compras: 0, gastado: 0 });
+      }
+      map.get(ig).compras += 1;
+      const pagado = Number(s.down_payment || 0) + (s.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
+      map.get(ig).gastado += pagado;
+    });
+    return Array.from(map.values()).sort((a, b) => b.compras - a.compras).slice(0, 10);
+  }, [filteredSales]);
+
+
+  // ── RENDERIZADO DE MINI GRÁFICAS ──
+  const renderMiniChart = (type) => {
+    if (loading) return <div className="h-full w-full flex items-center justify-center opacity-50 text-xs">Cargando...</div>;
+    if (filteredSales.length === 0) return <div className="h-full w-full flex items-center justify-center opacity-50 text-xs">Sin datos</div>;
+
+    switch (type) {
+      case 'ventas':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={timeSeriesData}>
+              <Line type="monotone" dataKey="ventas" stroke="#10b981" strokeWidth={3} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      case 'facturacion':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={timeSeriesData}>
+              <Line type="monotone" dataKey="facturacion" stroke="#f59e0b" strokeWidth={3} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      case 'productos':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={topProductsData}>
+              <Bar dataKey="cantidad" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        );
+      case 'clientes':
+        return (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={topClientsData}>
+              <Bar dataKey="compras" fill="#ec4899" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        );
     }
   };
 
-  // copiar mensaje al portapapeles
-  const handleCopyMessage = async (bk) => {
-    const text = buildConfirmationMessage(bk);
-
-    if (!text) {
-      alert("No se pudo generar el mensaje para copiar.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedBookingId(bk.id);
-      setTimeout(() => {
-        setCopiedBookingId((current) => (current === bk.id ? null : current));
-      }, 1500);
-    } catch (err) {
-      console.error("No se pudo copiar el mensaje:", err);
-      alert(
-        "No se pudo copiar el mensaje. Revisa los permisos del navegador o cópialo manualmente."
-      );
-    }
-  };
-
-  // crear corte de caja
-  const handleCreateCashboxCut = async ({ countedCash, note }) => {
-    try {
-      const token = localStorage.getItem("panelToken") || "";
-
-      const domicilioBookingsAll = bookings.filter(
-        (bk) =>
-          String(bk.type || "")
-            .trim()
-            .toLowerCase() === "domicilio"
-      );
-
-      let lastCutTimestamp = null;
-      if (cashboxLastCut && cashboxLastCut.created_at) {
-        lastCutTimestamp = new Date(cashboxLastCut.created_at).getTime();
-      }
-
-      const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
-        const status = String(bk.delivery_status || "").toLowerCase();
-        if (status !== "entregado") return false;
-
-        const method = String(bk.payment_method || "efectivo").toLowerCase();
-        if (method !== "efectivo") return false;
-
-        if (!bk.delivered_at) return false;
-
-        const deliveredTs = new Date(bk.delivered_at).getTime();
-        if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
-
-        return true;
-      });
-
-      const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {
-        const v =
-          bk.amount_due !== undefined && bk.amount_due !== null
-            ? Number(bk.amount_due)
-            : 0;
-        return sum + (isNaN(v) ? 0 : v);
-      }, 0);
-
-      const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
-
-      const res = await fetch("/api/cashbox", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-          route: "noreste",
-          initialCash: CASHBOX_INITIAL,
-          deliveriesAmount,
-          expectedCash,
-          countedCash,
-          note: note || "",
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo guardar el corte de caja.");
-        return;
-      }
-
-      setCashboxLastCut(data.cut || null);
-      setShowCashboxModal(false);
-
-      if (showCashboxHistoryModal) {
-        fetchCashboxHistory();
-      }
-    } catch (err) {
-      console.error("Error al guardar corte de caja:", err);
-      alert("Error de conexión al guardar el corte de caja.");
-    }
-  };
-
-  // --------- LÓGICA DE FILTROS / ESTADÍSTICAS ---------
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayInput = getTodayInputDate();
-
-  const hasAnyFilter =
-    (filterStart && filterStart !== "") ||
-    (filterEnd && filterEnd !== "") ||
-    (filterInstagram && filterInstagram.trim() !== "");
-
-  const bookingsByTab = bookings.filter((bk) => {
-    if (activeTab === "bodega") return bk.type === "bodega";
-    if (activeTab === "domicilio") return bk.type === "domicilio";
-    if (activeTab === "paqueteria") return bk.type === "paqueteria";
-    return false;
-  });
-
-  const filteredByDate = bookingsByTab.filter((bk) => {
-    if (!bk.date) return true;
-    const date = parseLocalDate(bk.date);
-    const start = filterStart ? parseLocalDate(filterStart) : null;
-    const end = filterEnd ? parseLocalDate(filterEnd) : null;
-
-    if (!hasAnyFilter && date < today) return false;
-    if (start && date < start) return false;
-    if (end && date > end) return false;
-    return true;
-  });
-
-  const finalFilteredBookings = filteredByDate.filter((bk) => {
-    if (!filterInstagram) return true;
-    if (!bk.instagram) return false;
-    return bk.instagram.toLowerCase().includes(filterInstagram.toLowerCase());
-  });
-
-  // 👉 estadísticas SOLO para hoy, a domicilio
-  const todayDomicilio = bookings.filter(
-    (bk) => bk.type === "domicilio" && bk.date === todayInput
-  );
-  const todayDeliveredDom = todayDomicilio.filter(
-    (bk) =>
-      String(bk.delivery_status || "pendiente").toLowerCase() === "entregado"
-  ).length;
-  const todayNotDeliveredDom = todayDomicilio.filter(
-    (bk) =>
-      String(bk.delivery_status || "pendiente").toLowerCase() ===
-      "no_entregado"
-  ).length;
-  const todayPendingDom =
-    todayDomicilio.length - todayDeliveredDom - todayNotDeliveredDom;
-
-  // 👉 estadísticas SOLO para hoy, en bodega (NUEVO)
-  const todayBodega = bookings.filter(
-    (bk) => bk.type === "bodega" && bk.date === todayInput
-  );
-  const todayDeliveredBod = todayBodega.filter(
-    (bk) =>
-      String(bk.delivery_status || "pendiente").toLowerCase() === "entregado"
-  ).length;
-  const todayNotDeliveredBod = todayBodega.filter(
-    (bk) =>
-      String(bk.delivery_status || "pendiente").toLowerCase() ===
-      "no_entregado"
-  ).length;
-  const todayPendingBod =
-    todayBodega.length - todayDeliveredBod - todayNotDeliveredBod;
-
-  // cálculos de caja
-  const domicilioBookingsAll = bookings.filter(
-    (bk) =>
-      String(bk.type || "")
-        .trim()
-        .toLowerCase() === "domicilio"
-  );
-
-  let lastCutTimestamp = null;
-  if (cashboxLastCut && cashboxLastCut.created_at) {
-    lastCutTimestamp = new Date(cashboxLastCut.created_at).getTime();
-  }
-
-  const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
-    const status = String(bk.delivery_status || "").toLowerCase();
-    if (status !== "entregado") return false;
-
-    const method = String(bk.payment_method || "efectivo").toLowerCase();
-    if (method !== "efectivo") return false;
-
-    if (!bk.delivered_at) return false;
-
-    const deliveredTs = new Date(bk.delivered_at).getTime();
-    if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
-
-    return true;
-  });
-
-  const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {
-    const v =
-      bk.amount_due !== undefined && bk.amount_due !== null
-        ? Number(bk.amount_due)
-        : 0;
-    return sum + (isNaN(v) ? 0 : v);
-  }, 0);
-
-  const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
-
-  // --------- ESTILOS DEPENDIENDO DEL TEMA ---------
-  const containerClass = isDark
-    ? "min-h-screen bg-slate-950 text-slate-100"
-    : "min-h-screen bg-slate-100 text-slate-900";
-
-  const inputBase =
-    "border rounded-lg px-3 py-2 text-sm w-full md:w-48 transition-colors";
-  const inputTheme = isDark
-    ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
-    : "bg-white border-slate-300 text-slate-900 placeholder-slate-400";
-
-  const smallCardBase =
-    "rounded-xl p-4 shadow-sm transition-colors border text-sm";
-  const smallCardTheme = isDark
-    ? "bg-slate-900/80 border-slate-800"
-    : "bg-white border-slate-100";
-
-  // --------- VISTA LOGIN ---------
-  if (!authorized) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
-        <a
-          href="/"
-          className="absolute top-6 left-6 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow"
-        >
-          🏠 Inicio
-        </a>
-
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white shadow-lg rounded-xl p-6 w-80 flex flex-col gap-4"
-        >
-          <h1 className="text-xl font-semibold text-gray-800 text-center">
-            Acceso al Panel
-          </h1>
-          <input
-            type="password"
-            placeholder="Contraseña"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg font-semibold"
-          >
-            Entrar
-          </button>
-          {message && (
-            <p className="text-sm text-center text-gray-600">{message}</p>
-          )}
-        </form>
-      </div>
-    );
-  }
-
-  // --------- VISTA PRINCIPAL ---------
-
-  return (
-    <div
-      className={`${containerClass} p-4 md:p-8 transition-colors duration-300`}
-    >
-      {/* inicio */}
-      <div className="mb-4 flex justify-between items-center gap-3">
-        <a
-          href="/"
-          className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium"
-        >
-          🏠 Inicio
-        </a>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsDark((v) => !v)}
-            className={`w-9 h-9 rounded-full border flex items-center justify-center text-lg transition-colors ${
-              isDark
-                ? "bg-slate-800 border-slate-600 text-amber-300"
-                : "bg-white border-slate-200 text-slate-700"
-            }`}
-            title={isDark ? "Modo claro" : "Modo oscuro"}
-          >
-            {isDark ? "☀️" : "🌙"}
-          </button>
-
-          {isAdmin && (
-            <button
-              onClick={() => setShowManualModal(true)}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg shadow"
-            >
-              ➕ Agregar entrega manual
-            </button>
-          )}
-
-          <button
-            onClick={() => {
-              localStorage.removeItem("panelAuth");
-              localStorage.removeItem("panelToken");
-              localStorage.removeItem("panelRole");
-              setAuthorized(false);
-              setPanelRole(null);
-            }}
-            className={`text-sm ${
-              isDark
-                ? "text-slate-300 hover:text-slate-100"
-                : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      </div>
-
-      {/* header */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {isDriver ? "Panel repartidor" : "Panel de entregas"}
-          </h1>
-          <p
-            className={
-              isDark ? "text-sm text-slate-400" : "text-sm text-slate-500"
-            }
-          >
-            {isDriver
-              ? "Consulta y actualiza tus entregas a domicilio."
-              : "Administra, filtra y agrega entregas de forma manual."}
-          </p>
-        </div>
-      </header>
-
-      {/* pestañas */}
-      <div className="flex gap-2 mb-6">
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab("bodega")}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-              activeTab === "bodega"
-                ? "bg-emerald-500 text-white"
-                : isDark
-                ? "bg-slate-900 text-slate-200 border border-slate-700"
-                : "bg-white text-slate-600 border border-slate-200"
-            }`}
-          >
-            Entregas en bodega
-          </button>
-        )}
-
-        <button
-          onClick={() => setActiveTab("domicilio")}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-            activeTab === "domicilio"
-              ? "bg-emerald-500 text-white"
-              : isDark
-              ? "bg-slate-900 text-slate-200 border border-slate-700"
-              : "bg-white text-slate-600 border border-slate-200"
-          }`}
-        >
-          Entregas a domicilio
-        </button>
-
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab("paqueteria")}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-              activeTab === "paqueteria"
-                ? "bg-emerald-500 text-white"
-                : isDark
-                ? "bg-slate-900 text-slate-200 border border-slate-700"
-                : "bg-white text-slate-600 border border-slate-200"
-            }`}
-          >
-            Paquetería
-          </button>
-        )}
-      </div>
-
-      {/* filtros + bloqueador + caja */}
-      <div
-        className={`rounded-xl shadow p-4 mb-6 flex flex-col md:flex-row md:items-end gap-6 justify-between ${
-          isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
-        }`}
-      >
-        {/* filtros */}
-        <div className="flex flex-wrap gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Desde</label>
-            <input
-              type="date"
-              value={filterStart}
-              onChange={(e) => setFilterStart(e.target.value)}
-              className={`${inputBase} ${inputTheme}`}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Hasta</label>
-            <input
-              type="date"
-              value={filterEnd}
-              onChange={(e) => setFilterEnd(e.target.value)}
-              className={`${inputBase} ${inputTheme}`}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Instagram</label>
-            <input
-              type="text"
-              value={filterInstagram}
-              onChange={(e) => setFilterInstagram(e.target.value)}
-              placeholder="@usuario"
-              className={`${inputBase.replace("md:w-48", "md:w-52")} ${inputTheme}`}
-            />
-          </div>
-
-          {(activeTab === "bodega" || activeTab === "domicilio") && (
-            <button
-              onClick={() => {
-                const todayInput = getTodayInputDate();
-                setFilterStart(todayInput);
-                setFilterEnd(todayInput);
-              }}
-              className={`text-sm px-3 py-2 rounded-lg h-10 mt-6 ${
-                isDark
-                  ? "bg-emerald-700 hover:bg-emerald-600 text-slate-50"
-                  : "bg-emerald-100 hover:bg-emerald-200 text-emerald-800"
-              }`}
-            >
-              Hoy
-            </button>
-          )}
-
-          <button
-            onClick={() => {
-              setFilterStart("");
-              setFilterEnd("");
-              setFilterInstagram("");
-            }}
-            className={`text-sm px-3 py-2 rounded-lg h-10 mt-6 ${
-              isDark
-                ? "bg-slate-800 hover:bg-slate-700 text-slate-100"
-                : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-            }`}
-          >
-            Limpiar filtro
-          </button>
-          {loadingData && (
-            <span className="text-xs text-slate-400 mt-8">Cargando…</span>
-          )}
-        </div>
-
-        {/* bloqueador + extra bodega + caja */}
-        {isAdmin && (
-          <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-            {/* bloqueador */}
-            <div
-              className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-80 ${
-                isDark ? "bg-slate-950/60" : "bg-slate-50"
-              }`}
-            >
-              <p className="text-sm font-semibold flex items-center gap-1">
-                ⛔ Bloquear día
-              </p>
-              <input
-                type="date"
-                value={blockDate}
-                onChange={(e) => setBlockDate(e.target.value)}
-                className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
-              />
-              <select
-                value={blockType}
-                onChange={(e) => setBlockType(e.target.value)}
-                className={`border rounded-lg px-3 py-2 text-sm ${
-                  isDark
-                    ? "bg-slate-900 border-slate-700 text-slate-100"
-                    : "bg-white border-slate-300 text-slate-900"
-                }`}
-              >
-                <option value="domicilio">Domicilio</option>
-                <option value="bodega">Bodega</option>
-              </select>
-              <input
-                type="text"
-                value={blockReason}
-                onChange={(e) => setBlockReason(e.target.value)}
-                placeholder="Motivo (opcional)"
-                className={`border rounded-lg px-3 py-2 text-sm ${
-                  isDark
-                    ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
-                    : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"
-                }`}
-              />
-              <button
-                onClick={handleBlockDay}
-                className="bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg py-2"
-              >
-                Guardar bloqueo
-              </button>
-            </div>
-
-            {/* ✅ NUEVO: agregar día extra solo en pestaña bodega */}
-            {activeTab === "bodega" && (
-              <div
-                className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-80 ${
-                  isDark ? "bg-slate-950/60" : "bg-slate-50"
-                }`}
-              >
-                <p className="text-sm font-semibold flex items-center gap-1">
-                  ➕ Agregar día extra (Bodega)
-                </p>
-
-                <input
-                  type="date"
-                  value={extraDate}
-                  onChange={(e) => setExtraDate(e.target.value)}
-                  className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
-                />
-
-                <div className="flex gap-2">
-  <input
-    type="time"
-    value={extraStartTime}
-    onChange={(e) => setExtraStartTime(e.target.value)}
-    className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
-  />
-  <input
-    type="time"
-    value={extraEndTime}
-    onChange={(e) => setExtraEndTime(e.target.value)}
-    className={`${inputBase.replace("md:w-48", "md:w-full")} ${inputTheme}`}
-  />
-</div>
-
-
-                <input
-                  type="text"
-                  value={extraReason}
-                  onChange={(e) => setExtraReason(e.target.value)}
-                  placeholder="Motivo (opcional)"
-                  className={`border rounded-lg px-3 py-2 text-sm ${
-                    isDark
-                      ? "bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500"
-                      : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"
-                  }`}
-                />
-
-                <button
-                  onClick={handleAddExtraBodegaDay}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm rounded-lg py-2"
-                >
-                  Guardar día extra
-                </button>
-              </div>
-            )}
-
-            {/* caja Noreste */}
-            {activeTab === "domicilio" && (
-              <div
-                className={`rounded-lg p-3 flex flex-col gap-2 w-full md:w-72 ${
-                  isDark ? "bg-slate-950/60" : "bg-slate-50"
-                }`}
-              >
-                <p className="text-sm font-semibold flex items-center gap-1">
-                  💵 Caja Noreste
-                </p>
-                <p className="text-xs">
-                  Dinero inicial: <strong>${CASHBOX_INITIAL}</strong>
-                </p>
-                <p className="text-xs">
-                  Entregado en efectivo desde último corte:{" "}
-                  <strong>${deliveriesAmount}</strong>
-                </p>
-                <p className="text-xs font-semibold">
-                  Total esperado en caja: <strong>${expectedCash}</strong>
-                </p>
-                {cashboxLastCut ? (
-                  <p className="text-[11px] opacity-80">
-                    Último corte:{" "}
-                    {cashboxLastCut.created_at
-                      ? new Date(cashboxLastCut.created_at).toLocaleString("es-MX")
-                      : "—"}
-                    {" · "}
-                    Dif: ${cashboxLastCut.difference ?? 0}
-                  </p>
-                ) : (
-                  <p className="text-[11px] opacity-60">
-                    Aún no hay cortes registrados.
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowCashboxModal(true)}
-                  className="mt-1 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg py-2"
-                >
-                  Hacer corte
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCashboxHistoryModal(true);
-                    if (cashboxHistory.length === 0) {
-                      fetchCashboxHistory();
-                    }
-                  }}
-                  className="mt-1 text-[11px] text-emerald-300 hover:text-emerald-200 underline text-left"
-                >
-                  Ver historial de cortes
-                </button>
-
-                {cashboxLoading && (
-                  <span className="text-[10px] text-slate-400">
-                    Actualizando caja…
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* STATS SOLO PARA HOY (domicilio) */}
-      {activeTab === "domicilio" && (
-        <div className="grid gap-4 md:grid-cols-3 mb-6">
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-emerald-400`}
-          >
-            <p className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wide">
-              Entregas realizadas (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayDeliveredDom}</p>
-            <p className="text-[11px] opacity-70">Marcadas como entregado</p>
-          </div>
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-slate-300`}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-              Entregas pendientes (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayPendingDom}</p>
-            <p className="text-[11px] opacity-70">Aún sin marcar estado</p>
-          </div>
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-red-400`}
-          >
-            <p className="text-[11px] font-semibold text-red-400 uppercase tracking-wide">
-              Entregas no realizadas (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayNotDeliveredDom}</p>
-            <p className="text-[11px] opacity-70">Marcadas como no entregado</p>
-          </div>
-        </div>
-      )}
-
-      {/* STATS SOLO PARA HOY (bodega) */}
-      {activeTab === "bodega" && (
-        <div className="grid gap-4 md:grid-cols-3 mb-6">
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-emerald-400`}
-          >
-            <p className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wide">
-              Entregas realizadas (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayDeliveredBod}</p>
-            <p className="text-[11px] opacity-70">Marcadas como entregado</p>
-          </div>
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-slate-300`}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-              Entregas pendientes (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayPendingBod}</p>
-            <p className="text-[11px] opacity-70">Aún sin marcar estado</p>
-          </div>
-          <div
-            className={`${smallCardBase} ${smallCardTheme} border-l-4 border-l-red-400`}
-          >
-            <p className="text-[11px] font-semibold text-red-400 uppercase tracking-wide">
-              Entregas no realizadas (hoy)
-            </p>
-            <p className="text-2xl font-bold mt-1">{todayNotDeliveredBod}</p>
-            <p className="text-[11px] opacity-70">Marcadas como no entregado</p>
-          </div>
-        </div>
-      )}
-
-      {/* lista de bloqueos */}
-      {isAdmin && blockedDays && blockedDays.length > 0 && (
-        <div
-          className={`rounded-xl shadow p-4 mb-6 ${
-            isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
-          }`}
-        >
-          <h2 className="text-sm font-semibold mb-3">Días bloqueados</h2>
-          <div className="flex flex-wrap gap-2">
-            {blockedDays.map((bd) => (
-              <div
-                key={bd.id}
-                className="flex items-center gap-2 bg-slate-800/60 text-xs rounded-full px-3 py-1"
-              >
-                <span>
-                  {formatBlockedMX(bd.date)} —{" "}
-                  {bd.type === "domicilio" ? "Domicilio" : "Bodega"}
-                  {bd.reason ? ` · ${bd.reason}` : ""}
-                </span>
-                <button
-                  onClick={() => handleUnblock(bd.id)}
-                  className="text-red-400 hover:text-red-300 text-xs"
-                >
-                  Quitar
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ✅ NUEVO: lista de días extra bodega */}
-      {isAdmin && activeTab === "bodega" && extraBodegaDays?.length > 0 && (
-        <div
-          className={`rounded-xl shadow p-4 mb-6 ${
-            isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
-          }`}
-        >
-          <h2 className="text-sm font-semibold mb-3">Días extra bodega</h2>
-          <div className="flex flex-wrap gap-2">
-            {extraBodegaDays.map((d) => (
-              <div
-                key={d.id}
-                className="flex items-center gap-2 bg-emerald-800/30 text-xs rounded-full px-3 py-1"
-              >
-                <span>
-  {formatBlockedMX(d.date)}
-  {d.start_time && d.end_time
-    ? ` · ${d.start_time}–${d.end_time}`
-    : ""}
-  {d.reason ? ` · ${d.reason}` : ""}
-</span>
-
-                <button
-                  onClick={() => handleRemoveExtraBodegaDay(d.id)}
-                  className="text-red-400 hover:text-red-300 text-xs"
-                >
-                  Quitar
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* tarjetas de entregas */}
-      <div
-        className={`rounded-xl shadow ${
-          isDark ? "bg-slate-900/80 border border-slate-800" : "bg-white"
-        }`}
-      >
-        <div className="px-4 py-3 border-b border-slate-200/40 flex items-center justify-between">
-          <h2 className="font-semibold">
-            {activeTab === "bodega"
-              ? "Entregas en bodega"
-              : activeTab === "domicilio"
-              ? "Entregas a domicilio"
-              : "Paquetería"}
-          </h2>
-          <p className="text-xs opacity-60">
-            {finalFilteredBookings.length} registro(s)
-          </p>
-        </div>
-
-        <div className="p-4">
-          {finalFilteredBookings.length === 0 ? (
-            <p className="text-center py-6 text-sm opacity-60">
-              No hay entregas en este rango.
-            </p>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {finalFilteredBookings
-                .slice()
-                .reverse()
-                .map((bk) => {
-                  const isSelected =
-                    selectedBooking && selectedBooking.id === bk.id;
-
-                  const statusLabel =
-                    bk.delivery_status === "entregado"
-                      ? "Entregado"
-                      : bk.delivery_status === "no_entregado"
-                      ? "No entregado"
-                      : "Pendiente";
-
-                  return (
-                    <div
-                      key={bk.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleSelectBooking(bk)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          handleSelectBooking(bk);
-                        }
-                      }}
-                      className={`text-left rounded-2xl shadow-sm p-4 flex flex-col gap-2 border transition cursor-pointer hover:shadow-md hover:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${
-                        isSelected
-                          ? "border-emerald-400 ring-2 ring-emerald-200"
-                          : isDark
-                          ? "bg-slate-950/60 border-slate-800"
-                          : "bg-white border-slate-100"
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm truncate">
-                            {bk.fullName}
-                          </p>
-                          {bk.instagram && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openHistoryForInstagram(bk.instagram);
-                              }}
-                              className="text-xs text-emerald-400 hover:text-emerald-300 underline"
-                            >
-                              {bk.instagram}
-                            </button>
-                          )}
-                          {bk.phone && (
-                            <p className="text-xs opacity-80">
-                              📞 {bk.phone}
-                            </p>
-                          )}
-                          {bk.type === "bodega" && bk.day && (
-                            <p className="text-[11px] opacity-60">
-                              Día:{" "}
-                              {bk.day === "tuesday"
-                                ? "Martes"
-                                : bk.day === "thursday"
-                                ? "Jueves"
-                                : bk.day}
-                            </p>
-                          )}
-                        </div>
-
-                        <span
-                          className={`px-2 py-1 rounded-lg border text-[11px] font-medium whitespace-nowrap bg-opacity-90 ${getDeliveryStatusClasses(
-                            bk.delivery_status
-                          )}`}
-                        >
-                          {statusLabel}
-                        </span>
-                      </div>
-
-                      <div className="text-xs mt-1 space-y-1">
-                        <p>
-                          <strong>📦 Productos:</strong>{" "}
-                          {bk.products || "— (sin capturar)"}
-                        </p>
-                        <p>
-                          <strong>💰 Adeudo:</strong> $
-                          {bk.amount_due ? bk.amount_due : 0}
-                        </p>
-                        <p>
-                          <strong>📅 Fecha programada:</strong>{" "}
-                          {bk.date ? formatShortMX(bk.date) : "—"}
-                        </p>
-                      </div>
-
-                      {activeTab === "domicilio" && (
-                        <div className="text-[11px] mt-1 space-y-1">
-                          <p>
-                            <strong>📍 Dirección:</strong>{" "}
-                            {bk.address || "—"}
-                          </p>
-                          {bk.city || bk.state || bk.postal_code ? (
-                            <p>
-                              {bk.city ? `🏙 ${bk.city} · ` : ""}
-                              {bk.state ? `🗺 ${bk.state} · ` : ""}
-                              {bk.postal_code
-                                ? `📮 C.P. ${bk.postal_code}`
-                                : ""}
-                            </p>
-                          ) : null}
-                          {bk.notes && (
-                            <p className="opacity-70">📝 {bk.notes}</p>
-                          )}
-
-                          {/* 🗺️ Botón Google Maps si hay ubicación */}
-                          {bk.location_url && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                window.open(bk.location_url, "_blank");
-                              }}
-                              className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 underline"
-                            >
-                              🗺 Ver en Google Maps
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      {activeTab === "paqueteria" && (
-                        <div className="text-[11px] mt-1 space-y-1">
-                          <p>
-                            <strong>📍 Dirección:</strong>{" "}
-                            {bk.address || "—"}
-                          </p>
-                          <p>
-                            <strong>🏙 Ciudad/Estado:</strong>{" "}
-                            {bk.city || "—"}
-                          </p>
-                          <p>
-                            <strong>Estado cotización:</strong>{" "}
-                            {bk.status === "cotizado"
-                              ? "✅ Cotizado"
-                              : "⏱ Pendiente"}
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="mt-2 flex flex-col gap-1">
-                        <p className="text-[11px] opacity-60">
-                          Registrado:{" "}
-                          {bk.createdAt
-                            ? new Date(bk.createdAt).toLocaleString("es-MX")
-                            : "—"}
-                        </p>
-                        <div className="flex flex-wrap gap-2 text-[11px] mt-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenReschedule(bk);
-                            }}
-                            className="text-emerald-400 hover:text-emerald-300"
-                          >
-                            Reagendar
-                          </button>
-
-                          {activeTab === "paqueteria" &&
-                            bk.status !== "cotizado" && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMarkCotizado(bk.id);
-                                }}
-                                className="text-emerald-400 hover:text-emerald-300"
-                              >
-                                Marcar cotizado
-                              </button>
-                            )}
-
-                          {(bk.type === "domicilio" || bk.type === "bodega") && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyMessage(bk);
-                              }}
-                              className="text-sky-400 hover:text-sky-300"
-                            >
-                              {copiedBookingId === bk.id
-                                ? "Copiado ✓"
-                                : "Copiar"}
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(bk.id);
-                            }}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {!selectedBooking && finalFilteredBookings.length > 0 && (
-        <p className="text-center text-sm opacity-60 mt-4 italic">
-          Selecciona una entrega para editar productos, adeudo y estado de
-          entrega.
-        </p>
-      )}
-
-      {/* modal edición entrega */}
-      {selectedBooking && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 px-3">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-5 relative">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedBooking(null);
-                setEditForm({
-                  products: "",
-                  amount_due: 0,
-                  delivery_status: "pendiente",
-                  payment_method: "efectivo",
-                });
-              }}
-              className="absolute top-3 right-4 text-slate-400 hover:text-slate-700 text-lg"
-            >
-              ✖
-            </button>
-
-            <h2 className="text-lg font-semibold mb-1">Editar entrega</h2>
-            <p className="text-sm text-slate-500 mb-4">
-              Cliente:{" "}
-              <span className="font-medium">{selectedBooking.fullName}</span> ·{" "}
-              {selectedBooking.instagram}
-            </p>
-
-            <div className="grid gap-4 md:grid-cols-[2fr,1fr] items-start mb-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-slate-700">
-                  Productos
-                </label>
-                <textarea
-                  className="border rounded-lg px-2 py-1 text-sm min-h-[100px]"
-                  placeholder="Productos a entregar..."
-                  value={editForm.products}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, products: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-700">
-                    Monto adeudado (MXN)
-                  </label>
-                  <input
-                    type="number"
-                    className="border rounded-lg px-2 py-1 text-sm"
-                    value={editForm.amount_due === 0 ? "" : editForm.amount_due}
-                    placeholder="0"
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEditForm((f) => ({
-                        ...f,
-                        amount_due: v === "" ? 0 : Number(v),
-                      }));
-                    }}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-700">
-                    Forma de pago
-                  </label>
-                  <select
-                    className="border rounded-lg px-2 py-1 text-xs"
-                    value={editForm.payment_method}
-                    onChange={(e) =>
-                      setEditForm((f) => ({
-                        ...f,
-                        payment_method: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="efectivo">Efectivo</option>
-                    <option value="transferencia">Transferencia</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-slate-700">
-                    Estado entrega
-                  </label>
-                  <select
-                    className={`border rounded-lg px-2 py-1 text-xs ${getDeliveryStatusClasses(
-                      editForm.delivery_status
-                    )}`}
-                    value={editForm.delivery_status}
-                    onChange={(e) =>
-                      setEditForm((f) => ({
-                        ...f,
-                        delivery_status: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="pendiente">Pendiente</option>
-                    <option value="entregado">Entregado</option>
-                    <option value="no_entregado">No entregado</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-2 text-sm">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedBooking(null);
-                  setEditForm({
-                    products: "",
-                    amount_due: 0,
-                    delivery_status: "pendiente",
-                    payment_method: "efectivo",
-                  });
-                }}
-                className="px-4 py-2 rounded-lg border text-slate-600"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveDeliveryInfo}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium"
-              >
-                Guardar info entrega
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* modal entrega manual */}
-      {showManualModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md relative">
-            <button
-              onClick={() => setShowManualModal(false)}
-              className="absolute top-2 right-3 text-slate-400 hover:text-slate-600"
-            >
-              ✖
-            </button>
-            <h2 className="text-lg font-semibold mb-4">Agregar entrega manual</h2>
-
-            <form onSubmit={handleManualSubmit} className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Tipo de entrega
-                </label>
-                <select
-                  value={manualType}
-                  onChange={(e) => setManualType(e.target.value)}
-                  className="border rounded-lg px-3 py-2 text-sm w-full"
-                >
-                  <option value="bodega">Bodega</option>
-                  <option value="domicilio">Domicilio</option>
-                  <option value="paqueteria">Paquetería</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Instagram *
-                </label>
-                <input
-                  value={manualForm.instagram}
-                  onChange={(e) =>
-                    setManualForm({
-                      ...manualForm,
-                      instagram: e.target.value,
-                    })
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="@usuario"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Nombre completo *
-                </label>
-                <input
-                  value={manualForm.fullName}
-                  onChange={(e) =>
-                    setManualForm({
-                      ...manualForm,
-                      fullName: e.target.value,
-                    })
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="Nombre y apellidos"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Teléfono *
-                </label>
-                <input
-                  value={manualForm.phone}
-                  onChange={(e) =>
-                    setManualForm({ ...manualForm, phone: e.target.value })
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="871..."
-                />
-              </div>
-
-              {(manualType === "domicilio" || manualType === "paqueteria") && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Dirección
-                  </label>
-                  <textarea
-                    value={manualForm.address}
-                    onChange={(e) =>
-                      setManualForm({
-                        ...manualForm,
-                        address: e.target.value,
-                      })
-                    }
-                    className="border rounded-lg px-3 py-2 text-sm w-full"
-                    placeholder="Calle, número, colonia..."
-                  />
-                </div>
-              )}
-
-              {manualType === "paqueteria" && (
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Ciudad / Estado
-                  </label>
-                  <input
-                    value={manualForm.city}
-                    onChange={(e) =>
-                      setManualForm({ ...manualForm, city: e.target.value })
-                    }
-                    className="border rounded-lg px-3 py-2 text-sm w-full"
-                    placeholder="CDMX, Monterrey, Durango..."
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Fecha *</label>
-                <input
-                  type="date"
-                  value={manualForm.date}
-                  onChange={(e) =>
-                    setManualForm({ ...manualForm, date: e.target.value })
-                  }
-                  className="border rounded-lg px-3 py-2 text-sm w-full"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-lg text-sm font-semibold w-full"
-              >
-                Guardar entrega
-              </button>
-              {manualMsg && (
-                <p className="text-emerald-600 text-sm text-center mt-2">
-                  {manualMsg}
-                </p>
-              )}
-              {manualError && (
-                <p className="text-red-600 text-sm text-center mt-2">
-                  {manualError}
-                </p>
-              )}
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* modal historial por IG */}
-      {showHistoryModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 relative">
-            <button
-              onClick={() => setShowHistoryModal(false)}
-              className="absolute top-3 right-4 text-slate-400 hover:text-slate-600 text-lg"
-            >
-              ✖
-            </button>
-            <h2 className="text-lg font-semibold mb-1">
-              Historial de {historyInstagram}
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              {historyBookings.length} entrega(s) registradas
-            </p>
-
-            {historyBookings.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No hay entregas para este cliente.
-              </p>
-            ) : (
-              <ul className="space-y-3">
-                {historyBookings.map((h) => (
-                  <li
-                    key={h.id}
-                    className="border border-slate-100 rounded-lg p-3 bg-slate-50"
-                  >
-                    <p className="text-xs text-slate-400 mb-1">
-                      {h.createdAt
-                        ? new Date(h.createdAt).toLocaleString("es-MX")
-                        : ""}
-                    </p>
-                    <p className="text-sm">
-                      <span className="font-semibold">
-                        {h.type === "bodega"
-                          ? "Entrega en bodega"
-                          : h.type === "domicilio"
-                          ? "Entrega a domicilio"
-                          : "Paquetería"}
-                      </span>{" "}
-                      · {h.date ? formatShortMX(h.date) : "sin fecha"}
-                    </p>
-                    {h.address && (
-                      <p className="text-xs text-slate-600 mt-1">
-                        📍 {h.address}
-                      </p>
-                    )}
-                    {(h.city || h.state || h.postal_code) && (
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        {h.city ? `🏙 ${h.city} · ` : ""}
-                        {h.state ? `🗺 ${h.state} · ` : ""}
-                        {h.postal_code ? `📮 C.P. ${h.postal_code}` : ""}
-                      </p>
-                    )}
-                    {h.notes && (
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        📝 {h.notes}
-                      </p>
-                    )}
-
-                    {/* 🗺️ botón Maps en historial si existe ubicación */}
-                    {h.location_url && (
-                      <button
-                        type="button"
-                        onClick={() => window.open(h.location_url, "_blank")}
-                        className="mt-2 inline-flex items-center gap-1 text-[11px] text-sky-500 hover:text-sky-600 underline"
-                      >
-                        🗺 Ver en Google Maps
-                      </button>
-                    )}
-                  </li>
+  // ── RENDERIZADO DE GRÁFICA GIGANTE ──
+  const renderFullChart = () => {
+    if (filteredSales.length === 0) return <div className="h-64 flex items-center justify-center opacity-50">No hay datos en este periodo</div>;
+
+    switch (activeChart) {
+      case 'ventas':
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={timeSeriesData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickMargin={10} />
+              <YAxis stroke="#94a3b8" fontSize={12} allowDecimals={false} />
+              <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px' }} itemStyle={{ color: '#10b981', fontWeight: 'bold' }} />
+              <Line type="monotone" dataKey="ventas" name="No. Ventas" stroke="#10b981" strokeWidth={4} activeDot={{ r: 8, fill: '#10b981', stroke: '#fff' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      case 'facturacion':
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={timeSeriesData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickMargin={10} />
+              <YAxis stroke="#94a3b8" fontSize={12} tickFormatter={(val) => `$${val}`} />
+              <Tooltip formatter={(val) => `$${val}`} contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px' }} itemStyle={{ color: '#f59e0b', fontWeight: 'bold' }} />
+              <Line type="monotone" dataKey="facturacion" name="Ingresos" stroke="#f59e0b" strokeWidth={4} activeDot={{ r: 8, fill: '#f59e0b', stroke: '#fff' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        );
+      case 'productos':
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={topProductsData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+              <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+              <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={11} width={100} />
+              <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px' }} />
+              <Bar dataKey="cantidad" name="Unidades Vendidas" fill="#3b82f6" radius={[0, 4, 4, 0]}>
+                {topProductsData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* modal REAGENDAR */}
-      {showRescheduleModal && bookingToReschedule && (
-        <RescheduleModal
-          booking={bookingToReschedule}
-          onClose={() => {
-            setShowRescheduleModal(false);
-            setBookingToReschedule(null);
-          }}
-          onSaved={async () => {
-            await fetchBookings();
-            setShowRescheduleModal(false);
-            setBookingToReschedule(null);
-          }}
-        />
-      )}
-
-      {/* modal CORTE DE CAJA */}
-      {showCashboxModal && (
-        <CashboxCutModal
-          initialCash={CASHBOX_INITIAL}
-          deliveriesAmount={deliveriesAmount}
-          expectedCash={expectedCash}
-          lastCut={cashboxLastCut}
-          onClose={() => setShowCashboxModal(false)}
-          onConfirm={handleCreateCashboxCut}
-        />
-      )}
-
-      {/* modal HISTORIAL DE CORTES (drawer) */}
-      {showCashboxHistoryModal && (
-        <CashboxHistoryModal
-          cuts={cashboxHistory}
-          loading={cashboxHistoryLoading}
-          onClose={() => setShowCashboxHistoryModal(false)}
-          onRefresh={fetchCashboxHistory}
-        />
-      )}
-    </div>
-  );
-}
-
-// modal reagendar
-function RescheduleModal({ booking, onClose, onSaved }) {
-  const [newDate, setNewDate] = useState(booking.date || "");
-  const [saving, setSaving] = useState(false);
-  const today = getTodayInputDate();
-
-  const handleSave = async () => {
-    if (!newDate) {
-      alert("Selecciona una fecha");
-      return;
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        );
+      case 'clientes':
+        return (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={topClientsData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickMargin={10} angle={-45} textAnchor="end" height={60} />
+              <YAxis stroke="#94a3b8" fontSize={12} allowDecimals={false} />
+              <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px' }} />
+              <Bar dataKey="compras" name="No. Compras" fill="#ec4899" radius={[4, 4, 0, 0]}>
+                {topClientsData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        );
     }
-    try {
-      setSaving(true);
-      const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/bookings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-panel-token": token,
-        },
-        body: JSON.stringify({
-          action: "reschedule",
-          id: booking.id,
-          date: newDate,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.message || "No se pudo reagendar");
-        return;
-      }
-      onSaved?.();
-    } catch (err) {
-      alert("Error de conexión");
-    } finally {
-      setSaving(false);
+  };
+
+  const getChartTitle = (type) => {
+    switch (type) {
+      case 'ventas': return "Flujo de Ventas";
+      case 'facturacion': return "Ingresos (Facturación)";
+      case 'productos': return "Top Productos Más Vendidos";
+      case 'clientes': return "Top Clientes Frecuentes";
+      default: return "";
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-3">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 relative">
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-4 text-slate-400 hover:text-slate-700"
+    <main className="max-w-7xl mx-auto px-4 md:px-8 py-8">
+      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard Analítico</h1>
+          <p className="text-sm mt-1 opacity-70">
+            Vista general del rendimiento de tu negocio.
+          </p>
+        </div>
+        
+        {/* Filtro Global Opcional (aplica a las mini gráficas) */}
+        <select 
+          value={timeFilter} 
+          onChange={(e) => setTimeFilter(e.target.value)}
+          className="px-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-emerald-500 cursor-pointer"
         >
-          ✖
-        </button>
-        <h2 className="text-lg font-semibold mb-2">
-          Reagendar a {booking.fullName || booking.instagram}
-        </h2>
-        <p className="text-xs text-slate-500 mb-4">
-          Actual: {booking.date ? formatShortMX(booking.date) : "sin fecha"}
-        </p>
-
-        <label className="text-sm font-medium text-slate-700 mb-1 block">
-          Nueva fecha
-        </label>
-        <input
-          type="date"
-          value={newDate}
-          min={today}
-          onChange={(e) => setNewDate(e.target.value)}
-          className="border rounded-lg px-3 py-2 w-full mb-4"
-        />
-
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border text-slate-600"
-            disabled={saving}
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-600"
-            disabled={saving}
-          >
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
-        </div>
+          <option value="hoy" className="bg-white">Hoy</option>
+          <option value="ayer" className="bg-white">Ayer</option>
+          <option value="7d" className="bg-white">Últimos 7 Días</option>
+          <option value="30d" className="bg-white">Últimos 30 Días</option>
+          <option value="90d" className="bg-white">Últimos 90 Días</option>
+          <option value="historico" className="bg-white">Histórico Completo</option>
+        </select>
       </div>
-    </div>
-  );
-}
 
-// modal CORTE DE CAJA
-function CashboxCutModal({
-  initialCash,
-  deliveriesAmount,
-  expectedCash,
-  lastCut,
-  onClose,
-  onConfirm,
-}) {
-  const [countedCash, setCountedCash] = useState(expectedCash);
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (countedCash === null || countedCash === undefined || countedCash === "") {
-      alert("Captura cuánto dinero hay en la caja.");
-      return;
-    }
-    const numericCounted = Number(countedCash);
-    if (isNaN(numericCounted)) {
-      alert("El monto contado debe ser un número válido.");
-      return;
-    }
-    try {
-      setSaving(true);
-      await onConfirm({
-        countedCash: numericCounted,
-        note,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const diff = Number(countedCash || 0) - Number(expectedCash || 0);
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-3">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 relative">
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-4 text-slate-400 hover:text-slate-700"
-        >
-          ✖
-        </button>
-        <h2 className="text-lg font-semibold mb-2">Corte de caja Noreste</h2>
-        {lastCut && lastCut.created_at && (
-          <p className="text-[11px] text-slate-500 mb-2">
-            Último corte: {new Date(lastCut.created_at).toLocaleString("es-MX")}
-          </p>
-        )}
-
-        <div className="text-xs text-slate-700 space-y-1 mb-4">
-          <p>
-            Dinero inicial: <strong>${initialCash}</strong>
-          </p>
-          <p>
-            Entregado en efectivo desde último corte:{" "}
-            <strong>${deliveriesAmount}</strong>
-          </p>
-          <p>
-            Total esperado en caja: <strong>${expectedCash}</strong>
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2 mb-3">
-          <label className="text-xs font-medium text-slate-700">
-            Dinero contado en caja
-          </label>
-          <input
-            type="number"
-            className="border rounded-lg px-3 py-2 text-sm"
-            value={countedCash}
-            onChange={(e) => setCountedCash(e.target.value)}
-          />
-          <p className="text-[11px] text-slate-500">
-            Diferencia:{" "}
-            <span
-              className={
-                diff === 0
-                  ? "text-slate-600"
-                  : diff > 0
-                  ? "text-emerald-600"
-                  : "text-red-600"
-              }
-            >
-              {diff >= 0 ? "+" : ""}
-              {diff}
-            </span>
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2 mb-4">
-          <label className="text-xs font-medium text-slate-700">
-            Nota (opcional)
-          </label>
-          <textarea
-            className="border rounded-lg px-3 py-2 text-sm"
-            placeholder="Ej: Faltaron $40, cliente X dijo que pagará mañana..."
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </div>
-
-        <div className="flex justify-end gap-2 text-sm">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border text-slate-600"
-            disabled={saving}
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 rounded-lg bg-emerald-500 text-white font-medium hover:bg-emerald-600"
-            disabled={saving}
-          >
-            {saving ? "Guardando..." : "Guardar corte"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// modal HISTORIAL DE CORTES (drawer)
-function CashboxHistoryModal({ cuts, loading, onClose, onRefresh }) {
-  const [expandedId, setExpandedId] = useState(null);
-
-  const sortedCuts = [...(cuts || [])].sort((a, b) => {
-    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-    return tb - ta;
-  });
-
-  const handleToggle = (id) => {
-    setExpandedId((current) => (current === id ? null : id));
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
-      <div className="flex-1" onClick={onClose} aria-hidden="true" />
-
-      <div className="w-full max-w-md bg-white h-full shadow-xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              Historial de cortes
-            </h2>
-            <p className="text-[11px] text-slate-500">
-              {cuts?.length || 0} corte(s) registrados
-            </p>
+      {/* ── GRID DE MINI GRÁFICAS ── */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        <div onClick={() => setActiveChart('ventas')} className="bg-slate-50 border border-slate-200 rounded-3xl p-5 cursor-pointer hover:bg-slate-100 hover:border-emerald-500/30 transition-all group relative overflow-hidden">
+          <div className="flex justify-between items-start mb-4 relative z-10">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Ventas</span>
+              <h2 className="text-2xl font-black">{timeSeriesData.reduce((sum, d) => sum + d.ventas, 0)}</h2>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">📈</div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onRefresh}
-              className="text-[11px] text-emerald-600 hover:text-emerald-800 underline"
-            >
-              Actualizar
-            </button>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-700 text-lg"
-            >
-              ✖
-            </button>
+          <div className="h-16 w-[110%] -ml-2 opacity-50 group-hover:opacity-100 transition-opacity min-h-[64px]">
+            {renderMiniChart('ventas')}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <p className="text-xs text-slate-400">Cargando historial…</p>
-          ) : sortedCuts.length === 0 ? (
-            <p className="text-sm text-slate-400">Aún no hay cortes registrados.</p>
-          ) : (
-            <ul className="space-y-2">
-              {sortedCuts.map((cut) => {
-                const diff = cut.difference ?? 0;
-                const diffClass =
-                  diff > 0
-                    ? "text-emerald-600"
-                    : diff < 0
-                    ? "text-red-600"
-                    : "text-slate-600";
-                const isOpen = expandedId === cut.id;
-
-                return (
-                  <li
-                    key={cut.id}
-                    className="border border-slate-200 rounded-lg bg-slate-50"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleToggle(cut.id)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-xs"
-                    >
-                      <div className="text-left">
-                        <p className="font-medium text-slate-800">
-                          {cut.created_at
-                            ? new Date(cut.created_at).toLocaleString("es-MX")
-                            : "Sin fecha"}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Ruta: {cut.route || "noreste"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-[11px] font-semibold ${diffClass}`}>
-                          Dif: {diff >= 0 ? "+" : ""}
-                          {diff}
-                        </span>
-                        <span className="text-[11px] text-slate-500">
-                          {isOpen ? "▲" : "▼"}
-                        </span>
-                      </div>
-                    </button>
-
-                    {isOpen && (
-                      <div className="px-3 pb-3 text-[11px] text-slate-700 space-y-1">
-                        {cut.from_datetime && (
-                          <p className="text-slate-500">
-                            Desde: {new Date(cut.from_datetime).toLocaleString("es-MX")}
-                          </p>
-                        )}
-                        <p>
-                          Inicial en caja: <strong>${cut.initial_cash ?? 0}</strong>
-                        </p>
-                        <p>
-                          Total esperado: <strong>${cut.expected_cash ?? 0}</strong>
-                        </p>
-                        <p>
-                          Contado: <strong>${cut.counted_cash ?? 0}</strong>
-                        </p>
-                        <p>
-                          Diferencia:{" "}
-                          <strong className={diffClass}>
-                            {diff >= 0 ? "+" : ""}
-                            {diff}
-                          </strong>
-                        </p>
-                        {cut.note && (
-                          <p className="mt-1 text-slate-500">Nota: {cut.note}</p>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+        <div onClick={() => setActiveChart('facturacion')} className="bg-slate-50 border border-slate-200 rounded-3xl p-5 cursor-pointer hover:bg-slate-100 hover:border-amber-500/30 transition-all group relative overflow-hidden">
+          <div className="flex justify-between items-start mb-4 relative z-10">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">Facturación</span>
+              <h2 className="text-2xl font-black">${timeSeriesData.reduce((sum, d) => sum + d.facturacion, 0).toFixed(2)}</h2>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">💵</div>
+          </div>
+          <div className="h-16 w-[110%] -ml-2 opacity-50 group-hover:opacity-100 transition-opacity min-h-[64px]">
+            {renderMiniChart('facturacion')}
+          </div>
         </div>
+
+        <div onClick={() => setActiveChart('productos')} className="bg-slate-50 border border-slate-200 rounded-3xl p-5 cursor-pointer hover:bg-slate-100 hover:border-blue-500/30 transition-all group relative overflow-hidden">
+          <div className="flex justify-between items-start mb-4 relative z-10">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Más Vendido</span>
+              <h2 className="text-lg font-black leading-tight truncate w-32">{topProductsData[0]?.name || "-"}</h2>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">📦</div>
+          </div>
+          <div className="h-16 w-[110%] -ml-2 opacity-50 group-hover:opacity-100 transition-opacity min-h-[64px]">
+            {renderMiniChart('productos')}
+          </div>
+        </div>
+
+        <div onClick={() => setActiveChart('clientes')} className="bg-slate-50 border border-slate-200 rounded-3xl p-5 cursor-pointer hover:bg-slate-100 hover:border-pink-500/30 transition-all group relative overflow-hidden">
+          <div className="flex justify-between items-start mb-4 relative z-10">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-pink-400">Mejor Cliente</span>
+              <h2 className="text-lg font-black leading-tight truncate w-32">{topClientsData[0]?.name || "-"}</h2>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-400 group-hover:scale-110 transition-transform">👑</div>
+          </div>
+          <div className="h-16 w-[110%] -ml-2 opacity-50 group-hover:opacity-100 transition-opacity min-h-[64px]">
+            {renderMiniChart('clientes')}
+          </div>
+        </div>
+
       </div>
-    </div>
+
+      <div className="mt-8 text-center text-xs opacity-30">
+        Haz clic en cualquier tarjeta para expandir la gráfica y ver detalles.
+      </div>
+
+      {/* ── MODAL FULL SCREEN PARA GRÁFICA ── */}
+      {activeChart && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 lg:p-10 animate-in fade-in zoom-in duration-300">
+          <div className="bg-white border border-slate-200 rounded-[2rem] w-full max-w-5xl h-[85vh] shadow-2xl flex flex-col relative overflow-hidden">
+            
+            {/* Header del Modal */}
+            <div className="p-6 lg:px-10 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black">{getChartTitle(activeChart)}</h2>
+                <p className="text-sm opacity-50">Análisis detallado interactivo</p>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <select 
+                  value={timeFilter} 
+                  onChange={(e) => setTimeFilter(e.target.value)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value="hoy" className="bg-white">Hoy</option>
+                  <option value="ayer" className="bg-white">Ayer</option>
+                  <option value="7d" className="bg-white">Últimos 7 Días</option>
+                  <option value="30d" className="bg-white">Últimos 30 Días</option>
+                  <option value="90d" className="bg-white">Últimos 90 Días</option>
+                  <option value="historico" className="bg-white">Histórico Completo</option>
+                </select>
+
+                <button onClick={() => setActiveChart(null)} className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-lg transition-colors">✕</button>
+              </div>
+            </div>
+
+            {/* Cuerpo del Modal (Gráfica Gigante) */}
+            <div className="flex-1 p-6 lg:p-10 flex flex-col items-center justify-center">
+              {renderFullChart()}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+    </main>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
