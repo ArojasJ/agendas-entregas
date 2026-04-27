@@ -12,7 +12,7 @@ export default function PanelLayout({ children }) {
   const [panelRole, setPanelRole] = useState(null);
   const [staffName, setStaffName] = useState("");
   const [pendingOrders, setPendingOrders] = useState(0);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // v2
   const pathname = usePathname();
 
   useEffect(() => {
