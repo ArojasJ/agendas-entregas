@@ -448,13 +448,14 @@ function InventarioContent() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden my-8">
-            <div className="p-5 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white z-10">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg shadow-2xl flex flex-col my-4" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
+            <div className="p-5 border-b border-slate-200 flex justify-between items-center shrink-0">
               <h2 className="text-lg font-bold text-slate-900">{form.id ? "Editar Producto" : "Nuevo Producto"}</h2>
               <button onClick={closeModal} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors">✕</button>
             </div>
 
+            <div className="overflow-y-auto flex-1">
             <form onSubmit={handleSave} className="p-6 space-y-5">
               {/* Nombre del producto */}
               <div>
@@ -681,7 +682,7 @@ function InventarioContent() {
 
             {/* Estadísticas */}
             {form.id && (
-              <div className="px-6 pb-6">
+              <div className="px-6 pb-6 border-t border-slate-100">
                 <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2"><span className="text-xl">📊</span> Trazabilidad del Producto</h3>
                 {loadingStats ? (
                   <div className="text-center opacity-50 py-4 text-sm">Cargando estadísticas...</div>
@@ -737,6 +738,7 @@ function InventarioContent() {
                 )}
               </div>
             )}
+            </div>{/* end scrollable container */}
           </div>
         </div>
       )}

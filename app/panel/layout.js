@@ -96,11 +96,6 @@ export default function PanelLayout({ children }) {
     }
   };
 
-  const handleLegacyLogin = () => {
-    // Ya no usamos login legado para mayor seguridad
-    setMessage("Por favor usa tu usuario y contraseña.");
-  };
-
   if (!authorized) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center relative overflow-hidden">
@@ -193,7 +188,7 @@ export default function PanelLayout({ children }) {
              <span className="font-bold text-sm text-slate-900">Agéndalo TRC</span>
            </a>
         </div>
-        <div className="p-4 flex-1 flex flex-col gap-2">
+        <div className="p-4 flex-1 flex flex-col gap-2 overflow-y-auto">
           <p className="text-[10px] font-semibold uppercase tracking-widest pl-3 mb-2 mt-2 text-slate-500">Menú Principal</p>
           {navLinks.map((link, idx) => {
             const isActive = pathname === link.href;
