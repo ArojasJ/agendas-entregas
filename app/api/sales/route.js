@@ -112,28 +112,33 @@ export async function POST(req) {
         .insert([{
           sale_id: saleId,
           product_id: item.product_id,
+          variant_id: item.variant_id || null,
           quantity: item.quantity,
           unit_price: item.unit_price,
           delivery_status: "pending"
         }]);
-        
+
       if (itemError) {
         console.error("Error al guardar item:", itemError);
       }
 
-      // Descontar inventario
-      const { data: product } = await supabase
-        .from("products")
-        .select("stock")
-        .eq("id", item.product_id)
-        .single();
-        
-      if (product) {
-        const newStock = Math.max(0, product.stock - item.quantity);
-        await supabase
-          .from("products")
-          .update({ stock: newStock })
-          .eq("id", item.product_id);
+      // Descontar inventario: variante o producto base
+      if (item.variant_id) {
+        const { data: variant } = await supabase
+          .from("product_variants").select("stock").eq("id", item.variant_id).single();
+        if (variant) {
+          await supabase.from("product_variants")
+            .update({ stock: Math.max(0, variant.stock - item.quantity) })
+            .eq("id", item.variant_id);
+        }
+      } else {
+        const { data: product } = await supabase
+          .from("products").select("stock").eq("id", item.product_id).single();
+        if (product) {
+          await supabase.from("products")
+            .update({ stock: Math.max(0, product.stock - item.quantity) })
+            .eq("id", item.product_id);
+        }
       }
     }
 
@@ -159,23 +164,17 @@ export async function DELETE(req) {
     // 1. Obtener los items para regresar el stock
     const { data: items, error: itemsError } = await supabase
       .from("sale_items")
-      .select("product_id, quantity")
+      .select("product_id, variant_id, quantity")
       .eq("sale_id", id);
 
     if (!itemsError && items && items.length > 0) {
-      // Regresar stock
       for (let item of items) {
-        const { data: product } = await supabase
-          .from("products")
-          .select("stock")
-          .eq("id", item.product_id)
-          .single();
-        
-        if (product) {
-          await supabase
-            .from("products")
-            .update({ stock: product.stock + item.quantity })
-            .eq("id", item.product_id);
+        if (item.variant_id) {
+          const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
+          if (v) await supabase.from("product_variants").update({ stock: v.stock + item.quantity }).eq("id", item.variant_id);
+        } else {
+          const { data: product } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
+          if (product) await supabase.from("products").update({ stock: product.stock + item.quantity }).eq("id", item.product_id);
         }
       }
     }

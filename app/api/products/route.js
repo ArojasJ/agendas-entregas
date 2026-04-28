@@ -60,9 +60,10 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const minimal = searchParams.get("minimal") === "true";
 
-  const selectFields = minimal 
-    ? "id, name, category, stock, barcode, cost, price, description, created_at, created_by_staff_id"
-    : "*";
+  const variantFields = "product_variants(id, name, stock, price, cost, barcode, option_type)";
+  const selectFields = minimal
+    ? `id, name, category, stock, barcode, cost, price, description, image_url, created_at, created_by_staff_id, ${variantFields}`
+    : `*, ${variantFields}`;
 
   const { data: products, error } = await supabase
     .from("products")
@@ -95,7 +96,7 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
-    const { name, category, stock, barcode, cost, price, image_url, description } = body;
+    const { name, category, stock, barcode, cost, price, image_url, description, images } = body;
 
     if (!name || cost === undefined || price === undefined) {
       return Response.json({ message: "Faltan campos obligatorios (nombre, costo, precio)." }, { status: 400 });
@@ -108,16 +109,17 @@ export async function POST(req) {
         .select("id, name")
         .eq("barcode", barcode)
         .single();
-      
+
       if (existing) {
-        return Response.json({ 
-          message: `El código de barras ${barcode} ya está en uso por el producto: ${existing.name}` 
+        return Response.json({
+          message: `El código de barras ${barcode} ya está en uso por el producto: ${existing.name}`
         }, { status: 400 });
       }
     }
 
-    // Procesar imagen si es base64
+    // Procesar imagen principal y fotos extra
     const finalImageUrl = await uploadImage(image_url, name);
+    const finalImages = await Promise.all((images || []).map(img => uploadImage(img, name)));
 
     const { data, error } = await supabase
       .from("products")
@@ -130,6 +132,7 @@ export async function POST(req) {
           cost: Number(cost),
           price: Number(price),
           image_url: finalImageUrl || null,
+          images: finalImages.length > 0 ? finalImages : [],
           description: description || null,
           created_at: new Date().toISOString(),
           created_by_staff_id: session.staffId || null
@@ -159,7 +162,7 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
-    const { id, name, category, stock, barcode, cost, price, image_url, description } = body;
+    const { id, name, category, stock, barcode, cost, price, image_url, description, images } = body;
 
     if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
 
@@ -173,9 +176,13 @@ export async function PATCH(req) {
     if (description !== undefined) updateData.description = description;
 
     if (image_url !== undefined && image_url && image_url.startsWith("data:image")) {
-       updateData.image_url = await uploadImage(image_url, name || id);
+      updateData.image_url = await uploadImage(image_url, name || id);
     } else if (image_url !== undefined) {
-       updateData.image_url = image_url;
+      updateData.image_url = image_url;
+    }
+
+    if (images !== undefined) {
+      updateData.images = await Promise.all((images || []).map(img => uploadImage(img, name || id)));
     }
 
     // Validar código de barras único (si cambió)

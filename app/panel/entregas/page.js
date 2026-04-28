@@ -1147,7 +1147,7 @@ export default function PanelPage() {
                             <span className="text-[9px] font-black uppercase">WhatsApp</span>
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); window.open(bk.location_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bk.address + " " + bk.city)}`, "_blank"); }}
+                            onClick={(e) => { e.stopPropagation(); const _mu = (bk.location_url && (bk.location_url.startsWith("http://") || bk.location_url.startsWith("https://"))) ? bk.location_url : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bk.address + " " + bk.city)}`; window.open(_mu, "_blank"); }}
                             className="flex flex-col items-center justify-center gap-1 p-3 rounded-2xl bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors border border-sky-200"
                           >
                             <span className="text-xl">🗺️</span>
@@ -1566,7 +1566,7 @@ export default function PanelPage() {
                         </p>
                       )}
                       {h.notes && <p className={`text-[11px] mt-0.5 ${D ? "text-slate-600" : "text-slate-500"}`}>📝 {h.notes}</p>}
-                      {h.location_url && (
+                      {h.location_url && (h.location_url.startsWith("http://") || h.location_url.startsWith("https://")) && (
                         <button type="button" onClick={() => window.open(h.location_url, "_blank")}
                           className="mt-1.5 text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 underline transition-colors">
                           📍 Ver en Google Maps

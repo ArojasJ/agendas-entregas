@@ -13,6 +13,7 @@ export default function CatalogoPage() {
   // Carrito: { id: { ...product, quantity } }
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
+  const [activeImgIdx, setActiveImgIdx] = useState({});
   
   // Checkout form
   const [clientData, setClientData] = useState({ name: "", phone: "", instagram: "" });
@@ -198,18 +199,34 @@ export default function CatalogoPage() {
               const inCart = cart[product.id]?.quantity || 0;
               return (
                 <div key={product.id} className="group bg-white rounded-[2.5rem] p-3 border-2 border-slate-100 hover:border-sky-500/30 transition-all duration-300 flex flex-col relative">
-                  <div className="aspect-[4/5] rounded-[2rem] overflow-hidden bg-slate-50 relative mb-4">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🛍️</div>
-                    )}
-                    {product.stock <= 5 && (
-                      <div className="absolute top-3 left-3 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg animate-pulse">
-                        ¡ÚLTIMOS {product.stock}!
+                  {(() => {
+                    const allImgs = [product.image_url, ...(product.images || [])].filter(Boolean);
+                    const idx = activeImgIdx[product.id] || 0;
+                    return (
+                      <div
+                        className="aspect-[4/5] rounded-[2rem] overflow-hidden bg-slate-50 relative mb-4 cursor-pointer"
+                        onClick={() => allImgs.length > 1 && setActiveImgIdx(prev => ({ ...prev, [product.id]: (idx + 1) % allImgs.length }))}
+                      >
+                        {allImgs.length > 0 ? (
+                          <img src={allImgs[idx]} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🛍️</div>
+                        )}
+                        {product.stock <= 5 && (
+                          <div className="absolute top-3 left-3 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg animate-pulse">
+                            ¡ÚLTIMOS {product.stock}!
+                          </div>
+                        )}
+                        {allImgs.length > 1 && (
+                          <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
+                            {allImgs.map((_, i) => (
+                              <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all ${i === idx ? "bg-white scale-125" : "bg-white/50"}`} />
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                   
                   <div className="px-2 flex flex-col flex-1">
                     <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1">{product.category || 'Varios'}</p>

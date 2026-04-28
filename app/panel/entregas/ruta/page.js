@@ -22,15 +22,19 @@ function stopLabel(idx) {
 }
 
 
+function isValidUrl(url) {
+  return url && (url.startsWith("http://") || url.startsWith("https://"));
+}
+
 function buildNavUrl(booking) {
-  if (booking.location_url) return booking.location_url;
+  if (isValidUrl(booking.location_url)) return booking.location_url;
   const parts = [booking.address, booking.city, booking.state].filter(Boolean).join(", ");
   if (parts) return parts;
   return null;
 }
 
 function openNavigation(booking) {
-  if (booking.location_url) {
+  if (isValidUrl(booking.location_url)) {
     window.open(booking.location_url, "_blank");
     return;
   }
@@ -436,7 +440,8 @@ export default function RutaPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Parada actual</p>
-                <p className="font-black text-lg leading-tight">{currentStop.fullName}</p>
+                <p className="font-black text-lg leading-tight">{currentStop.instagram ? `@${currentStop.instagram.replace(/^@/, "")}` : currentStop.fullName}</p>
+                {currentStop.instagram && <p className="text-xs text-slate-400 leading-tight">{currentStop.fullName}</p>}
               </div>
             </div>
 
@@ -525,7 +530,8 @@ export default function RutaPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Forma de pago</p>
-                      <p className="font-black text-white text-base mt-0.5">{currentStop.fullName}</p>
+                      <p className="font-black text-white text-base mt-0.5">{currentStop.instagram ? `@${currentStop.instagram.replace(/^@/, "")}` : currentStop.fullName}</p>
+                      {currentStop.instagram && <p className="text-xs text-slate-400">{currentStop.fullName}</p>}
                     </div>
                     <button
                       onClick={() => setPendingDelivery(null)}
@@ -568,7 +574,8 @@ export default function RutaPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">¿Confirmar intento fallido?</p>
-                      <p className="font-black text-white text-base mt-0.5">{currentStop.fullName}</p>
+                      <p className="font-black text-white text-base mt-0.5">{currentStop.instagram ? `@${currentStop.instagram.replace(/^@/, "")}` : currentStop.fullName}</p>
+                      {currentStop.instagram && <p className="text-xs text-slate-400">{currentStop.fullName}</p>}
                     </div>
                     <button
                       onClick={() => setPendingNoEntregado(null)}
@@ -714,7 +721,8 @@ export default function RutaPage() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-white text-sm leading-tight truncate">{bk.fullName}</p>
+                      <p className="font-bold text-white text-sm leading-tight truncate">{bk.instagram ? `@${bk.instagram.replace(/^@/, "")}` : bk.fullName}</p>
+                      {bk.instagram && <p className="text-xs text-slate-400 leading-tight truncate">{bk.fullName}</p>}
                       <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
                         {bk.address || "—"}{bk.city ? `, ${bk.city}` : ""}
                       </p>

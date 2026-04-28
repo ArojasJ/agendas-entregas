@@ -1376,6 +1376,41 @@ export default function AgendarPage() {
 
               <button
                 onClick={() => {
+                  const { date, fullName, address, city } = successBooking;
+                  const d = (date || "").replace(/-/g, "");
+                  const nextDay = new Date(date);
+                  nextDay.setDate(nextDay.getDate() + 1);
+                  const dNext = nextDay.toISOString().split("T")[0].replace(/-/g, "");
+                  const lines = [
+                    "BEGIN:VCALENDAR",
+                    "VERSION:2.0",
+                    "PRODID:-//Noreste CM//Agendalo TRC//ES",
+                    "BEGIN:VEVENT",
+                    `UID:AG-${Date.now()}@trc.com`,
+                    `DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}Z`,
+                    `DTSTART;VALUE=DATE:${d}`,
+                    `DTEND;VALUE=DATE:${dNext}`,
+                    `SUMMARY:Entrega TRC - ${fullName}`,
+                    `DESCRIPTION:Tu entrega de Noreste CM agendada para el ${formatDateStringMX(date)}`,
+                    address ? `LOCATION:${address}\\, ${city}` : "",
+                    "END:VEVENT",
+                    "END:VCALENDAR",
+                  ].filter(Boolean).join("\r\n");
+                  const blob = new Blob([lines], { type: "text/calendar;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "entrega-trc.ics";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="w-full mb-3 bg-emerald-500 hover:bg-emerald-400 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.97] transition-all flex items-center justify-center gap-2"
+              >
+                📅 Agregar al Calendario
+              </button>
+
+              <button
+                onClick={() => {
                   setSuccessModal(false);
                   router.push("/");
                 }}
@@ -1383,7 +1418,7 @@ export default function AgendarPage() {
               >
                 CERRAR Y VOLVER
               </button>
-              
+
               <p className="text-center text-[10px] font-bold text-slate-400 mt-4 uppercase tracking-widest">📸 ¡Toma una captura!</p>
             </div>
           </div>

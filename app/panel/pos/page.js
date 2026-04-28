@@ -30,6 +30,7 @@ export default function PosPage() {
   const [newClientForm, setNewClientForm] = useState({ name: "", instagram: "", phone: "", box_1: "", box_2: "" });
   const [savingNewClient, setSavingNewClient] = useState(false);
   const [confirmClearCart, setConfirmClearCart] = useState(false);
+  const [variantPicker, setVariantPicker] = useState(null); // product con variantes
 
   const searchInputRef = useRef(null);
 
@@ -103,7 +104,16 @@ export default function PosPage() {
 
   const handleSearchKeyDown = (e) => {
     if (e.key === "Enter") {
-      const match = products.find(p => p.barcode === search || p.name.toLowerCase() === search.toLowerCase());
+      // Buscar también en barcodes de variantes
+      const q = search.toLowerCase();
+      let match = products.find(p => p.barcode === search || p.name.toLowerCase() === q);
+      if (!match) {
+        // Buscar en variantes por barcode
+        for (const p of products) {
+          const v = (p.product_variants || []).find(v => v.barcode === search);
+          if (v) { addVariantDirectly(p, v); setSearch(""); return; }
+        }
+      }
       if (match) {
         addToCart(match);
         setSearch("");
@@ -114,27 +124,39 @@ export default function PosPage() {
   };
 
   const addToCart = (product) => {
-    if (product.stock <= 0) {
-      showToast("Producto sin existencias", "error");
+    const pvs = product.product_variants || [];
+    if (pvs.length > 0) {
+      setVariantPicker(product);
       return;
     }
-    
+    if (product.stock <= 0) { showToast("Producto sin existencias", "error"); return; }
     setCart(prev => {
-      const existing = prev.find(item => item.product_id === product.id);
+      const existing = prev.find(item => item._cartKey === product.id);
       if (existing) {
-        if (existing.quantity >= product.stock) {
-          showToast("No hay más stock disponible", "error");
-          return prev;
-        }
-        return prev.map(item => item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+        if (existing.quantity >= existing.max_stock) { showToast("No hay más stock", "error"); return prev; }
+        return prev.map(item => item._cartKey === product.id ? { ...item, quantity: item.quantity + 1 } : item);
       }
-      return [...prev, { product_id: product.id, name: product.name, unit_price: product.price, quantity: 1, max_stock: product.stock }];
+      return [...prev, { _cartKey: product.id, product_id: product.id, variant_id: null, name: product.name, unit_price: product.price, quantity: 1, max_stock: product.stock }];
     });
   };
 
-  const updateQuantity = (id, delta) => {
+  const addVariantDirectly = (product, variant) => {
+    if (variant.stock <= 0) { showToast("Sin stock en esta variante", "error"); return; }
+    const key = `${product.id}_${variant.id}`;
+    setCart(prev => {
+      const existing = prev.find(item => item._cartKey === key);
+      if (existing) {
+        if (existing.quantity >= existing.max_stock) { showToast("No hay más stock", "error"); return prev; }
+        return prev.map(item => item._cartKey === key ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { _cartKey: key, product_id: product.id, variant_id: variant.id, name: `${product.name} · ${variant.name}`, unit_price: variant.price, quantity: 1, max_stock: variant.stock }];
+    });
+    setVariantPicker(null);
+  };
+
+  const updateQuantity = (cartKey, delta) => {
     setCart(prev => prev.map(item => {
-      if (item.product_id === id) {
+      if (item._cartKey === cartKey) {
         const newQ = item.quantity + delta;
         if (newQ > item.max_stock) return item;
         if (newQ <= 0) return { ...item, remove: true };
@@ -146,9 +168,11 @@ export default function PosPage() {
 
   const filteredProducts = useMemo(() => {
     if (!search || search.trim().length < 2) return [];
-    return products.filter(p => 
-      p.name.toLowerCase().includes(search.toLowerCase()) || 
-      (p.barcode && p.barcode.includes(search))
+    const q = search.toLowerCase();
+    return products.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.barcode && p.barcode.includes(search)) ||
+      (p.product_variants || []).some(v => v.name?.toLowerCase().includes(q) || v.barcode?.includes(search))
     );
   }, [products, search]);
 
@@ -179,7 +203,7 @@ export default function PosPage() {
         payment_method: paymentMethod,
         status: paymentType, // 'paid' o 'credit'
         down_payment: paymentType === 'paid' ? total : downPayment,
-        items: cart.map(i => ({ product_id: i.product_id, quantity: i.quantity, unit_price: i.unit_price }))
+        items: cart.map(i => ({ product_id: i.product_id, variant_id: i.variant_id || null, quantity: i.quantity, unit_price: i.unit_price }))
       };
 
       const res = await fetch("/api/sales", {
@@ -254,40 +278,43 @@ export default function PosPage() {
           ) : (
             <div className="flex flex-col gap-3">
               {filteredProducts.map(p => {
-                const outOfStock = p.stock <= 0;
+                const pvs = p.product_variants || [];
+                const hasVars = pvs.length > 0;
+                const totalStock = hasVars ? pvs.reduce((s, v) => s + (v.stock || 0), 0) : p.stock;
+                const outOfStock = totalStock <= 0;
+                const minPrice = hasVars ? Math.min(...pvs.map(v => v.price)) : p.price;
+                const maxPrice = hasVars ? Math.max(...pvs.map(v => v.price)) : p.price;
                 return (
-                  <button 
-                    key={p.id} 
+                  <button
+                    key={p.id}
                     onClick={() => addToCart(p)}
                     disabled={outOfStock}
-                    className={`flex flex-row items-center text-left rounded-2xl border p-3 transition-all ${outOfStock ? 'bg-slate-50 border-transparent opacity-50 cursor-not-allowed' : 'bg-white border-slate-200 hover:border-emerald-500/50 hover:bg-emerald-500/5 active:scale-95 shadow-sm'}`}
+                    className={`flex flex-row items-center text-left rounded-2xl border p-3 transition-all ${outOfStock ? "bg-slate-50 border-transparent opacity-50 cursor-not-allowed" : "bg-white border-slate-200 hover:border-emerald-500/50 hover:bg-emerald-500/5 active:scale-95 shadow-sm"}`}
                   >
                     <div className="w-16 h-16 bg-slate-50 rounded-xl relative overflow-hidden flex items-center justify-center flex-shrink-0 border border-slate-100">
-                      {p.image_url ? (
-                        <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-2xl opacity-20">📦</span>
-                      )}
+                      {p.image_url ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" /> : <span className="text-2xl opacity-20">📦</span>}
                       {outOfStock && (
                         <div className="absolute inset-0 bg-red-500/10 backdrop-blur-[1px] flex items-center justify-center">
-                          <span className="bg-red-500 text-slate-900 text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-widest">Agotado</span>
+                          <span className="bg-red-500 text-white text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-widest">Agotado</span>
                         </div>
                       )}
+                      {hasVars && !outOfStock && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-violet-600/80 text-white text-[8px] font-black text-center py-0.5">VARIANTES</div>
+                      )}
                     </div>
-                    
                     <div className="flex-1 px-4 flex flex-col justify-center">
                       <h3 className="font-bold text-sm leading-tight mb-1 text-slate-900">{p.name}</h3>
-                      <div className="flex gap-3 text-xs text-slate-500">
-                        {p.barcode && <span>{p.barcode}</span>}
-                        <span className={outOfStock ? "text-red-500 font-bold" : ""}>Stock: {p.stock}</span>
+                      <div className="flex gap-3 text-xs text-slate-500 flex-wrap">
+                        {!hasVars && p.barcode && <span>{p.barcode}</span>}
+                        <span className={outOfStock ? "text-red-500 font-bold" : ""}>Stock: {totalStock}</span>
+                        {hasVars && <span className="text-violet-500 font-bold">{pvs.length} variantes</span>}
                       </div>
                     </div>
-                    
-                    <div className="text-right">
-                      <span className="text-emerald-500 font-black text-lg">${p.price}</span>
+                    <div className="text-right shrink-0">
+                      <span className="text-emerald-500 font-black text-lg">${minPrice}{minPrice !== maxPrice ? `–$${maxPrice}` : ""}</span>
                     </div>
                   </button>
-                )
+                );
               })}
             </div>
           )}
@@ -329,15 +356,15 @@ export default function PosPage() {
             </div>
           ) : (
             cart.map(item => (
-              <div key={item.product_id} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-2xl">
+              <div key={item._cartKey} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-2xl">
                 <div className="flex-1">
                   <p className="font-bold text-sm leading-tight">{item.name}</p>
                   <p className="text-emerald-400 text-sm font-semibold">${item.unit_price}</p>
                 </div>
                 <div className="flex items-center gap-3 bg-white rounded-xl p-1">
-                  <button onClick={() => updateQuantity(item.product_id, -1)} className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-lg">-</button>
+                  <button onClick={() => updateQuantity(item._cartKey, -1)} className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-lg">-</button>
                   <span className="font-bold w-4 text-center">{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.product_id, 1)} className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-lg">+</button>
+                  <button onClick={() => updateQuantity(item._cartKey, 1)} className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-lg">+</button>
                 </div>
               </div>
             ))
@@ -602,6 +629,42 @@ export default function PosPage() {
                 {savingNewClient ? "Guardando…" : "Guardar"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Variant Picker ── */}
+      {variantPicker && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900">Seleccionar variante</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{variantPicker.name}</p>
+              </div>
+              <button onClick={() => setVariantPicker(null)} className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors">✕</button>
+            </div>
+            <div className="p-4 space-y-2 max-h-80 overflow-y-auto">
+              {(variantPicker.product_variants || []).map(v => {
+                const outOfStock = v.stock <= 0;
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => addVariantDirectly(variantPicker, v)}
+                    disabled={outOfStock}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all ${outOfStock ? "bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed" : "bg-white border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 active:scale-[0.99]"}`}
+                  >
+                    <span className="font-bold text-slate-900">{v.name}</span>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs font-bold ${outOfStock ? "text-red-400" : "text-slate-400"}`}>
+                        {outOfStock ? "Sin stock" : `${v.stock} disp.`}
+                      </span>
+                      <span className="font-black text-emerald-600 text-base">${v.price}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
