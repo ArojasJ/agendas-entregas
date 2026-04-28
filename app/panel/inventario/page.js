@@ -460,7 +460,13 @@ function InventarioContent() {
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Nombre del producto *</label>
                 <input required type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-all" placeholder="Ej: Bolsa Guess Negra" />
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-all"
+                  placeholder={hasVariants ? "Ej: Bolsa Guess (nombre general)" : "Ej: Bolsa Guess Negra"} />
+                {hasVariants && (
+                  <p className="text-[11px] text-sky-500 font-semibold mt-1.5">
+                    💡 Este es el nombre del producto en general. El color, talla, etc. va en cada variante abajo.
+                  </p>
+                )}
               </div>
 
               {/* Galería de fotos */}
