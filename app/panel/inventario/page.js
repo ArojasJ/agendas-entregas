@@ -23,6 +23,7 @@ const newVarRow = (optionType, baseCost = "", basePrice = "") => ({
   cost: baseCost,
   price: basePrice,
   stock: 0,
+  varImages: [], // galería de fotos de la variante [{ _key, src }]
 });
 
 function InventarioContent() {
@@ -124,6 +125,21 @@ function InventarioContent() {
     setProductImages(prev => prev.filter(i => i._key !== key));
   };
 
+  const handleVariantAddImages = async (e, key) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const variant = variants.find(v => v._key === key);
+    const remaining = 4 - (variant?.varImages || []).length;
+    const toProcess = files.slice(0, remaining);
+    const newImgs = await Promise.all(toProcess.map(async f => ({ _key: `vi_${++_imgKey}`, src: await resizeToBase64(f) })));
+    setVariants(prev => prev.map(v => v._key === key ? { ...v, varImages: [...(v.varImages || []), ...newImgs] } : v));
+    e.target.value = "";
+  };
+
+  const removeVariantImage = (key, imgKey) => {
+    setVariants(prev => prev.map(v => v._key === key ? { ...v, varImages: v.varImages.filter(i => i._key !== imgKey) } : v));
+  };
+
   const checkBarcodeInUse = (barcode) => {
     if (!barcode || hasVariants) { setBarcodeError(""); return; }
     const dup = products.find(p =>
@@ -210,7 +226,8 @@ function InventarioContent() {
           await fetch(`/api/products/variants?id=${vid}`, { method: "DELETE", headers: { "x-panel-token": token } });
         }
         for (const v of variants) {
-          const vData = { name: v.name, sku: v.sku, barcode: v.barcode, cost: Number(v.cost) || 0, price: Number(v.price) || 0, stock: Number(v.stock) || 0 };
+          const vImgs = (v.varImages || []).map(i => i.src);
+          const vData = { name: v.name, sku: v.sku, barcode: v.barcode, cost: Number(v.cost) || 0, price: Number(v.price) || 0, stock: Number(v.stock) || 0, image_url: vImgs[0] || null, images: vImgs.slice(1) };
           if (v.id) {
             await fetch("/api/products/variants", {
               method: "PATCH",
@@ -256,7 +273,11 @@ function InventarioContent() {
       setIsNewCategory(false);
       const pvs = product.product_variants || [];
       setHasVariants(pvs.length > 0);
-      setVariants(pvs.map(v => ({ ...v, _key: v.id })));
+      setVariants(pvs.map(v => ({
+        ...v,
+        _key: v.id,
+        varImages: [v.image_url, ...(v.images || [])].filter(Boolean).map((src, i) => ({ _key: `vi_${v.id}_${i}`, src })),
+      })));
       setVariantOptionType(pvs[0]?.option_type || "Tamaño");
     } else {
       setForm(emptyForm);
@@ -621,6 +642,23 @@ function InventarioContent() {
                                 className="flex-1 px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm font-semibold text-slate-900 focus:outline-none focus:border-emerald-500 transition-colors placeholder-slate-300" />
                               <button type="button" onClick={() => removeVariantRow(v._key)}
                                 className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-red-50 hover:border-red-200 hover:text-red-500 text-slate-400 text-xs flex items-center justify-center transition-colors shrink-0">✕</button>
+                            </div>
+                            {/* Galería de fotos de la variante */}
+                            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                              {(v.varImages || []).map(img => (
+                                <div key={img._key} className="relative shrink-0 w-14 h-14 rounded-lg border border-slate-200 overflow-hidden group/img">
+                                  <img src={img.src} alt="" className="w-full h-full object-cover" />
+                                  <button type="button" onClick={() => removeVariantImage(v._key, img._key)}
+                                    className="absolute inset-0 bg-black/50 text-white text-[11px] flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity font-bold">✕</button>
+                                </div>
+                              ))}
+                              {(v.varImages || []).length < 4 && (
+                                <label className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 bg-white transition-colors gap-0.5">
+                                  <span className="text-lg opacity-30">📷</span>
+                                  <span className="text-[8px] text-slate-400 font-semibold">{(v.varImages || []).length}/4</span>
+                                  <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleVariantAddImages(e, v._key)} />
+                                </label>
+                              )}
                             </div>
                             {/* Precio / Stock / Costo */}
                             <div className="grid grid-cols-3 gap-2">

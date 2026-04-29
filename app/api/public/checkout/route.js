@@ -18,23 +18,44 @@ export async function POST(req) {
     const itemsToInsert = [];
     
     for (let item of cart) {
-      const { data: product } = await supabase
-        .from("products")
-        .select("price, stock")
-        .eq("id", item.id)
-        .single();
-        
-      if (!product || product.stock < item.quantity) {
-        return Response.json({ message: `No hay suficiente stock para uno de los productos.` }, { status: 400 });
+      if (item.variant_id) {
+        const { data: variant } = await supabase
+          .from("product_variants")
+          .select("price, stock")
+          .eq("id", item.variant_id)
+          .single();
+
+        if (!variant || variant.stock < item.quantity) {
+          return Response.json({ message: `No hay suficiente stock para una de las opciones seleccionadas.` }, { status: 400 });
+        }
+
+        total += Number(variant.price) * item.quantity;
+        itemsToInsert.push({
+          product_id: item.id,
+          variant_id: item.variant_id,
+          quantity: item.quantity,
+          unit_price: variant.price,
+          delivery_status: "pending"
+        });
+      } else {
+        const { data: product } = await supabase
+          .from("products")
+          .select("price, stock")
+          .eq("id", item.id)
+          .single();
+
+        if (!product || product.stock < item.quantity) {
+          return Response.json({ message: `No hay suficiente stock para uno de los productos.` }, { status: 400 });
+        }
+
+        total += Number(product.price) * item.quantity;
+        itemsToInsert.push({
+          product_id: item.id,
+          quantity: item.quantity,
+          unit_price: product.price,
+          delivery_status: "pending"
+        });
       }
-      
-      total += Number(product.price) * item.quantity;
-      itemsToInsert.push({
-        product_id: item.id,
-        quantity: item.quantity,
-        unit_price: product.price,
-        delivery_status: "pending"
-      });
     }
 
     // 2. Buscar o crear cliente
@@ -88,20 +109,14 @@ export async function POST(req) {
       item.sale_id = newSale.id;
       
       await supabase.from("sale_items").insert([item]);
-      
+
       // Descontar inventario
-      const { data: productToUpdate } = await supabase
-        .from("products")
-        .select("stock")
-        .eq("id", item.product_id)
-        .single();
-        
-      if (productToUpdate) {
-        const newStock = Math.max(0, productToUpdate.stock - item.quantity);
-        await supabase
-          .from("products")
-          .update({ stock: newStock })
-          .eq("id", item.product_id);
+      if (item.variant_id) {
+        const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
+        if (v) await supabase.from("product_variants").update({ stock: Math.max(0, v.stock - item.quantity) }).eq("id", item.variant_id);
+      } else {
+        const { data: productToUpdate } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
+        if (productToUpdate) await supabase.from("products").update({ stock: Math.max(0, productToUpdate.stock - item.quantity) }).eq("id", item.product_id);
       }
     }
 

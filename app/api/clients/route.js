@@ -23,6 +23,20 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 
+  const checkBox = searchParams.get("checkBox");
+  const excludeId = searchParams.get("excludeId");
+
+  if (checkBox) {
+    let q = supabase
+      .from("clients")
+      .select("id, name, instagram, box_1, box_2")
+      .or(`box_1.eq.${checkBox},box_2.eq.${checkBox}`);
+    if (excludeId) q = q.neq("id", excludeId);
+    const { data, error } = await q;
+    if (error) return Response.json({ message: error.message }, { status: 500 });
+    return Response.json({ conflicts: data || [] });
+  }
+
   if (id) {
     // Traer historial de ventas de un cliente específico
     const { data, error } = await supabase
@@ -65,8 +79,8 @@ export async function POST(req) {
     const body = await req.json();
     const { name, instagram, phone, box_1, box_2 } = body;
 
-    if (!name) {
-      return Response.json({ message: "Falta el nombre del cliente." }, { status: 400 });
+    if (!instagram && !phone) {
+      return Response.json({ message: "Ingresa al menos Instagram o teléfono." }, { status: 400 });
     }
 
     let finalInstagram = instagram ? instagram.trim() : null;
@@ -74,8 +88,26 @@ export async function POST(req) {
       finalInstagram = `@${finalInstagram}`;
     }
 
-    const cleanIg = finalInstagram.replace(/^@/, '');
+    const cleanIg = finalInstagram ? finalInstagram.replace(/^@/, '') : null;
     
+    // Validar conflictos de caja
+    const boxConflicts = [];
+    for (const [label, val] of [["1", box_1], ["2", box_2]]) {
+      if (!val || !val.trim()) continue;
+      const { data: bData } = await supabase
+        .from("clients")
+        .select("name, instagram, box_1, box_2")
+        .or(`box_1.eq.${val.trim()},box_2.eq.${val.trim()}`);
+      if (bData && bData.length > 0) {
+        const c = bData[0];
+        const who = c.instagram || c.name || "un cliente";
+        boxConflicts.push(`Caja ${val.trim()} (campo Caja ${label}) ya la usa ${who}`);
+      }
+    }
+    if (boxConflicts.length > 0) {
+      return Response.json({ message: boxConflicts.join(" · ") }, { status: 409 });
+    }
+
     // 1. Buscar si ya existe un cliente con este instagram (con o sin @)
     const { data: existingClients, error: searchError } = await supabase
       .from("clients")
@@ -144,6 +176,25 @@ export async function PATCH(req) {
     const { id, name, instagram, phone, box_1, box_2 } = body;
 
     if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
+
+    // Validar conflictos de caja
+    const boxConflictsP = [];
+    for (const [label, val] of [["1", box_1], ["2", box_2]]) {
+      if (!val || !val.trim()) continue;
+      const { data: bData } = await supabase
+        .from("clients")
+        .select("name, instagram, box_1, box_2")
+        .or(`box_1.eq.${val.trim()},box_2.eq.${val.trim()}`)
+        .neq("id", id);
+      if (bData && bData.length > 0) {
+        const c = bData[0];
+        const who = c.instagram || c.name || "un cliente";
+        boxConflictsP.push(`Caja ${val.trim()} (campo Caja ${label}) ya la usa ${who}`);
+      }
+    }
+    if (boxConflictsP.length > 0) {
+      return Response.json({ message: boxConflictsP.join(" · ") }, { status: 409 });
+    }
 
     const updateData = {};
     if (name !== undefined) updateData.name = name;

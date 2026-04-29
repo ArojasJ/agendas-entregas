@@ -427,9 +427,14 @@ export default function RutaPage() {
             <div className="text-6xl">🎉</div>
             <h2 className="text-2xl font-black">¡Ruta completada!</h2>
             <p className="text-slate-400">Todas las paradas del día han sido procesadas.</p>
-            <button onClick={() => setMode("review")} className="mt-4 bg-sky-500 text-white px-6 py-3 rounded-2xl font-black">
-              Ver resumen
-            </button>
+            <div className="flex flex-col gap-3 mt-4 w-full max-w-xs">
+              <button onClick={() => setMode("review")} className="bg-sky-500 text-white px-6 py-3 rounded-2xl font-black">
+                Ver resumen
+              </button>
+              <button onClick={() => router.push("/panel/entregas")} className="bg-slate-800 border border-slate-700 text-slate-300 px-6 py-3 rounded-2xl font-black hover:bg-slate-700 transition-colors">
+                ← Volver a Entregas
+              </button>
+            </div>
           </div>
         ) : !currentStop ? null : (
           <div className="flex-1 flex flex-col p-4 gap-4 max-w-lg mx-auto w-full">
@@ -490,6 +495,16 @@ export default function RutaPage() {
                       <span>💬</span> WhatsApp
                     </a>
                   </div>
+                  {currentStop.instagram && (
+                    <a
+                      href={`https://instagram.com/${currentStop.instagram.replace(/^@/, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 py-3.5 rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-400 font-black text-sm active:scale-95 transition-all w-full"
+                    >
+                      <span>📸</span> Ver Instagram
+                    </a>
+                  )}
                 </div>
               )}
             </div>
@@ -516,7 +531,13 @@ export default function RutaPage() {
               </button>
               <button
                 disabled={!!updatingId || !!pendingDelivery}
-                onClick={() => setPendingDelivery({ booking: currentStop })}
+                onClick={() => {
+                  if (Number(currentStop.amount_due) > 0) {
+                    setPendingDelivery({ booking: currentStop });
+                  } else {
+                    markStop(currentStop, "entregado", "efectivo");
+                  }
+                }}
                 className="py-4 rounded-2xl bg-sky-500 text-white font-black shadow-lg shadow-sky-500/30 hover:bg-sky-400 transition-all active:scale-95 disabled:opacity-50"
               >
                 {updatingId === currentStop.id ? "..." : "✓ Entregado"}

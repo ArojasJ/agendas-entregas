@@ -27,7 +27,7 @@ async function uploadImage(base64Data, productName) {
     const safeName = (productName || 'product').toLowerCase().replace(/[^a-z0-9]/g, '-');
     const path = `${Date.now()}-${safeName}.${extension}`;
     
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from("products")
       .upload(path, buffer, {
         contentType: `image/${extension}`,
@@ -60,7 +60,7 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const minimal = searchParams.get("minimal") === "true";
 
-  const variantFields = "product_variants(id, name, stock, price, cost, barcode, option_type)";
+  const variantFields = "product_variants(id, name, stock, price, cost, barcode, option_type, image_url, images)";
   const selectFields = minimal
     ? `id, name, category, stock, barcode, cost, price, description, image_url, created_at, created_by_staff_id, ${variantFields}`
     : `*, ${variantFields}`;

@@ -18,6 +18,8 @@ function ClientesContent() {
   
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [boxFilter, setBoxFilter] = useState("");
+  const [boxErrors, setBoxErrors] = useState({ box_1: "", box_2: "" });
   
   // Expediente del cliente
   const [showExpediente, setShowExpediente] = useState(false);
@@ -78,9 +80,34 @@ function ClientesContent() {
     }
   };
 
+  const checkBoxConflict = async (field, value) => {
+    if (!value || !value.trim()) {
+      setBoxErrors(prev => ({ ...prev, [field]: "" }));
+      return;
+    }
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const excludeParam = form.id ? `&excludeId=${form.id}` : "";
+      const res = await fetch(`/api/clients?checkBox=${encodeURIComponent(value.trim())}${excludeParam}`, {
+        headers: { "x-panel-token": token }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.conflicts && data.conflicts.length > 0) {
+          const c = data.conflicts[0];
+          const who = c.instagram || c.name || "otro cliente";
+          const inField = c.box_1 === value.trim() ? "Caja 1" : "Caja 2";
+          setBoxErrors(prev => ({ ...prev, [field]: `En uso por ${who} (${inField})` }));
+        } else {
+          setBoxErrors(prev => ({ ...prev, [field]: "" }));
+        }
+      }
+    } catch {}
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name) return showToast("Falta el nombre.", "error");
+    if (boxErrors.box_1 || boxErrors.box_2) return;
 
     setSaving(true);
     try {
@@ -91,12 +118,13 @@ function ClientesContent() {
         headers: { "Content-Type": "application/json", "x-panel-token": token },
         body: JSON.stringify(form)
       });
+      const data = await res.json();
       if (res.ok) {
         await fetchClients();
         closeModal();
         showToast(isEdit ? "Cliente actualizado" : "Cliente agregado", "success");
       } else {
-        showToast("Error al guardar", "error");
+        showToast(data.message || "Error al guardar", "error");
       }
     } catch (err) {
       showToast("Error de conexión", "error");
@@ -124,20 +152,30 @@ function ClientesContent() {
 
   const openModal = (client = null) => {
     setForm(client || { id: null, name: "", instagram: "", phone: "", box_1: "", box_2: "" });
+    setBoxErrors({ box_1: "", box_2: "" });
     setShowModal(true);
   };
 
-  const closeModal = () => setShowModal(false);
+  const closeModal = () => {
+    setBoxErrors({ box_1: "", box_2: "" });
+    setShowModal(false);
+  };
 
   const filteredClients = useMemo(() => {
     const searchStr = search.replace('@', '').toLowerCase();
+    const boxStr = boxFilter.trim();
     return clients
-      .filter(c => 
-        (c.instagram && c.instagram.toLowerCase().includes(searchStr)) || 
-        (c.name && c.name.toLowerCase().includes(searchStr))
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [clients, search]);
+      .filter(c => {
+        const matchSearch = !searchStr ||
+          (c.instagram && c.instagram.toLowerCase().includes(searchStr)) ||
+          (c.name && c.name.toLowerCase().includes(searchStr));
+        const matchBox = !boxStr ||
+          (c.box_1 && c.box_1 === boxStr) ||
+          (c.box_2 && c.box_2 === boxStr);
+        return matchSearch && matchBox;
+      })
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [clients, search, boxFilter]);
 
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 relative">
@@ -172,10 +210,23 @@ function ClientesContent() {
           <h1 className="text-3xl font-bold tracking-tight">Directorio de Clientes</h1>
           <p className="text-sm mt-1 opacity-70">Gestiona expedientes y créditos.</p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 min-w-[160px] md:w-64">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50">🔍</span>
             <input type="text" placeholder="Buscar por @instagram..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2.5 rounded-xl border bg-slate-50 border-slate-200 focus:outline-none focus:border-emerald-500 transition-colors" />
+          </div>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50">📦</span>
+            <input
+              type="text"
+              placeholder="N° caja..."
+              value={boxFilter}
+              onChange={e => setBoxFilter(e.target.value)}
+              className={`pl-9 pr-4 py-2.5 rounded-xl border text-sm w-28 focus:outline-none transition-colors ${boxFilter ? "bg-indigo-50 border-indigo-400 text-indigo-700 font-semibold" : "bg-slate-50 border-slate-200 focus:border-indigo-400"}`}
+            />
+            {boxFilter && (
+              <button onClick={() => setBoxFilter("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-indigo-400 hover:text-indigo-600 text-xs font-bold">✕</button>
+            )}
           </div>
           <button onClick={() => openModal()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold px-5 py-2.5 rounded-xl shadow-lg active:scale-95 transition-all">
             + Nuevo Cliente
@@ -232,7 +283,7 @@ function ClientesContent() {
               <button onClick={closeModal} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center">✕</button>
             </div>
             <form onSubmit={handleSave} className="p-6 space-y-4">
-              <input required type="text" placeholder="Nombre completo *" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
+              <input type="text" placeholder="Nombre completo (opcional)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
                 <input 
@@ -243,15 +294,31 @@ function ClientesContent() {
                   className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" 
                 />
               </div>
-              <input type="tel" placeholder="Teléfono" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
+              <input type="tel" placeholder="Teléfono" value={form.phone || ""} onChange={e => setForm({...form, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Caja 1</label>
-                  <input type="text" placeholder="Núm. Caja" value={form.box_1 || ""} onChange={e => setForm({...form, box_1: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none" />
+                  <input
+                    type="text"
+                    placeholder="Núm. Caja"
+                    value={form.box_1 || ""}
+                    onChange={e => { setForm({...form, box_1: e.target.value}); setBoxErrors(prev => ({ ...prev, box_1: "" })); }}
+                    onBlur={e => checkBoxConflict("box_1", e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm focus:outline-none ${boxErrors.box_1 ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-indigo-500"}`}
+                  />
+                  {boxErrors.box_1 && <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_1}</p>}
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Caja 2</label>
-                  <input type="text" placeholder="Núm. Caja" value={form.box_2 || ""} onChange={e => setForm({...form, box_2: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-blue-500 focus:outline-none" />
+                  <input
+                    type="text"
+                    placeholder="Núm. Caja"
+                    value={form.box_2 || ""}
+                    onChange={e => { setForm({...form, box_2: e.target.value}); setBoxErrors(prev => ({ ...prev, box_2: "" })); }}
+                    onBlur={e => checkBoxConflict("box_2", e.target.value)}
+                    className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm focus:outline-none ${boxErrors.box_2 ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-blue-500"}`}
+                  />
+                  {boxErrors.box_2 && <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_2}</p>}
                 </div>
               </div>
               <button type="submit" disabled={saving} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg mt-2">{saving ? "Guardando..." : "Guardar"}</button>

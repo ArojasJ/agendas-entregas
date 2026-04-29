@@ -652,10 +652,15 @@ export default function PosPage() {
                     key={v.id}
                     onClick={() => addVariantDirectly(variantPicker, v)}
                     disabled={outOfStock}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all ${outOfStock ? "bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed" : "bg-white border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 active:scale-[0.99]"}`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all ${outOfStock ? "bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed" : "bg-white border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 active:scale-[0.99]"}`}
                   >
-                    <span className="font-bold text-slate-900">{v.name}</span>
-                    <div className="flex items-center gap-3">
+                    {v.image_url ? (
+                      <img src={v.image_url} alt={v.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-slate-200" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 shrink-0 flex items-center justify-center text-lg opacity-30">📦</div>
+                    )}
+                    <span className="font-bold text-slate-900 flex-1 text-left">{v.name}</span>
+                    <div className="flex items-center gap-3 shrink-0">
                       <span className={`text-xs font-bold ${outOfStock ? "text-red-400" : "text-slate-400"}`}>
                         {outOfStock ? "Sin stock" : `${v.stock} disp.`}
                       </span>

@@ -56,27 +56,60 @@ export default function CatalogoPage() {
     return ["Todas", ...Array.from(new Set(cats)).sort()];
   }, [products]);
 
-  const filteredProducts = useMemo(() => {
-    if (activeCategory === "Todas") return products;
-    return products.filter(p => p.category === activeCategory);
+  // Aplanar: cada variante se convierte en tarjeta individual
+  const flatProducts = useMemo(() => {
+    const base = activeCategory === "Todas" ? products : products.filter(p => p.category === activeCategory);
+    return base.flatMap(p => {
+      const pvs = p.product_variants || [];
+      if (pvs.length === 0) return [{ ...p, _cartKey: String(p.id) }];
+      return pvs
+        .filter(v => v.stock > 0)
+        .map(v => {
+          const allImgs = [v.image_url, ...(v.images || [])].filter(Boolean);
+          const fallbackImgs = [p.image_url, ...(p.images || [])].filter(Boolean);
+          const imgs = allImgs.length > 0 ? allImgs : fallbackImgs;
+          return {
+            _cartKey: `${p.id}_${v.id}`,
+            id: p.id,
+            variant_id: v.id,
+            name: `${p.name} — ${v.name}`,
+            category: p.category,
+            price: v.price,
+            stock: v.stock,
+            image_url: imgs[0] || null,
+            images: imgs.slice(1),
+            description: p.description,
+          };
+        });
+    });
   }, [products, activeCategory]);
 
-  const addToCart = (product) => {
+  const addToCart = (item) => {
+    const key = item._cartKey;
     setCart(prev => {
-      const current = prev[product.id] || { ...product, quantity: 0 };
-      if (current.quantity >= product.stock) return prev; // No exceder stock
-      return { ...prev, [product.id]: { ...current, quantity: current.quantity + 1 } };
+      const current = prev[key] || { ...item, quantity: 0 };
+      if (current.quantity >= item.stock) return prev;
+      return { ...prev, [key]: { ...current, quantity: current.quantity + 1 } };
     });
   };
 
-  const removeFromCart = (productId) => {
+  const removeFromCart = (cartKey) => {
     setCart(prev => {
       const newCart = { ...prev };
-      if (newCart[productId]) {
-        newCart[productId].quantity -= 1;
-        if (newCart[productId].quantity <= 0) delete newCart[productId];
+      if (newCart[cartKey]) {
+        newCart[cartKey] = { ...newCart[cartKey], quantity: newCart[cartKey].quantity - 1 };
+        if (newCart[cartKey].quantity <= 0) delete newCart[cartKey];
       }
       return newCart;
+    });
+  };
+
+  const increaseCart = (cartKey) => {
+    setCart(prev => {
+      if (!prev[cartKey]) return prev;
+      const item = prev[cartKey];
+      if (item.quantity >= item.stock) return prev;
+      return { ...prev, [cartKey]: { ...item, quantity: item.quantity + 1 } };
     });
   };
 
@@ -92,7 +125,7 @@ export default function CatalogoPage() {
 
     try {
       const payload = {
-        cart: cartItems.map(i => ({ id: i.id, quantity: i.quantity })),
+        cart: cartItems.map(i => ({ id: i.id, variant_id: i.variant_id || null, quantity: i.quantity })),
         clientData: profile ? {
           name: profile.name,
           phone: profile.phone,
@@ -188,64 +221,57 @@ export default function CatalogoPage() {
             <div className="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Cargando tesoros...</p>
           </div>
-        ) : filteredProducts.length === 0 ? (
+        ) : flatProducts.length === 0 ? (
           <div className="text-center py-20">
             <span className="text-5xl block mb-4">🔍</span>
             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Sin resultados en esta sección</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {filteredProducts.map(product => {
-              const inCart = cart[product.id]?.quantity || 0;
+            {flatProducts.map(item => {
+              const cartKey = item._cartKey;
+              const inCart = cart[cartKey]?.quantity || 0;
+              const allImgs = [item.image_url, ...(item.images || [])].filter(Boolean);
+              const imgIdx = activeImgIdx[cartKey] || 0;
               return (
-                <div key={product.id} className="group bg-white rounded-[2.5rem] p-3 border-2 border-slate-100 hover:border-sky-500/30 transition-all duration-300 flex flex-col relative">
-                  {(() => {
-                    const allImgs = [product.image_url, ...(product.images || [])].filter(Boolean);
-                    const idx = activeImgIdx[product.id] || 0;
-                    return (
-                      <div
-                        className="aspect-[4/5] rounded-[2rem] overflow-hidden bg-slate-50 relative mb-4 cursor-pointer"
-                        onClick={() => allImgs.length > 1 && setActiveImgIdx(prev => ({ ...prev, [product.id]: (idx + 1) % allImgs.length }))}
-                      >
-                        {allImgs.length > 0 ? (
-                          <img src={allImgs[idx]} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🛍️</div>
-                        )}
-                        {product.stock <= 5 && (
-                          <div className="absolute top-3 left-3 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg animate-pulse">
-                            ¡ÚLTIMOS {product.stock}!
-                          </div>
-                        )}
-                        {allImgs.length > 1 && (
-                          <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
-                            {allImgs.map((_, i) => (
-                              <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all ${i === idx ? "bg-white scale-125" : "bg-white/50"}`} />
-                            ))}
-                          </div>
-                        )}
+                <div key={cartKey} className="group bg-white rounded-[2.5rem] p-3 border-2 border-slate-100 hover:border-sky-500/30 transition-all duration-300 flex flex-col relative">
+                  <div
+                    className="aspect-[4/5] rounded-[2rem] overflow-hidden bg-slate-50 relative mb-4 cursor-pointer"
+                    onClick={() => allImgs.length > 1 && setActiveImgIdx(prev => ({ ...prev, [cartKey]: (imgIdx + 1) % allImgs.length }))}
+                  >
+                    {allImgs.length > 0 ? (
+                      <img src={allImgs[imgIdx]} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🛍️</div>
+                    )}
+                    {item.stock <= 5 && (
+                      <div className="absolute top-3 left-3 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg animate-pulse">
+                        ¡ÚLTIMOS {item.stock}!
                       </div>
-                    );
-                  })()}
-                  
+                    )}
+                    {allImgs.length > 1 && (
+                      <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
+                        {allImgs.map((_, i) => (
+                          <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all ${i === imgIdx ? "bg-white scale-125" : "bg-white/50"}`} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="px-2 flex flex-col flex-1">
-                    <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1">{product.category || 'Varios'}</p>
-                    <h3 className="font-bold text-sm text-slate-900 leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{product.name}</h3>
-                    
+                    <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1">{item.category || 'Varios'}</p>
+                    <h3 className="font-bold text-sm text-slate-900 leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{item.name}</h3>
+
                     <div className="flex items-center justify-between mt-auto pt-2">
-                      <p className="font-black text-slate-900 text-lg">${product.price}</p>
-                      
+                      <p className="font-black text-slate-900 text-lg">${item.price}</p>
                       {inCart > 0 ? (
                         <div className="flex items-center bg-slate-900 rounded-2xl p-1 gap-2 shadow-lg">
-                          <button onClick={() => removeFromCart(product.id)} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors">-</button>
+                          <button onClick={() => removeFromCart(cartKey)} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors">-</button>
                           <span className="font-black text-white text-sm px-1">{inCart}</span>
-                          <button onClick={() => addToCart(product)} disabled={inCart >= product.stock} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors disabled:opacity-30">+</button>
+                          <button onClick={() => increaseCart(cartKey)} disabled={inCart >= item.stock} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors disabled:opacity-30">+</button>
                         </div>
                       ) : (
-                        <button 
-                          onClick={() => addToCart(product)}
-                          className="w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-lg shadow-sky-500/20 hover:scale-110 active:scale-90 transition-all"
-                        >
+                        <button onClick={() => addToCart(item)} className="w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-lg shadow-sky-500/20 hover:scale-110 active:scale-90 transition-all">
                           <span className="text-xl font-bold">+</span>
                         </button>
                       )}
@@ -257,6 +283,7 @@ export default function CatalogoPage() {
           </div>
         )}
       </div>
+
 
       {/* MODAL DEL CARRITO Y CHECKOUT */}
       {showCart && (
@@ -273,7 +300,7 @@ export default function CatalogoPage() {
               ) : (
                 <div className="space-y-4 mb-8">
                   {cartItems.map(item => (
-                    <div key={item.id} className="flex gap-4">
+                    <div key={item._cartKey || item.id} className="flex gap-4">
                       {item.image_url ? (
                         <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border border-slate-200" />
                       ) : (
@@ -283,9 +310,9 @@ export default function CatalogoPage() {
                         <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{item.name}</h4>
                         <p className="text-sky-500 font-bold text-sm mb-2">${item.price}</p>
                         <div className="flex items-center gap-3">
-                          <button onClick={() => removeFromCart(item.id)} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center">-</button>
+                          <button onClick={() => removeFromCart(item._cartKey || item.id)} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center">-</button>
                           <span className="text-sm font-bold">{item.quantity}</span>
-                          <button onClick={() => addToCart(item)} disabled={item.quantity >= item.stock} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center disabled:opacity-50">+</button>
+                          <button onClick={() => increaseCart(item._cartKey || item.id)} disabled={item.quantity >= item.stock} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center disabled:opacity-50">+</button>
                         </div>
                       </div>
                     </div>

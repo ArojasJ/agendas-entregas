@@ -1,10 +1,10 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export async function GET(req) {
+export async function GET() {
   try {
     const { data: products, error } = await supabase
       .from("products")
-      .select("id, name, category, price, image_url, images, description, stock")
+      .select("id, name, category, price, image_url, images, description, stock, product_variants(id, name, price, stock, image_url, images)")
       .gt("stock", 0)
       .order("category", { ascending: true })
       .order("name", { ascending: true });
