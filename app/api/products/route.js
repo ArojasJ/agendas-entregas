@@ -246,8 +246,8 @@ export async function PATCH(req) {
 // DELETE: Borrar producto
 export async function DELETE(req) {
   const session = getPanelSession(req);
-  if (!session || session.role !== 'admin') {
-    return Response.json({ message: "No autorizado (requiere admin)" }, { status: 403 });
+  if (!session) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -255,11 +255,29 @@ export async function DELETE(req) {
 
   if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
 
+  // Snapshot antes de borrar
+  const { data: productSnapshot } = await supabase
+    .from("products")
+    .select("*, product_variants(*)")
+    .eq("id", id)
+    .single();
+
   const { error } = await supabase.from("products").delete().eq("id", id);
 
   if (error) {
     return Response.json({ message: "No se pudo eliminar el producto." }, { status: 500 });
   }
+
+  // Registrar en audit_logs
+  await supabase.from("audit_logs").insert([{
+    action: "delete_product",
+    entity_type: "product",
+    entity_id: String(id),
+    entity_snapshot: productSnapshot || null,
+    staff_id: session.staffId ? String(session.staffId) : null,
+    staff_name: session.displayName || session.username || null,
+    staff_role: session.role || null,
+  }]);
 
   return Response.json({ message: "Producto eliminado correctamente." });
 }

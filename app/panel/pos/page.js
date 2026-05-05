@@ -20,10 +20,14 @@ export default function PosPage() {
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [paymentType, setPaymentType] = useState("paid"); // 'paid' o 'credit'
   const [downPayment, setDownPayment] = useState(0);
+  const [creditDays, setCreditDays] = useState(15);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
 
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+
+  // Modal tarjeta de cliente
+  const [showClientCard, setShowClientCard] = useState(false);
 
   // Modal nuevo cliente desde POS
   const [showNewClientModal, setShowNewClientModal] = useState(false);
@@ -201,8 +205,9 @@ export default function PosPage() {
         total: total,
         discount: discountAmount,
         payment_method: paymentMethod,
-        status: paymentType, // 'paid' o 'credit'
+        status: paymentType,
         down_payment: paymentType === 'paid' ? total : downPayment,
+        credit_days: paymentType === 'credit' ? creditDays : null,
         items: cart.map(i => ({ product_id: i.product_id, variant_id: i.variant_id || null, quantity: i.quantity, unit_price: i.unit_price }))
       };
 
@@ -376,30 +381,55 @@ export default function PosPage() {
           <div className="mb-4 relative">
             <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Asignar Cliente</label>
             <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Buscar cliente por @instagram..."
-                value={clientSearchQuery}
-                onFocus={() => setShowClientDropdown(true)}
-                onChange={e => {
-                  setClientSearchQuery(e.target.value);
-                  setSelectedClient(null);
-                  setShowClientDropdown(true);
-                }}
-                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-all"
-              />
-              {selectedClient && (
-                <button 
-                  onClick={() => { setSelectedClient(null); setClientSearchQuery(""); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-red-500/20 text-xs"
-                >
-                  ✕
-                </button>
+              {selectedClient ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowClientCard(true)}
+                    className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all text-left"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-600 font-black text-sm uppercase shrink-0">
+                      {(selectedClient.name || selectedClient.instagram || "?").charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-emerald-600 truncate">
+                        {selectedClient.instagram ? `@${selectedClient.instagram.replace(/^@/, "")}` : selectedClient.name}
+                      </p>
+                      {selectedClient.instagram && selectedClient.name && (
+                        <p className="text-[10px] text-slate-400 truncate">{selectedClient.name}</p>
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setSelectedClient(null); setClientSearchQuery(""); }}
+                    className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-red-500/20 hover:text-red-500 text-slate-400 text-sm transition-colors shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="Buscar cliente por @instagram..."
+                  value={clientSearchQuery}
+                  onFocus={() => setShowClientDropdown(true)}
+                  onChange={e => {
+                    setClientSearchQuery(e.target.value);
+                    setSelectedClient(null);
+                    setShowClientDropdown(true);
+                  }}
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-all"
+                />
               )}
             </div>
             
             {showClientDropdown && (
               <div className="absolute z-50 mt-2 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl">
+                <button
+                  onClick={() => { setShowClientDropdown(false); setShowNewClientModal(true); }}
+                  className="w-full px-4 py-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 border-b border-slate-100 text-left transition-colors flex items-center gap-2"
+                >
+                  <span className="text-base">➕</span> Crear nuevo cliente
+                </button>
                 {clients.filter(c => {
                   const q = clientSearchQuery.toLowerCase().replace('@', '');
                   return (c.instagram && c.instagram.toLowerCase().includes(q)) || (c.name && c.name.toLowerCase().includes(q));
@@ -426,12 +456,6 @@ export default function PosPage() {
                       </button>
                     ))
                 )}
-                <button
-                  onClick={() => { setShowClientDropdown(false); setShowNewClientModal(true); }}
-                  className="w-full px-4 py-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 border-t border-slate-100 text-left transition-colors flex items-center gap-2"
-                >
-                  <span className="text-base">➕</span> Crear nuevo cliente
-                </button>
               </div>
             )}
           </div>
@@ -521,24 +545,42 @@ export default function PosPage() {
               )}
 
               {paymentType === 'credit' && selectedClient && (
-                <div className="mb-6 p-5 rounded-2xl bg-white border border-slate-100">
-                  <label className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wider">Monto de Apartado (Enganche)</label>
-                  <div className="relative mb-3">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
-                    <input 
-                      type="number" 
-                      value={downPayment}
-                      onChange={e => setDownPayment(Number(e.target.value) || 0)}
-                      className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
-                    />
+                <div className="mb-6 p-5 rounded-2xl bg-white border border-slate-100 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wider">Monto de Apartado (Enganche)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
+                      <input
+                        type="number"
+                        value={downPayment}
+                        onChange={e => setDownPayment(Number(e.target.value) || 0)}
+                        className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Total a pagar hoy:</span>
-                    <span className="font-bold text-slate-900">${downPayment.toFixed(2)}</span>
+                  <div>
+                    <label className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wider">Días de plazo</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={creditDays}
+                        onChange={e => setCreditDays(Number(e.target.value) || 15)}
+                        className="w-24 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold text-center focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="text-sm text-slate-500">días — vence el <span className="font-bold text-slate-700">{new Date(Date.now() + creditDays * 86400000).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</span></span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm mt-1">
-                    <span className="text-slate-500">Restante (Crédito a 15 días):</span>
-                    <span className="font-bold text-amber-400">${(total - downPayment).toFixed(2)}</span>
+                  <div className="border-t border-slate-100 pt-3 space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Total a pagar hoy:</span>
+                      <span className="font-bold text-slate-900">${downPayment.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Restante a crédito:</span>
+                      <span className="font-bold text-amber-400">${(total - downPayment).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -557,6 +599,61 @@ export default function PosPage() {
               >
                 {saving ? "Procesando..." : paymentType === 'paid' ? "Finalizar Cobro" : "Aprobar Crédito"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Tarjeta del cliente seleccionado */}
+      {showClientCard && selectedClient && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowClientCard(false)}>
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Perfil del cliente</h2>
+              <button onClick={() => setShowClientCard(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400">✕</button>
+            </div>
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 font-black text-2xl uppercase shrink-0">
+                  {(selectedClient.name || selectedClient.instagram || "?").charAt(0)}
+                </div>
+                <div>
+                  <p className="font-bold text-lg text-emerald-500 leading-tight">
+                    {selectedClient.instagram ? `@${selectedClient.instagram.replace(/^@/, "")}` : selectedClient.name}
+                  </p>
+                  {selectedClient.instagram && selectedClient.name && (
+                    <p className="text-sm text-slate-500">{selectedClient.name}</p>
+                  )}
+                  {selectedClient.phone && (
+                    <p className="text-xs text-slate-400 mt-0.5">📱 {selectedClient.phone}</p>
+                  )}
+                </div>
+              </div>
+              <div className="mb-5 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Cajas asignadas</p>
+                {(selectedClient.box_1 || selectedClient.box_2) ? (
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedClient.box_1 && <span className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs font-bold rounded-lg">📦 Caja 1: {selectedClient.box_1}</span>}
+                    {selectedClient.box_2 && <span className="px-2 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-500 text-xs font-bold rounded-lg">📦 Caja 2: {selectedClient.box_2}</span>}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">Sin caja asignada</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowClientCard(false); setSelectedClient(null); setClientSearchQuery(""); }}
+                  className="flex-1 py-2.5 rounded-xl border border-red-200 text-red-400 text-sm font-bold hover:bg-red-50 transition-colors"
+                >
+                  Quitar cliente
+                </button>
+                <button
+                  onClick={() => setShowClientCard(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-700 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -16,8 +16,8 @@ function getPanelSession(req) {
 
 export async function GET(req) {
   const session = getPanelSession(req);
-  if (!session || session.role !== 'admin') {
-    return Response.json({ message: "No autorizado (requiere admin)" }, { status: 403 });
+  if (!session) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);

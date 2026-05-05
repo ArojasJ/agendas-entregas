@@ -73,7 +73,7 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
-    const { client_id, total, discount, payment_method, status, down_payment, items } = body;
+    const { client_id, total, discount, payment_method, status, down_payment, credit_days, items } = body;
 
     if (!items || items.length === 0) {
       return Response.json({ message: "La venta no tiene productos." }, { status: 400 });
@@ -82,6 +82,14 @@ export async function POST(req) {
     const saleStatus = status === 'credit' ? 'credit' : 'paid';
     const saleTotal = Number(total);
     const saleDownPayment = status === 'credit' ? Number(down_payment) : saleTotal;
+
+    let due_date = null;
+    if (saleStatus === 'credit') {
+      const days = Number(credit_days) || 15;
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      due_date = d.toISOString().split("T")[0];
+    }
 
     // 1. Crear la venta (sales)
     const { data: newSale, error: saleError } = await supabase
@@ -93,6 +101,7 @@ export async function POST(req) {
         payment_method: payment_method || 'efectivo',
         status: saleStatus,
         down_payment: saleDownPayment,
+        due_date,
         created_by_staff_id: session.staffId || null
       }])
       .select()
@@ -151,8 +160,8 @@ export async function POST(req) {
 
 export async function DELETE(req) {
   const session = getPanelSession(req);
-  if (!session || session.role !== 'admin') {
-    return Response.json({ message: "No autorizado (requiere admin)" }, { status: 403 });
+  if (!session) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
   try {
@@ -161,7 +170,14 @@ export async function DELETE(req) {
 
     if (!id) return Response.json({ message: "Falta id de venta" }, { status: 400 });
 
-    // 1. Obtener los items para regresar el stock
+    // 1. Snapshot de la venta antes de borrar
+    const { data: saleSnapshot } = await supabase
+      .from("sales")
+      .select("*, sale_items(*, products(name)), payments(*)")
+      .eq("id", id)
+      .single();
+
+    // 2. Regresar stock
     const { data: items, error: itemsError } = await supabase
       .from("sale_items")
       .select("product_id, variant_id, quantity")
@@ -179,13 +195,24 @@ export async function DELETE(req) {
       }
     }
 
-    // 2. Eliminar la venta (los items se borran solos por el ON DELETE CASCADE, pero si no, los borramos)
+    // 3. Eliminar
     await supabase.from("sale_items").delete().eq("sale_id", id);
     const { error: deleteError } = await supabase.from("sales").delete().eq("id", id);
 
     if (deleteError) {
       return Response.json({ message: "Error al eliminar: " + deleteError.message }, { status: 500 });
     }
+
+    // 4. Registrar en audit_logs
+    await supabase.from("audit_logs").insert([{
+      action: "delete_sale",
+      entity_type: "sale",
+      entity_id: String(id),
+      entity_snapshot: saleSnapshot || null,
+      staff_id: session.staffId ? String(session.staffId) : null,
+      staff_name: session.displayName || session.username || null,
+      staff_role: session.role || null,
+    }]);
 
     return Response.json({ message: "Venta eliminada y stock restaurado." });
   } catch (e) {

@@ -73,7 +73,7 @@ export async function PATCH(req, { params }) {
 
   try {
     const body = await req.json();
-    const { status, payment_method, down_payment, action } = body;
+    const { status, payment_method, down_payment, due_date, action } = body;
 
     if (action === 'cancel_forfeit') {
       // 1. Obtener la venta y sus items para regresar stock
@@ -116,6 +116,7 @@ export async function PATCH(req, { params }) {
     if (status !== undefined) updateData.status = status;
     if (payment_method !== undefined) updateData.payment_method = payment_method;
     if (down_payment !== undefined) updateData.down_payment = Number(down_payment);
+    if (due_date !== undefined) updateData.due_date = due_date || null;
 
     const { error } = await supabase
       .from("sales")

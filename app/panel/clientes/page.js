@@ -46,6 +46,13 @@ function ClientesContent() {
     if (query) setSearch(query);
   }, [searchParams]);
 
+  useEffect(() => {
+    const openId = searchParams.get("openId");
+    if (!openId || clients.length === 0) return;
+    const client = clients.find(c => String(c.id) === String(openId));
+    if (client) openExpediente(client);
+  }, [clients, searchParams]);
+
   const fetchClients = async () => {
     setLoading(true);
     try {

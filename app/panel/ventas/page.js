@@ -222,7 +222,7 @@ export default function VentasPage() {
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         {/* Botón que manda al cliente (detiene propagación para no abrir detalle venta) */}
                         <button 
-                          onClick={(e) => { e.stopPropagation(); sale.client_id && router.push(`/panel/clientes?id=${sale.client_id}`); }}
+                          onClick={(e) => { e.stopPropagation(); sale.client_id && router.push(`/panel/clientes?openId=${sale.client_id}`); }}
                           className="font-bold text-lg text-slate-900 hover:text-emerald-600 transition-colors leading-none cursor-pointer"
                         >
                           {igDisplay}

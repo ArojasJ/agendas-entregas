@@ -17,6 +17,8 @@ export default function SaleDetailPage() {
 
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showDueDateModal, setShowDueDateModal] = useState(false);
+  const [newDueDate, setNewDueDate] = useState("");
   const [abonoAmount, setAbonoAmount] = useState("");
   const [savingAbono, setSavingAbono] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
@@ -173,6 +175,46 @@ export default function SaleDetailPage() {
     }
   };
 
+  const handleSaveDueDate = async () => {
+    if (!newDueDate) return;
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ due_date: newDueDate })
+      });
+      if (res.ok) {
+        showToast("Fecha de vencimiento actualizada", "success");
+        setShowDueDateModal(false);
+        fetchSaleDetail();
+      } else {
+        showToast("Error al actualizar", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
+  const effectiveDueDate = sale?.due_date || (() => {
+    if (!sale?.created_at) return null;
+    const d = new Date(sale.created_at);
+    d.setDate(d.getDate() + 15);
+    return d.toISOString().split("T")[0];
+  })();
+
+  const getDaysRemaining = (dueDateStr) => {
+    if (!dueDateStr) return null;
+    const due = new Date(dueDateStr + "T00:00:00");
+    due.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+  };
+
   const igDisplay = sale.clients?.instagram ? sale.clients.instagram : (sale.clients?.name || "Público General");
 
   return (
@@ -198,8 +240,8 @@ export default function SaleDetailPage() {
         </div>
         <div className="flex flex-col items-end">
           {sale.client_id ? (
-            <Link 
-              href={`/panel/clientes?search=${sale.clients?.instagram || sale.clients?.name}`}
+            <Link
+              href={`/panel/clientes?openId=${sale.client_id}`}
               className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-colors"
             >
               👤 Ver Cliente: {igDisplay}
@@ -360,8 +402,44 @@ export default function SaleDetailPage() {
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
             <h3 className="font-bold text-sm uppercase tracking-widest text-slate-500 mb-4">Acciones de Venta</h3>
             <div className="space-y-3 text-sm">
+
+              {/* Vencimiento — solo ventas a crédito pendientes */}
+              {isCredit && deuda > 0 && (() => {
+                const days = getDaysRemaining(effectiveDueDate);
+                const color = days === null ? "bg-slate-100 text-slate-500 border-slate-200"
+                  : days < 0 ? "bg-red-100 text-red-700 border-red-200"
+                  : days <= 3 ? "bg-orange-100 text-orange-700 border-orange-200"
+                  : days <= 7 ? "bg-amber-100 text-amber-700 border-amber-200"
+                  : "bg-emerald-100 text-emerald-700 border-emerald-200";
+                const label = days === null ? "Sin fecha de vencimiento"
+                  : days < 0 ? `Venció hace ${Math.abs(days)} día${Math.abs(days) !== 1 ? "s" : ""}`
+                  : days === 0 ? "Vence hoy"
+                  : `Vence en ${days} día${days !== 1 ? "s" : ""}`;
+                return (
+                  <div className={`rounded-xl border p-3 ${color}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-0.5">Plazo de pago</p>
+                        <p className="font-black text-sm">{label}</p>
+                        {effectiveDueDate && (
+                          <p className="text-[10px] opacity-70 mt-0.5">
+                            {new Date(effectiveDueDate + "T12:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => { setNewDueDate(effectiveDueDate || ""); setShowDueDateModal(true); }}
+                        className="text-[10px] font-black underline underline-offset-2 opacity-70 hover:opacity-100 whitespace-nowrap ml-2"
+                      >
+                        Editar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {sale.status !== 'cancelled' && (
-                <button 
+                <button
                   onClick={() => setShowCancelModal(true)}
                   className="w-full py-2.5 bg-white border border-red-200 text-red-600 font-bold rounded-xl hover:bg-red-50 transition-colors"
                 >
@@ -471,6 +549,36 @@ export default function SaleDetailPage() {
           </div>
         </div>
       )}
+      {/* MODAL EDITAR FECHA DE VENCIMIENTO */}
+      {showDueDateModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in">
+            <div className="p-5 border-b border-slate-200 flex justify-between items-center rounded-t-3xl">
+              <h2 className="text-lg font-bold">Fecha de vencimiento</h2>
+              <button onClick={() => setShowDueDateModal(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">Nueva fecha límite de pago</label>
+                <input
+                  type="date"
+                  value={newDueDate}
+                  onChange={e => setNewDueDate(e.target.value)}
+                  min={new Date().toISOString().split("T")[0]}
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setShowDueDateModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button onClick={handleSaveDueDate} disabled={savingAbono || !newDueDate} className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold shadow-lg shadow-amber-500/20 disabled:opacity-50 transition-all active:scale-95">
+                  {savingAbono ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DE PENALIZACIÓN */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">

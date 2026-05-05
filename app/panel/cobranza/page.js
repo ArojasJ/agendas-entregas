@@ -53,7 +53,9 @@ export default function CobranzaPage() {
       const remaining = Number(sale.total) - totalPagado;
       
       const createdDate = new Date(sale.created_at);
-      const dueDate = new Date(createdDate.getTime() + 15 * 24 * 60 * 60 * 1000);
+      const dueDate = sale.due_date
+        ? new Date(sale.due_date + "T12:00:00")
+        : new Date(createdDate.getTime() + 15 * 24 * 60 * 60 * 1000);
       dueDate.setHours(0, 0, 0, 0);
 
       const daysLeft = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));

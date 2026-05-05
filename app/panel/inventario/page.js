@@ -546,6 +546,7 @@ function InventarioContent() {
                   <input type="text" value={form.barcode || ""}
                     onChange={e => { setForm({ ...form, barcode: e.target.value }); setBarcodeError(""); }}
                     onBlur={e => checkBarcodeInUse(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") e.preventDefault(); }}
                     disabled={hasVariants}
                     className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm text-slate-900 focus:outline-none transition-all disabled:opacity-40 disabled:cursor-not-allowed ${barcodeError ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-emerald-500"}`}
                     placeholder={hasVariants ? "En cada variante" : "Escanea o escribe..."} />
@@ -695,6 +696,7 @@ function InventarioContent() {
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Código de barras (opcional)</p>
                               <input type="text" placeholder="Escanea o escribe el código…" value={v.barcode || ""}
                                 onChange={e => updateVariantRow(v._key, "barcode", e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") e.preventDefault(); }}
                                 className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-slate-400 transition-colors placeholder-slate-300" />
                             </div>
                           </div>
@@ -718,57 +720,81 @@ function InventarioContent() {
               </div>
             </form>
 
-            {/* Estadísticas */}
+            {/* Trazabilidad */}
             {form.id && (
               <div className="px-6 pb-6 border-t border-slate-100">
-                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2"><span className="text-xl">📊</span> Trazabilidad del Producto</h3>
+                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 pt-4">
+                  <span className="text-xl">📊</span> Trazabilidad del Producto
+                </h3>
                 {loadingStats ? (
                   <div className="text-center opacity-50 py-4 text-sm">Cargando estadísticas...</div>
                 ) : stats ? (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400">Creación</span>
-                        <p className="text-sm font-bold text-slate-700">{new Date(stats.product?.created_at).toLocaleDateString("es-MX")}</p>
+                    {/* Resumen en pills */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock inicial</p>
+                        <p className="text-lg font-black text-slate-700">{stats.stats?.estimated_initial_stock ?? "—"}</p>
                       </div>
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <span className="text-[10px] uppercase font-bold text-slate-400">Stock Inicial (Est.)</span>
-                        <p className="text-sm font-bold text-slate-700">{stats.stats?.estimated_initial_stock}</p>
+                      <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Vendidas</p>
+                        <p className="text-lg font-black text-red-600">{stats.stats?.total_units_sold ?? 0}</p>
                       </div>
-                      <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                        <span className="text-[10px] uppercase font-bold text-emerald-600">Total Vendidos</span>
-                        <p className="text-xl font-black text-emerald-700">{stats.stats?.total_units_sold}</p>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-                        <span className="text-[10px] uppercase font-bold text-blue-600">Veces Vendido</span>
-                        <p className="text-xl font-black text-blue-700">{stats.stats?.total_sales_count}</p>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock actual</p>
+                        <p className="text-lg font-black text-slate-700">{stats.product?.current_stock ?? "—"}</p>
                       </div>
                     </div>
+
+                    {/* Tabla de movimientos */}
                     <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">A quién se le vendió</h4>
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl max-h-48 overflow-y-auto">
-                        {stats.sales_history?.length > 0 ? (
-                          <div className="divide-y divide-slate-200">
+                      <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+                        Últimas Ventas — {stats.sales_history?.length || 0} registros
+                      </p>
+                      {stats.sales_history?.length > 0 ? (
+                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                          {/* Cabecera */}
+                          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Comprador</span>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha</span>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cant.</span>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Venta</span>
+                          </div>
+                          {/* Filas */}
+                          <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
                             {stats.sales_history.map((sale, idx) => (
-                              <div key={idx} className="p-3 flex items-center justify-between hover:bg-white transition-colors">
-                                <div>
-                                  <p className="font-bold text-sm text-slate-900">{sale.client_instagram ? `@${sale.client_instagram.replace(/^@/, "")}` : sale.client_name}</p>
-                                  <p className="text-[10px] text-slate-500">{new Date(sale.date).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                              <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-800 truncate">
+                                    {sale.client_instagram ? `@${sale.client_instagram.replace(/^@/, "")}` : sale.client_name}
+                                  </p>
+                                  {sale.client_instagram && sale.client_name && sale.client_name !== "Público General" && (
+                                    <p className="text-[10px] text-slate-400 truncate">{sale.client_name}</p>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-xs font-bold text-slate-400">{sale.quantity}x</span>
-                                  <button type="button" onClick={() => router.push(`/panel/ventas/${sale.sale_id}`)}
-                                    className="px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-emerald-600 transition-colors">
-                                    Ver Venta ➔
-                                  </button>
-                                </div>
+                                <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                                  {new Date(sale.date).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-[11px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-md whitespace-nowrap">
+                                  ↓ Salida <span className="text-red-600">{sale.quantity}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => router.push(`/panel/ventas/${sale.sale_id}`)}
+                                  className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline whitespace-nowrap"
+                                >
+                                  #{sale.sale_id?.toString().slice(-5)}
+                                </button>
                               </div>
                             ))}
                           </div>
-                        ) : (
-                          <div className="p-4 text-center text-xs text-slate-500">Aún no hay ventas registradas.</div>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-200 rounded-xl p-6 text-center">
+                          <p className="text-3xl mb-2">🛍️</p>
+                          <p className="text-sm text-slate-400 font-medium">Aún no hay ventas registradas</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
