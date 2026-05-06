@@ -28,6 +28,9 @@ export default function PosPage() {
 
   // Modal tarjeta de cliente
   const [showClientCard, setShowClientCard] = useState(false);
+  const [editingBox, setEditingBox] = useState(false);
+  const [boxForm, setBoxForm] = useState({ box_1: "", box_2: "" });
+  const [savingBox, setSavingBox] = useState(false);
 
   // Modal nuevo cliente desde POS
   const [showNewClientModal, setShowNewClientModal] = useState(false);
@@ -103,6 +106,32 @@ export default function PosPage() {
       showToast("Error de conexión", "error");
     } finally {
       setSavingNewClient(false);
+    }
+  };
+
+  const handleSaveBox = async () => {
+    setSavingBox(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/clients/${selectedClient.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ box_1: boxForm.box_1, box_2: boxForm.box_2 })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const updated = { ...selectedClient, box_1: boxForm.box_1, box_2: boxForm.box_2 };
+        setSelectedClient(updated);
+        setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
+        setEditingBox(false);
+        showToast("Caja actualizada", "success");
+      } else {
+        showToast(data.message || "Error al guardar", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingBox(false);
     }
   };
 
@@ -606,11 +635,11 @@ export default function PosPage() {
 
       {/* Modal: Tarjeta del cliente seleccionado */}
       {showClientCard && selectedClient && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowClientCard(false)}>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => { setShowClientCard(false); setEditingBox(false); }}>
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-slate-100 flex justify-between items-center">
               <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Perfil del cliente</h2>
-              <button onClick={() => setShowClientCard(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400">✕</button>
+              <button onClick={() => { setShowClientCard(false); setEditingBox(false); }} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400">✕</button>
             </div>
             <div className="p-6">
               <div className="flex items-center gap-4 mb-5">
@@ -630,8 +659,49 @@ export default function PosPage() {
                 </div>
               </div>
               <div className="mb-5 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Cajas asignadas</p>
-                {(selectedClient.box_1 || selectedClient.box_2) ? (
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cajas asignadas</p>
+                  {!editingBox && (
+                    <button
+                      onClick={() => { setEditingBox(true); setBoxForm({ box_1: selectedClient.box_1 || "", box_2: selectedClient.box_2 || "" }); }}
+                      className="text-[10px] font-black text-indigo-500 hover:text-indigo-700 underline underline-offset-2"
+                    >
+                      Editar
+                    </button>
+                  )}
+                </div>
+                {editingBox ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">Caja 1</label>
+                        <input
+                          type="text"
+                          placeholder="Núm."
+                          value={boxForm.box_1}
+                          onChange={e => setBoxForm(f => ({ ...f, box_1: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">Caja 2</label>
+                        <input
+                          type="text"
+                          placeholder="Núm."
+                          value={boxForm.box_2}
+                          onChange={e => setBoxForm(f => ({ ...f, box_2: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setEditingBox(false)} className="flex-1 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-100 transition-colors">Cancelar</button>
+                      <button onClick={handleSaveBox} disabled={savingBox} className="flex-1 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold disabled:opacity-50 transition-colors">
+                        {savingBox ? "Guardando…" : "Guardar"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (selectedClient.box_1 || selectedClient.box_2) ? (
                   <div className="flex gap-2 flex-wrap">
                     {selectedClient.box_1 && <span className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs font-bold rounded-lg">📦 Caja 1: {selectedClient.box_1}</span>}
                     {selectedClient.box_2 && <span className="px-2 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-500 text-xs font-bold rounded-lg">📦 Caja 2: {selectedClient.box_2}</span>}

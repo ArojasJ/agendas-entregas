@@ -139,11 +139,96 @@ export default function HistorialPage() {
                 </div>
 
                 {isOpen && snap && (
-                  <div className="border-t border-slate-100 bg-slate-50 p-4">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Snapshot completo</p>
-                    <pre className="text-xs text-slate-600 overflow-x-auto whitespace-pre-wrap bg-white border border-slate-200 rounded-xl p-3 max-h-64 overflow-y-auto">
-                      {JSON.stringify(snap, null, 2)}
-                    </pre>
+                  <div className="border-t border-slate-100 bg-slate-50 p-4 space-y-3">
+                    {log.action === "delete_sale" ? (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p>
+                            <p className="font-black text-slate-900">${Number(snap.total || 0).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Enganche pagado</p>
+                            <p className="font-black text-emerald-600">${Number(snap.down_payment || 0).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Método de pago</p>
+                            <p className="font-bold text-slate-700">{snap.payment_method || "—"}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estado al eliminar</p>
+                            <p className="font-bold text-slate-700 capitalize">{snap.status || "—"}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Descuento</p>
+                            <p className="font-bold text-slate-700">${snap.discount || 0}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Fecha de venta</p>
+                            <p className="font-bold text-slate-700">{formatDate(snap.created_at)}</p>
+                          </div>
+                        </div>
+                        {snap.sale_items?.length > 0 && (
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Productos vendidos</p>
+                            <div className="space-y-1.5">
+                              {snap.sale_items.map((item, i) => (
+                                <div key={i} className="flex justify-between text-sm">
+                                  <span className="text-slate-700">{item.quantity}x <span className="font-semibold">{item.products?.name || "Producto borrado"}</span></span>
+                                  <span className="text-slate-500">${Number(item.unit_price || 0).toFixed(2)} c/u</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : log.action === "delete_product" ? (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="bg-white border border-slate-200 rounded-xl p-3 sm:col-span-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nombre del producto</p>
+                            <p className="font-black text-slate-900">{snap.name || "—"}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Precio</p>
+                            <p className="font-black text-slate-900">${Number(snap.price || 0).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock al eliminar</p>
+                            <p className="font-black text-slate-900">{snap.stock ?? "—"} uds.</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Categoría</p>
+                            <p className="font-bold text-slate-700">{snap.category || "—"}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Costo</p>
+                            <p className="font-bold text-slate-700">${Number(snap.cost || 0).toFixed(2)}</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Código de barras</p>
+                            <p className="font-bold text-slate-700">{snap.barcode || "—"}</p>
+                          </div>
+                        </div>
+                        {snap.product_variants?.length > 0 && (
+                          <div className="bg-white border border-slate-200 rounded-xl p-3">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Variantes eliminadas</p>
+                            <div className="space-y-1.5">
+                              {snap.product_variants.map((v, i) => (
+                                <div key={i} className="flex justify-between text-sm">
+                                  <span className="text-slate-700 font-semibold">{v.option_type}: {v.name}</span>
+                                  <span className="text-slate-500">Stock: {v.stock ?? "—"} · ${Number(v.price || 0).toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <pre className="text-xs text-slate-600 overflow-x-auto whitespace-pre-wrap bg-white border border-slate-200 rounded-xl p-3 max-h-64 overflow-y-auto">
+                        {JSON.stringify(snap, null, 2)}
+                      </pre>
+                    )}
                   </div>
                 )}
               </div>

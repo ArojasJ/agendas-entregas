@@ -38,8 +38,10 @@ export async function GET(req, { params }) {
           quantity,
           unit_price,
           product_id,
+          variant_id,
           delivery_status,
-          products ( id, name, barcode, image_url )
+          products ( id, name, barcode, image_url ),
+          product_variants ( id, name, option_type )
         ),
         payments (
           id,
@@ -76,40 +78,56 @@ export async function PATCH(req, { params }) {
     const { status, payment_method, down_payment, due_date, action } = body;
 
     if (action === 'cancel_forfeit') {
-      // 1. Obtener la venta y sus items para regresar stock
       const { data: sale, error: saleErr } = await supabase
         .from("sales")
-        .select("status, sale_items(product_id, quantity)")
+        .select("status, down_payment, total, sale_items(product_id, variant_id, quantity)")
         .eq("id", id)
         .single();
 
       if (saleErr || !sale) return Response.json({ message: "Venta no encontrada" }, { status: 404 });
       if (sale.status === 'cancelled') return Response.json({ message: "La venta ya está cancelada" }, { status: 400 });
 
-      // 2. Regresar stock
       for (let item of sale.sale_items) {
-        const { data: product } = await supabase
-          .from("products")
-          .select("stock")
-          .eq("id", item.product_id)
-          .single();
-        
-        if (product) {
-          await supabase
-            .from("products")
-            .update({ stock: product.stock + item.quantity })
-            .eq("id", item.product_id);
+        if (item.variant_id) {
+          const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
+          if (v) await supabase.from("product_variants").update({ stock: v.stock + item.quantity }).eq("id", item.variant_id);
+        } else {
+          const { data: product } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
+          if (product) await supabase.from("products").update({ stock: product.stock + item.quantity }).eq("id", item.product_id);
         }
       }
 
-      // 3. Marcar como cancelada
-      const { error: updateErr } = await supabase
-        .from("sales")
-        .update({ status: 'cancelled' })
-        .eq("id", id);
-
+      const { error: updateErr } = await supabase.from("sales").update({ status: 'cancelled' }).eq("id", id);
       if (updateErr) return Response.json({ message: "Error al cancelar" }, { status: 500 });
       return Response.json({ success: true, message: "Venta penalizada y stock restaurado" });
+    }
+
+    if (action === 'revert_cancel') {
+      const { data: sale, error: saleErr } = await supabase
+        .from("sales")
+        .select("status, down_payment, total, sale_items(product_id, variant_id, quantity)")
+        .eq("id", id)
+        .single();
+
+      if (saleErr || !sale) return Response.json({ message: "Venta no encontrada" }, { status: 404 });
+      if (sale.status !== 'cancelled') return Response.json({ message: "La venta no está cancelada" }, { status: 400 });
+
+      // Descontar stock de nuevo
+      for (let item of sale.sale_items) {
+        if (item.variant_id) {
+          const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
+          if (v) await supabase.from("product_variants").update({ stock: Math.max(0, v.stock - item.quantity) }).eq("id", item.variant_id);
+        } else {
+          const { data: product } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
+          if (product) await supabase.from("products").update({ stock: Math.max(0, product.stock - item.quantity) }).eq("id", item.product_id);
+        }
+      }
+
+      // Restaurar status original: si down_payment < total era crédito, si no era pagada
+      const originalStatus = Number(sale.down_payment) < Number(sale.total) ? 'credit' : 'paid';
+      const { error: updateErr } = await supabase.from("sales").update({ status: originalStatus }).eq("id", id);
+      if (updateErr) return Response.json({ message: "Error al revertir" }, { status: 500 });
+      return Response.json({ success: true, message: "Penalización revertida" });
     }
     
     const updateData = {};

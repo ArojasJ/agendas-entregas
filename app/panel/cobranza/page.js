@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 
 export default function CobranzaPage() {
+  const router = useRouter();
   const [receivables, setReceivables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all"); // all, today, tomorrow, overdue
@@ -191,8 +193,11 @@ export default function CobranzaPage() {
 
               <div className="flex justify-between items-start mb-4 mt-2">
                 <div>
-                  <h3 className="font-bold text-lg text-emerald-400 leading-tight">
-                    {sale.clients?.instagram ? `@${sale.clients.instagram}` : (sale.clients?.name || "Cliente Borrado")}
+                  <h3
+                    onClick={() => sale.client_id && router.push(`/panel/clientes?openId=${sale.client_id}`)}
+                    className={`font-bold text-lg text-emerald-400 leading-tight ${sale.client_id ? "cursor-pointer hover:text-emerald-300" : ""}`}
+                  >
+                    {sale.clients?.instagram || sale.clients?.name || "Cliente Borrado"}
                   </h3>
                   <p className="text-xs opacity-50 mt-1">
                     {sale.clients?.instagram ? sale.clients.name : ""} {sale.clients?.phone && `📱 ${sale.clients.phone}`}

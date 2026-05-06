@@ -17,6 +17,7 @@ export default function SaleDetailPage() {
 
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showRevertModal, setShowRevertModal] = useState(false);
   const [showDueDateModal, setShowDueDateModal] = useState(false);
   const [newDueDate, setNewDueDate] = useState("");
   const [abonoAmount, setAbonoAmount] = useState("");
@@ -84,6 +85,7 @@ export default function SaleDetailPage() {
 
   const isCatalog = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
   const isCredit = sale.status === 'credit';
+  const isCancelled = sale.status === 'cancelled';
   const totalPagadoAbonos = (sale.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
   const totalPagado = isCatalog ? 0 : Number(sale.down_payment) + totalPagadoAbonos;
   const deuda = isCatalog ? Number(sale.total) : isCredit ? Math.max(0, Number(sale.total) - totalPagado) : 0;
@@ -169,6 +171,29 @@ export default function SaleDetailPage() {
         showToast("Error al registrar abono", "error");
       }
     } catch (err) {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
+  const handleRevertCancel = async () => {
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ action: "revert_cancel" })
+      });
+      if (res.ok) {
+        showToast("Penalización revertida correctamente", "success");
+        setShowRevertModal(false);
+        fetchSaleDetail();
+      } else {
+        showToast("Error al revertir", "error");
+      }
+    } catch {
       showToast("Error de conexión", "error");
     } finally {
       setSavingAbono(false);
@@ -261,9 +286,9 @@ export default function SaleDetailPage() {
         
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
-          <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
+          <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.down_payment).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
           <p className="text-xs text-slate-500 mt-2">
-            {isCatalog ? "Pendiente de confirmación" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+            {isCatalog ? "Pendiente de confirmación" : isCancelled ? "Monto perdido por penalización" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
           </p>
         </div>
 
@@ -315,6 +340,11 @@ export default function SaleDetailPage() {
                     )}
                     <div>
                       <h4 className="font-bold text-slate-900">{item.products?.name || "Producto Borrado"}</h4>
+                      {item.product_variants && (
+                        <p className="text-xs font-semibold text-indigo-600 mt-0.5">
+                          {item.product_variants.option_type}: {item.product_variants.name}
+                        </p>
+                      )}
                       <p className="text-xs text-slate-500">{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} a ${item.unit_price} c/u</p>
                       {item.delivery_status === 'delivered' ? (
                         <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
@@ -446,6 +476,14 @@ export default function SaleDetailPage() {
                   ⚠️ Cancelar y Penalizar
                 </button>
               )}
+              {sale.status === 'cancelled' && (
+                <button
+                  onClick={() => setShowRevertModal(true)}
+                  className="w-full py-2.5 bg-white border border-amber-300 text-amber-700 font-bold rounded-xl hover:bg-amber-50 transition-colors"
+                >
+                  ↩️ Revertir Penalización
+                </button>
+              )}
               <div className="pt-2 border-t border-slate-200 mt-2">
                 <div className="flex justify-between border-b border-slate-200 pb-2">
                   <span className="text-slate-500">Registrado por:</span>
@@ -574,6 +612,29 @@ export default function SaleDetailPage() {
                   {savingAbono ? "Guardando..." : "Guardar"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REVERTIR PENALIZACIÓN */}
+      {showRevertModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4 text-2xl">
+                ↩️
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 mb-2">¿Revertir Penalización?</h2>
+              <p className="text-sm text-slate-500">
+                La venta volverá a su estado anterior y los productos se descontarán del inventario de nuevo.
+              </p>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
+              <button onClick={() => setShowRevertModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-100 transition-colors">Cancelar</button>
+              <button onClick={handleRevertCancel} disabled={savingAbono} className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-bold shadow-lg shadow-amber-500/20 disabled:opacity-50 transition-all active:scale-95">
+                {savingAbono ? "Procesando..." : "Sí, Revertir"}
+              </button>
             </div>
           </div>
         </div>
