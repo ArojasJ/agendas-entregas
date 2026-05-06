@@ -29,7 +29,7 @@ export async function GET(req) {
       .select(`
         *,
         clients ( id, name, instagram ),
-        sale_items ( quantity, unit_price, products ( id, name ) ),
+        sale_items ( quantity, unit_price, products ( id, name, cost ) ),
         payments ( amount, created_at )
       `)
       .order("created_at", { ascending: true });

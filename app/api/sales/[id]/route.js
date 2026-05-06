@@ -80,13 +80,14 @@ export async function PATCH(req, { params }) {
     if (action === 'cancel_forfeit') {
       const { data: sale, error: saleErr } = await supabase
         .from("sales")
-        .select("status, down_payment, total, sale_items(product_id, variant_id, quantity)")
+        .select("status, down_payment, total, client_id, sale_items(product_id, variant_id, quantity), payments(amount)")
         .eq("id", id)
         .single();
 
       if (saleErr || !sale) return Response.json({ message: "Venta no encontrada" }, { status: 404 });
       if (sale.status === 'cancelled') return Response.json({ message: "La venta ya está cancelada" }, { status: 400 });
 
+      // Restaurar stock
       for (let item of sale.sale_items) {
         if (item.variant_id) {
           const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
@@ -97,15 +98,34 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      const { error: updateErr } = await supabase.from("sales").update({ status: 'cancelled' }).eq("id", id);
+      // Calcular 15% penalización y 85% saldo a favor
+      const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
+      const penalty = Math.round(totalPagado * 0.15 * 100) / 100;
+      const saldoFavor = Math.round((totalPagado - penalty) * 100) / 100;
+
+      // Actualizar venta
+      const { error: updateErr } = await supabase.from("sales")
+        .update({ status: 'cancelled', penalty_amount: penalty })
+        .eq("id", id);
       if (updateErr) return Response.json({ message: "Error al cancelar" }, { status: 500 });
-      return Response.json({ success: true, message: "Venta penalizada y stock restaurado" });
+
+      // Acreditar saldo a favor al cliente
+      if (sale.client_id && saldoFavor > 0) {
+        const { data: client } = await supabase.from("clients").select("saldo_favor").eq("id", sale.client_id).single();
+        if (client) {
+          await supabase.from("clients")
+            .update({ saldo_favor: Math.round((Number(client.saldo_favor || 0) + saldoFavor) * 100) / 100 })
+            .eq("id", sale.client_id);
+        }
+      }
+
+      return Response.json({ success: true, penalty, saldoFavor, message: "Venta penalizada y stock restaurado" });
     }
 
     if (action === 'revert_cancel') {
       const { data: sale, error: saleErr } = await supabase
         .from("sales")
-        .select("status, down_payment, total, sale_items(product_id, variant_id, quantity)")
+        .select("status, down_payment, total, client_id, penalty_amount, sale_items(product_id, variant_id, quantity), payments(amount)")
         .eq("id", id)
         .single();
 
@@ -123,9 +143,21 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      // Restaurar status original: si down_payment < total era crédito, si no era pagada
+      // Quitar el saldo a favor que se acreditó
+      if (sale.client_id && sale.penalty_amount != null) {
+        const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
+        const saldoFavorAcreditado = Math.round((totalPagado - Number(sale.penalty_amount)) * 100) / 100;
+        const { data: client } = await supabase.from("clients").select("saldo_favor").eq("id", sale.client_id).single();
+        if (client) {
+          const nuevoSaldo = Math.max(0, Math.round((Number(client.saldo_favor || 0) - saldoFavorAcreditado) * 100) / 100);
+          await supabase.from("clients").update({ saldo_favor: nuevoSaldo }).eq("id", sale.client_id);
+        }
+      }
+
       const originalStatus = Number(sale.down_payment) < Number(sale.total) ? 'credit' : 'paid';
-      const { error: updateErr } = await supabase.from("sales").update({ status: originalStatus }).eq("id", id);
+      const { error: updateErr } = await supabase.from("sales")
+        .update({ status: originalStatus, penalty_amount: null })
+        .eq("id", id);
       if (updateErr) return Response.json({ message: "Error al revertir" }, { status: 500 });
       return Response.json({ success: true, message: "Penalización revertida" });
     }

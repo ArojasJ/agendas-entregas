@@ -31,6 +31,7 @@ export default function PosPage() {
   const [editingBox, setEditingBox] = useState(false);
   const [boxForm, setBoxForm] = useState({ box_1: "", box_2: "" });
   const [savingBox, setSavingBox] = useState(false);
+  const [applySaldo, setApplySaldo] = useState(false);
 
   // Modal nuevo cliente desde POS
   const [showNewClientModal, setShowNewClientModal] = useState(false);
@@ -213,6 +214,11 @@ export default function PosPage() {
   const discountAmount = discountType === "%" ? subtotal * (Math.min(discount, 100) / 100) : discount;
   const total = Math.max(0, subtotal - discountAmount);
 
+  const saldoDisponible = Number(selectedClient?.saldo_favor || 0);
+  const saldoAplicado = (applySaldo && saldoDisponible > 0)
+    ? Math.min(saldoDisponible, paymentType === 'paid' ? total : Math.max(0, downPayment))
+    : 0;
+
   const openCheckout = () => {
     if (cart.length === 0) return;
     setPaymentType("paid");
@@ -229,14 +235,19 @@ export default function PosPage() {
     setSaving(true);
     try {
       const token = localStorage.getItem("panelToken") || "";
+      const effectiveDownPayment = paymentType === 'paid'
+        ? (total - saldoAplicado)
+        : Math.max(0, downPayment - saldoAplicado);
+
       const body = {
         client_id: selectedClient ? selectedClient.id : null,
         total: total,
         discount: discountAmount,
         payment_method: paymentMethod,
         status: paymentType,
-        down_payment: paymentType === 'paid' ? total : downPayment,
+        down_payment: effectiveDownPayment,
         credit_days: paymentType === 'credit' ? creditDays : null,
+        saldo_applied: saldoAplicado,
         items: cart.map(i => ({ product_id: i.product_id, variant_id: i.variant_id || null, quantity: i.quantity, unit_price: i.unit_price }))
       };
 
@@ -254,6 +265,7 @@ export default function PosPage() {
         setDiscount(0);
         setSearch("");
         setShowCheckoutModal(false);
+        setApplySaldo(false);
         fetchData(); // Actualizar stock
       } else {
         const data = await res.json();
@@ -548,7 +560,7 @@ export default function PosPage() {
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white z-10">
               <h2 className="text-lg font-bold text-slate-900">Método de Pago</h2>
-              <button onClick={() => setShowCheckoutModal(false)} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors">✕</button>
+              <button onClick={() => { setShowCheckoutModal(false); setApplySaldo(false); }} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors">✕</button>
             </div>
             
             <div className="p-6">
@@ -566,6 +578,30 @@ export default function PosPage() {
                   A Crédito
                 </button>
               </div>
+
+              {/* Saldo a favor */}
+              {selectedClient && saldoDisponible > 0 && (
+                <div className={`mb-6 p-4 rounded-2xl border transition-all ${applySaldo ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide">Saldo a favor</p>
+                      <p className="text-xl font-black text-emerald-500">${saldoDisponible.toFixed(2)}</p>
+                    </div>
+                    <button
+                      onClick={() => setApplySaldo(!applySaldo)}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${applySaldo ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30'}`}
+                    >
+                      {applySaldo ? '✓ Aplicado' : 'Aplicar'}
+                    </button>
+                  </div>
+                  {applySaldo && (
+                    <div className="mt-3 pt-3 border-t border-emerald-500/20 flex items-center justify-between text-sm">
+                      <span className="text-emerald-700">Descuento con saldo:</span>
+                      <span className="font-black text-emerald-600">-${saldoAplicado.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {paymentType === 'credit' && !selectedClient && (
                 <div className="p-4 mb-6 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -604,8 +640,14 @@ export default function PosPage() {
                   <div className="border-t border-slate-100 pt-3 space-y-1">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500">Total a pagar hoy:</span>
-                      <span className="font-bold text-slate-900">${downPayment.toFixed(2)}</span>
+                      <span className="font-bold text-slate-900">${Math.max(0, downPayment - saldoAplicado).toFixed(2)}</span>
                     </div>
+                    {saldoAplicado > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-emerald-600">Con saldo a favor:</span>
+                        <span className="font-bold text-emerald-600">-${saldoAplicado.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500">Restante a crédito:</span>
                       <span className="font-bold text-amber-400">${(total - downPayment).toFixed(2)}</span>
@@ -615,9 +657,17 @@ export default function PosPage() {
               )}
 
               {paymentType === 'paid' && (
-                <div className="mb-6 flex justify-between items-center p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                  <span className="text-slate-700 font-medium">Total a cobrar:</span>
-                  <span className="text-3xl font-black text-emerald-400">${total.toFixed(2)}</span>
+                <div className="mb-6 p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-1">
+                  {saldoAplicado > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Precio total:</span>
+                      <span className="font-medium text-slate-500 line-through">${total.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-700 font-medium">Total a cobrar:</span>
+                    <span className="text-3xl font-black text-emerald-400">${(total - saldoAplicado).toFixed(2)}</span>
+                  </div>
                 </div>
               )}
 
@@ -658,6 +708,16 @@ export default function PosPage() {
                   )}
                 </div>
               </div>
+              {Number(selectedClient.saldo_favor || 0) > 0 && (
+                <div className="mb-4 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Saldo a favor</p>
+                    <p className="text-lg font-black text-emerald-500">${Number(selectedClient.saldo_favor).toFixed(2)}</p>
+                  </div>
+                  <span className="text-2xl">💚</span>
+                </div>
+              )}
+
               <div className="mb-5 p-3 rounded-xl bg-slate-50 border border-slate-100">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cajas asignadas</p>

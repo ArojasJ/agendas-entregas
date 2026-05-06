@@ -286,23 +286,40 @@ export default function SaleDetailPage() {
         
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
-          <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.down_payment).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
+          <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.penalty_amount || 0).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
           <p className="text-xs text-slate-500 mt-2">
-            {isCatalog ? "Pendiente de confirmación" : isCancelled ? "Monto perdido por penalización" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+            {isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
           </p>
         </div>
 
-        <div className={`border rounded-2xl p-6 shadow-sm ${sale.status === 'cancelled' ? 'bg-red-50 border-red-100' : deuda > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
-          <span className={`text-[10px] font-black uppercase tracking-widest block mb-1 ${sale.status === 'cancelled' ? 'text-red-500' : deuda > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
-            Estado / Deuda
-          </span>
-          <span className={`text-3xl font-black ${sale.status === 'cancelled' ? 'text-red-600' : deuda > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
-            {sale.status === 'cancelled' ? "PENALIZACIÓN" : deuda > 0 ? `$${deuda.toFixed(2)}` : "Liquidada"}
-          </span>
-          <p className={`text-xs mt-2 ${sale.status === 'cancelled' ? 'text-red-600/70' : deuda > 0 ? 'text-amber-600/70' : 'text-slate-500'}`}>
-            {sale.status === 'cancelled' ? "PENALIZACIÓN POR IMPAGO" : isCatalog ? "Pedido Web sin confirmar" : deuda > 0 ? "Pendiente de pago" : "Sin adeudo restante"}
-          </p>
-        </div>
+        {isCancelled ? (
+          <div className="border border-red-100 rounded-2xl overflow-hidden shadow-sm">
+            <div className="bg-red-50 p-4 border-b border-red-100">
+              <span className="text-[10px] font-black uppercase tracking-widest text-red-500 block mb-1">Penalización por impago</span>
+              <span className="text-2xl font-black text-red-600">${Number(sale.penalty_amount || 0).toFixed(2)}</span>
+              <p className="text-xs text-red-500/70 mt-0.5">15% retenido por la tienda</p>
+            </div>
+            <div className="bg-emerald-50 p-4">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Saldo a favor del cliente</span>
+              <span className="text-2xl font-black text-emerald-600">
+                ${(Math.round(((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100).toFixed(2)}
+              </span>
+              <p className="text-xs text-emerald-600/70 mt-0.5">85% acreditado en su cuenta</p>
+            </div>
+          </div>
+        ) : (
+          <div className={`border rounded-2xl p-6 shadow-sm ${deuda > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
+            <span className={`text-[10px] font-black uppercase tracking-widest block mb-1 ${deuda > 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+              Estado / Deuda
+            </span>
+            <span className={`text-3xl font-black ${deuda > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+              {deuda > 0 ? `$${deuda.toFixed(2)}` : "Liquidada"}
+            </span>
+            <p className={`text-xs mt-2 ${deuda > 0 ? 'text-amber-600/70' : 'text-slate-500'}`}>
+              {isCatalog ? "Pedido Web sin confirmar" : deuda > 0 ? "Pendiente de pago" : "Sin adeudo restante"}
+            </p>
+          </div>
+        )}
       </div>
 
       {isCatalog && (
@@ -388,14 +405,14 @@ export default function SaleDetailPage() {
           </section>
 
           {/* ABONOS */}
-          {isCredit && (
+          {(isCredit || (isCancelled && totalPagadoAbonos > 0)) && (
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
                 <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
                   <span className="text-xl">💸</span> Historial de Abonos
                 </h2>
-                {deuda > 0 && (
-                  <button 
+                {deuda > 0 && !isCancelled && (
+                  <button
                     onClick={() => { setAbonoAmount(deuda); setShowAbonoModal(true); }}
                     className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
                   >
@@ -468,7 +485,7 @@ export default function SaleDetailPage() {
                 );
               })()}
 
-              {sale.status !== 'cancelled' && (
+              {(isCredit || isCatalog) && !isCancelled && (
                 <button
                   onClick={() => setShowCancelModal(true)}
                   className="w-full py-2.5 bg-white border border-red-200 text-red-600 font-bold rounded-xl hover:bg-red-50 transition-colors"

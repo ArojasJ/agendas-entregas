@@ -89,6 +89,7 @@ export default function RutaPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [pendingDelivery, setPendingDelivery] = useState(null); // { booking } — awaiting payment method
   const [pendingNoEntregado, setPendingNoEntregado] = useState(null); // { booking } — awaiting confirmation
+  const [saldoMap, setSaldoMap] = useState({}); // instagram (sin @) → saldo_favor
 
   // Address editing state (review mode)
   const [editingId, setEditingId] = useState(null);
@@ -123,9 +124,22 @@ export default function RutaPage() {
     setLoadingBookings(true);
     try {
       const token = getPanelToken();
-      const res = await fetch("/api/bookings", { headers: { "x-panel-token": token } });
+      const [res, resClients] = await Promise.all([
+        fetch("/api/bookings", { headers: { "x-panel-token": token } }),
+        fetch("/api/clients", { headers: { "x-panel-token": token } }),
+      ]);
       if (!res.ok) return;
       const data = await res.json();
+      if (resClients.ok) {
+        const dc = await resClients.json();
+        const map = {};
+        for (const c of dc.clients || []) {
+          if (c.instagram && Number(c.saldo_favor) > 0) {
+            map[c.instagram.replace(/^@/, "").toLowerCase()] = Number(c.saldo_favor);
+          }
+        }
+        setSaldoMap(map);
+      }
       const todayDom = (data.bookings || []).filter(
         (bk) =>
           bk.type === "domicilio" &&
@@ -566,6 +580,19 @@ export default function RutaPage() {
                       Adeudo cobrado: <span className="text-rose-400 font-black">${Number(currentStop.amount_due).toFixed(2)}</span>
                     </p>
                   )}
+                  {(() => {
+                    const ig = (currentStop.instagram || "").replace(/^@/, "").toLowerCase();
+                    const sf = ig ? saldoMap[ig] : 0;
+                    return sf > 0 ? (
+                      <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                        <span className="text-lg">💚</span>
+                        <div>
+                          <p className="text-xs text-emerald-400 font-bold">Este cliente tiene saldo a favor</p>
+                          <p className="text-base font-black text-emerald-300">${sf.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <button
                       disabled={!!updatingId}

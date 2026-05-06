@@ -262,12 +262,11 @@ function ClientesContent() {
                 <p className="text-xs opacity-60">
                   {c.instagram ? c.name : ""} {c.phone && `📱 ${c.phone}`}
                 </p>
-                {(c.box_1 || c.box_2) && (
-                  <div className="flex gap-2 mt-2">
-                    {c.box_1 && <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-md">Caja 1: {c.box_1}</span>}
-                    {c.box_2 && <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold rounded-md">Caja 2: {c.box_2}</span>}
-                  </div>
-                )}
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {c.box_1 && <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-md">Caja 1: {c.box_1}</span>}
+                  {c.box_2 && <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold rounded-md">Caja 2: {c.box_2}</span>}
+                  {Number(c.saldo_favor) > 0 && <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-black rounded-md">💚 ${Number(c.saldo_favor).toFixed(2)} a favor</span>}
+                </div>
               </div>
             </div>
             
@@ -347,6 +346,11 @@ function ClientesContent() {
                 <div>
                   <h2 className="text-xl font-black text-slate-900 leading-tight">{activeClient.name}</h2>
                   <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">{activeClient.instagram || "Sin Instagram"}</p>
+                  {Number(activeClient.saldo_favor) > 0 && (
+                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-100 border border-emerald-200 text-emerald-700 text-[10px] font-black rounded-full">
+                      💚 ${Number(activeClient.saldo_favor).toFixed(2)} a favor
+                    </span>
+                  )}
                 </div>
               </div>
               <button onClick={() => setShowExpediente(false)} className="w-10 h-10 rounded-2xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors">✕</button>
