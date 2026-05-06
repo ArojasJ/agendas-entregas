@@ -161,11 +161,6 @@ export default function ProductoPage() {
           ) : (
             <p className="text-slate-400 font-bold mt-2 text-base">Selecciona una variante para ver el precio</p>
           )}
-          {displayStock > 0 && displayStock <= 5 && (
-            <p className="text-sm text-amber-500 font-bold mt-1.5">
-              ¡Solo quedan {displayStock} en stock!
-            </p>
-          )}
         </div>
 
         {/* Variants */}
@@ -192,9 +187,6 @@ export default function ProductoPage() {
                     }`}
                   >
                     {v.name}
-                    {!noStock && v.stock <= 3 && (
-                      <span className="ml-1 text-[10px] text-amber-400 font-black">·{v.stock}</span>
-                    )}
                   </button>
                 );
               })}

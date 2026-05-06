@@ -240,8 +240,8 @@ export default function DashboardPage() {
               {activeChart === "ventas" && (
                 <div className="px-6 pb-6">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Últimos 7 Días</p>
-                  <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="rounded-2xl border border-slate-200 overflow-x-auto">
+                    <table className="w-full min-w-[600px] text-sm">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           <th className="text-left px-4 py-3 font-bold text-slate-600">Fecha</th>

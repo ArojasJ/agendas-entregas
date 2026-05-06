@@ -92,7 +92,8 @@ export async function POST(request) {
           email: user.email,
           name,
           instagram: finalInstagram,
-          phone
+          phone,
+          needs_review: true,
         }])
         .select()
         .single();

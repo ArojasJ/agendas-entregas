@@ -2,6 +2,17 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 
 // Isolated so its search state never re-renders the parent
+function getDisplayPrice(p) {
+  if (p.product_variants?.length > 0) {
+    const prices = p.product_variants.map(v => Number(v.price)).filter(x => x > 0);
+    if (prices.length === 0) return null;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return min === max ? `$${min}` : `$${min} – $${max}`;
+  }
+  return p.price > 0 ? `$${p.price}` : null;
+}
+
 function FeaturedPicker({ allProducts, featuredProducts, featuredIds, onAdd, onRemove }) {
   const [q, setQ] = useState("");
 
@@ -29,7 +40,7 @@ function FeaturedPicker({ allProducts, featuredProducts, featuredIds, onAdd, onR
               </div>
               <div className="p-2">
                 <p className="text-xs font-bold text-slate-900 leading-tight line-clamp-2">{p.name}</p>
-                <p className="text-xs text-emerald-600 font-black mt-0.5">${p.price}</p>
+                <p className="text-xs text-emerald-600 font-black mt-0.5">{getDisplayPrice(p) ?? "Sin precio"}</p>
               </div>
               <button
                 onClick={() => onRemove(p.id)}
@@ -70,7 +81,7 @@ function FeaturedPicker({ allProducts, featuredProducts, featuredIds, onAdd, onR
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-slate-900 truncate">{p.name}</p>
-                    <p className="text-xs text-emerald-600 font-bold">${p.price}</p>
+                    <p className="text-xs text-emerald-600 font-bold">{getDisplayPrice(p) ?? "—"}</p>
                   </div>
                   <span className="text-emerald-500 font-black text-lg shrink-0">+</span>
                 </button>
@@ -85,6 +96,35 @@ function FeaturedPicker({ allProducts, featuredProducts, featuredIds, onAdd, onR
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Toggle({ value, onChange, label, description }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <p className="font-bold text-slate-900 text-sm">{label}</p>
+        {description && <p className="text-xs text-slate-400 mt-0.5">{description}</p>}
+      </div>
+      <button
+        onClick={() => onChange(!value)}
+        className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${value ? "bg-emerald-500" : "bg-slate-200"}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? "translate-x-6" : "translate-x-0"}`} />
+      </button>
+    </div>
+  );
+}
+
+function SectionCard({ title, icon, children }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2 rounded-t-2xl">
+        <span className="text-lg">{icon}</span>
+        <h2 className="font-black text-slate-900 text-sm uppercase tracking-wide">{title}</h2>
+      </div>
+      <div className="p-5">{children}</div>
     </div>
   );
 }
@@ -236,31 +276,6 @@ export default function CatalogoPanel() {
     ]);
   };
 
-  // ── Render helpers ───────────────────────────────────
-  const Toggle = ({ value, onChange, label, description }) => (
-    <div className="flex items-center justify-between gap-4">
-      <div>
-        <p className="font-bold text-slate-900 text-sm">{label}</p>
-        {description && <p className="text-xs text-slate-400 mt-0.5">{description}</p>}
-      </div>
-      <button
-        onClick={() => onChange(!value)}
-        className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${value ? "bg-emerald-500" : "bg-slate-200"}`}
-      >
-        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? "translate-x-6" : "translate-x-0"}`} />
-      </button>
-    </div>
-  );
-
-  const SectionCard = ({ title, icon, children }) => (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2 rounded-t-2xl">
-        <span className="text-lg">{icon}</span>
-        <h2 className="font-black text-slate-900 text-sm uppercase tracking-wide">{title}</h2>
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  );
 
   if (loading) {
     return (

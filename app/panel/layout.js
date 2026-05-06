@@ -12,6 +12,7 @@ export default function PanelLayout({ children }) {
   const [panelRole, setPanelRole] = useState(null);
   const [staffName, setStaffName] = useState("");
   const [pendingOrders, setPendingOrders] = useState(0);
+  const [pendingRegistros, setPendingRegistros] = useState(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // v2
   const pathname = usePathname();
 
@@ -45,15 +46,15 @@ export default function PanelLayout({ children }) {
   }, [authorized]);
 
   const checkPendingOrders = async () => {
-    if (panelRole === "driver") return; // Repartidor no necesita esto
+    if (panelRole === "driver") return;
     try {
       const token = localStorage.getItem("panelToken") || "";
-      // Solo pedimos las ventas con estado específico para que sea más rápido
-      const res = await fetch("/api/sales?status=catalog_pending&countOnly=true", { headers: { "x-panel-token": token } });
-      if (res.ok) {
-        const data = await res.json();
-        setPendingOrders(data.count || 0);
-      }
+      const [ordersRes, registrosRes] = await Promise.all([
+        fetch("/api/sales?status=catalog_pending&countOnly=true", { headers: { "x-panel-token": token } }),
+        fetch("/api/panel/registros?countOnly=true", { headers: { "x-panel-token": token } }),
+      ]);
+      if (ordersRes.ok) { const d = await ordersRes.json(); setPendingOrders(d.count || 0); }
+      if (registrosRes.ok) { const d = await registrosRes.json(); setPendingRegistros(d.count || 0); }
     } catch (e) {}
   };
 
@@ -175,6 +176,7 @@ export default function PanelLayout({ children }) {
     { name: "Inventario", href: "/panel/inventario", icon: "📦", roles: ["admin", "worker"] },
     { name: "Clientes", href: "/panel/clientes", icon: "👥", roles: ["admin", "worker"] },
     { name: "Historial", href: "/panel/historial", icon: "📋", roles: ["admin"] },
+    { name: "Registros", href: "/panel/registros", icon: "🆕", roles: ["admin", "worker"] },
     { name: "Catálogo", href: "/panel/categorias", icon: "🛍️", roles: ["admin"] },
   ].filter(link => link.roles.includes(panelRole));
 
@@ -203,6 +205,11 @@ export default function PanelLayout({ children }) {
                 {link.href === "/panel/catalogo" && pendingOrders > 0 && (
                   <span className="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm animate-pulse">
                     {pendingOrders}
+                  </span>
+                )}
+                {link.href === "/panel/registros" && pendingRegistros > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+                    {pendingRegistros}
                   </span>
                 )}
               </Link>
@@ -269,17 +276,17 @@ export default function PanelLayout({ children }) {
           )}
 
           {/* DRAWER MÓVIL */}
-          <div className={`fixed inset-y-0 left-0 w-72 bg-white z-40 shadow-2xl transform transition-transform duration-300 md:hidden ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-            <div className="h-16 flex items-center px-6 border-b border-slate-100">
+          <div className={`fixed inset-y-0 left-0 w-72 bg-white z-40 shadow-2xl transform transition-transform duration-300 md:hidden flex flex-col ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+            <div className="h-16 shrink-0 flex items-center px-6 border-b border-slate-100">
               <span className="font-bold text-slate-900">Menú Administrativo</span>
             </div>
-            <div className="p-4 flex flex-col gap-2 overflow-y-auto h-[calc(100vh-120px)]">
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
               {navLinks.map((link, idx) => {
                 const isActive = pathname === link.href;
                 return (
-                  <Link 
-                    key={idx} 
-                    href={link.href} 
+                  <Link
+                    key={idx}
+                    href={link.href}
                     className={`flex items-center justify-between px-4 py-3.5 rounded-2xl text-sm transition-all ${isActive ? "bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 shadow-sm" : "text-slate-600 active:bg-slate-50"}`}
                   >
                     <div className="flex items-center gap-4">
@@ -295,7 +302,7 @@ export default function PanelLayout({ children }) {
                 );
               })}
             </div>
-            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-3">
+            <div className="shrink-0 p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-3">
                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">👑</div>
                <span className="text-xs font-bold text-slate-600">{staffName}</span>
             </div>

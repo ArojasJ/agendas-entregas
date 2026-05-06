@@ -181,7 +181,7 @@ export default function CatalogoPage() {
         <section className="max-w-2xl mx-auto px-4 pb-16">
           {!prodsLoaded ? (
             <div className="grid grid-cols-2 gap-3">
-              {[1,2,3,4].map(i => <div key={i} className="rounded-2xl bg-slate-100 animate-pulse aspect-[3/4]" />)}
+              {[1,2,3,4].map(i => <div key={i} className="rounded-2xl bg-slate-100 animate-pulse aspect-square" />)}
             </div>
           ) : searchResults.length === 0 ? (
             <div className="text-center py-16 text-slate-400">
@@ -196,7 +196,7 @@ export default function CatalogoPage() {
               <div className="grid grid-cols-2 gap-x-3 gap-y-6">
                 {searchResults.map(p => (
                   <Link key={p.id} href={`/catalogo/producto/${p.id}`} className="group">
-                    <div className="aspect-[3/4] rounded-2xl overflow-hidden bg-slate-50 mb-2 shadow-sm">
+                    <div className="aspect-square rounded-2xl overflow-hidden bg-slate-50 mb-2 shadow-sm">
                       {p.image_url
                         ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                         : <div className="w-full h-full flex items-center justify-center text-4xl opacity-15">📦</div>
@@ -222,7 +222,7 @@ export default function CatalogoPage() {
               <div className="grid grid-cols-2 gap-x-3 gap-y-6">
                 {featured.map(p => (
                   <Link key={p.id} href={`/catalogo/producto/${p.id}`} className="group">
-                    <div className="aspect-[3/4] rounded-2xl overflow-hidden bg-slate-50 mb-2.5 shadow-sm">
+                    <div className="aspect-square rounded-2xl overflow-hidden bg-slate-50 mb-2.5 shadow-sm">
                       {p.image_url
                         ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                         : <div className="w-full h-full flex items-center justify-center text-5xl opacity-15">📦</div>

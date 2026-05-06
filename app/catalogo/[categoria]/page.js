@@ -103,7 +103,7 @@ export default function CategoryPage() {
                 className="group"
               >
                 {/* Image */}
-                <div className="aspect-[3/4] rounded-2xl overflow-hidden bg-slate-50 mb-2.5 shadow-sm">
+                <div className="aspect-square rounded-2xl overflow-hidden bg-slate-50 mb-2.5 shadow-sm">
                   {item.image_url ? (
                     <img
                       src={item.image_url}
@@ -122,11 +122,6 @@ export default function CategoryPage() {
                   )}
                   <div className="flex items-center justify-between mt-1.5">
                     <p className="font-black text-base text-emerald-600">${item.price}</p>
-                    {item.stock <= 3 && (
-                      <span className="text-[10px] font-black text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-lg">
-                        ¡{item.stock} restante{item.stock !== 1 ? "s" : ""}!
-                      </span>
-                    )}
                   </div>
                 </div>
               </Link>
