@@ -3,13 +3,11 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-// 🚩 Cambia a true cuando la base de datos esté lista
-const CUENTA_Y_CATALOGO_ACTIVO = false;
-
 export default function HomePage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [profile, setProfile] = useState(null);
-  
+  const [catalogEnabled, setCatalogEnabled] = useState(false);
+
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -17,17 +15,19 @@ export default function HomePage() {
       if (session) {
         fetch("/api/clients/me", { cache: "no-store" })
           .then(res => res.json())
-          .then(data => {
-            if (data.client) setProfile(data.client);
-          });
+          .then(data => { if (data.client) setProfile(data.client); });
       }
     });
+    fetch("/api/public/catalog-settings")
+      .then(r => r.json())
+      .then(d => setCatalogEnabled(d.settings?.catalog_enabled === "true"))
+      .catch(() => {});
   }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden">
       {/* BOTÓN ARRIBA DERECHA: MI CUENTA */}
-      {CUENTA_Y_CATALOGO_ACTIVO ? (
+      {catalogEnabled ? (
         <a
           href={isLoggedIn ? "/perfil" : "/login"}
           className="absolute top-6 right-6 bg-white hover:bg-slate-50 text-slate-700 font-bold px-6 py-2.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95 z-10"
@@ -88,7 +88,7 @@ export default function HomePage() {
             <span>📦</span> Agendar Entrega
           </motion.a>
           
-          {CUENTA_Y_CATALOGO_ACTIVO ? (
+          {catalogEnabled ? (
             <motion.a
               href="/catalogo"
               className="bg-white hover:bg-slate-50 text-slate-800 font-bold px-8 py-3.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95"

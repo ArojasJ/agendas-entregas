@@ -175,6 +175,7 @@ export default function PanelLayout({ children }) {
     { name: "Inventario", href: "/panel/inventario", icon: "📦", roles: ["admin", "worker"] },
     { name: "Clientes", href: "/panel/clientes", icon: "👥", roles: ["admin", "worker"] },
     { name: "Historial", href: "/panel/historial", icon: "📋", roles: ["admin"] },
+    { name: "Catálogo", href: "/panel/categorias", icon: "🛍️", roles: ["admin"] },
   ].filter(link => link.roles.includes(panelRole));
 
   return (

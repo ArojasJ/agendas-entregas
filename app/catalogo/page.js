@@ -1,408 +1,291 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
+import { useCart } from "./CartProvider";
+
+const GRADIENTS = [
+  "from-rose-300 to-pink-500",
+  "from-violet-300 to-purple-500",
+  "from-amber-300 to-orange-500",
+  "from-emerald-300 to-teal-500",
+  "from-sky-300 to-blue-500",
+  "from-red-300 to-rose-500",
+  "from-lime-300 to-green-500",
+  "from-fuchsia-300 to-purple-500",
+];
+
+const BANNER_BG = {
+  emerald: "bg-emerald-500",
+  rose:    "bg-rose-500",
+  amber:   "bg-amber-400",
+  sky:     "bg-sky-500",
+  violet:  "bg-violet-500",
+};
 
 export default function CatalogoPage() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [profile, setProfile] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState("Todas");
-  
-  // Carrito: { id: { ...product, quantity } }
-  const [cart, setCart] = useState({});
-  const [showCart, setShowCart] = useState(false);
-  const [activeImgIdx, setActiveImgIdx] = useState({});
-  
-  // Checkout form
-  const [clientData, setClientData] = useState({ name: "", phone: "", instagram: "" });
-  const [processing, setProcessing] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const { cartCount, setShowCart } = useCart();
+
+  const [settings,    setSettings]    = useState(null);
+  const [categories,  setCategories]  = useState([]);
+  const [featured,    setFeatured]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+
+  const [search,       setSearch]       = useState("");
+  const [allProducts,  setAllProducts]  = useState([]);
+  const [prodsLoaded,  setProdsLoaded]  = useState(false);
 
   useEffect(() => {
-    fetchProducts();
-    const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsLoggedIn(!!session);
-      if (session) {
-        fetch("/api/clients/me", { cache: "no-store" })
-          .then(res => res.json())
-          .then(data => {
-            if (data.client) setProfile(data.client);
-          });
+    Promise.all([
+      fetch("/api/public/catalog-settings").then(r => r.json()),
+      fetch("/api/public/categories").then(r => r.json()),
+    ]).then(async ([sd, cd]) => {
+      const s = sd.settings || {};
+      setSettings(s);
+      setCategories(cd.categories || []);
+
+      // Load featured products if any
+      const ids = (() => { try { return JSON.parse(s.featured_product_ids || "[]"); } catch { return []; } })();
+      if (ids.length > 0) {
+        const pd = await fetch("/api/public/catalog").then(r => r.json());
+        const allP = pd.products || [];
+        setAllProducts(allP);
+        setProdsLoaded(true);
+        setFeatured(ids.map(id => allP.find(p => p.id === id)).filter(Boolean));
       }
-    });
+    }).finally(() => setLoading(false));
   }, []);
 
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/public/catalog");
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.products || []);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+  // Lazy-load products when user starts searching
+  useEffect(() => {
+    if (search.trim().length >= 2 && !prodsLoaded) {
+      setProdsLoaded(true);
+      fetch("/api/public/catalog").then(r => r.json()).then(d => setAllProducts(d.products || []));
     }
-  };
+  }, [search, prodsLoaded]);
 
-  const categories = useMemo(() => {
-    const cats = products.map(p => p.category).filter(Boolean);
-    return ["Todas", ...Array.from(new Set(cats)).sort()];
-  }, [products]);
+  const searchResults = search.trim().length >= 2
+    ? allProducts.filter(p => {
+        const q = search.toLowerCase();
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (p.description || "").toLowerCase().includes(q) ||
+          (p.category || "").toLowerCase().includes(q)
+        );
+      })
+    : [];
 
-  // Aplanar: cada variante se convierte en tarjeta individual
-  const flatProducts = useMemo(() => {
-    const base = activeCategory === "Todas" ? products : products.filter(p => p.category === activeCategory);
-    return base.flatMap(p => {
-      const pvs = p.product_variants || [];
-      if (pvs.length === 0) return [{ ...p, _cartKey: String(p.id) }];
-      return pvs
-        .filter(v => v.stock > 0)
-        .map(v => {
-          const allImgs = [v.image_url, ...(v.images || [])].filter(Boolean);
-          const fallbackImgs = [p.image_url, ...(p.images || [])].filter(Boolean);
-          const imgs = allImgs.length > 0 ? allImgs : fallbackImgs;
-          return {
-            _cartKey: `${p.id}_${v.id}`,
-            id: p.id,
-            variant_id: v.id,
-            name: `${p.name} — ${v.name}`,
-            category: p.category,
-            price: v.price,
-            stock: v.stock,
-            image_url: imgs[0] || null,
-            images: imgs.slice(1),
-            description: p.description,
-          };
-        });
-    });
-  }, [products, activeCategory]);
+  const isSearching = search.trim().length >= 2;
 
-  const addToCart = (item) => {
-    const key = item._cartKey;
-    setCart(prev => {
-      const current = prev[key] || { ...item, quantity: 0 };
-      if (current.quantity >= item.stock) return prev;
-      return { ...prev, [key]: { ...current, quantity: current.quantity + 1 } };
-    });
-  };
-
-  const removeFromCart = (cartKey) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      if (newCart[cartKey]) {
-        newCart[cartKey] = { ...newCart[cartKey], quantity: newCart[cartKey].quantity - 1 };
-        if (newCart[cartKey].quantity <= 0) delete newCart[cartKey];
-      }
-      return newCart;
-    });
-  };
-
-  const increaseCart = (cartKey) => {
-    setCart(prev => {
-      if (!prev[cartKey]) return prev;
-      const item = prev[cartKey];
-      if (item.quantity >= item.stock) return prev;
-      return { ...prev, [cartKey]: { ...item, quantity: item.quantity + 1 } };
-    });
-  };
-
-  const cartItems = Object.values(cart);
-  const cartTotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-
-  const handleCheckout = async (e) => {
-    e.preventDefault();
-    if (cartItems.length === 0) return;
-    setProcessing(true);
-    setErrorMsg("");
-
-    try {
-      const payload = {
-        cart: cartItems.map(i => ({ id: i.id, variant_id: i.variant_id || null, quantity: i.quantity })),
-        clientData: profile ? {
-          name: profile.name,
-          phone: profile.phone,
-          instagram: profile.instagram
-        } : clientData
-      };
-
-      const res = await fetch("/api/public/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.ok) {
-        setSuccess(true);
-        setCart({});
-      } else {
-        const data = await res.json();
-        setErrorMsg(data.message || "Ocurrió un error al procesar el pedido.");
-      }
-    } catch (e) {
-      setErrorMsg("Error de conexión. Intenta de nuevo.");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  if (success) {
+  if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl max-w-md w-full text-center border border-slate-100 animate-in fade-in zoom-in">
-          <div className="w-20 h-20 bg-sky-100 text-sky-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6">
-            ✓
-          </div>
-          <h1 className="text-2xl font-black text-slate-900 mb-4">¡Pedido Recibido!</h1>
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Gracias por tu compra. Te estaremos contactando para completar tu pago y coordinar la entrega.
-          </p>
-          <Link href="/" className="inline-block bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-6 py-3 rounded-xl transition-colors">
-            Volver al Inicio
-          </Link>
+      <main className="min-h-screen bg-white flex flex-col">
+        <div className="h-14 bg-white border-b border-slate-100" />
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-30">
+          <div className="w-24 h-24 rounded-full bg-slate-200 animate-pulse" />
+          <div className="h-4 w-40 bg-slate-200 animate-pulse rounded-full" />
         </div>
       </main>
     );
   }
 
+  // ── Catalog disabled ──────────────────────────────────
+  if (settings?.catalog_enabled !== "true") {
+    return (
+      <main className="min-h-screen bg-white flex flex-col items-center justify-center text-center px-6 gap-6">
+        <img src="/logo.png" alt="Noreste" className="w-28 h-28 rounded-full shadow-xl object-cover ring-4 ring-white" />
+        <div>
+          <h1 className="font-black text-2xl text-slate-900 mb-2">Noreste Clothes & More</h1>
+          <p className="text-slate-400 text-base">Catálogo en preparación</p>
+          <p className="text-slate-400 text-sm mt-1">Pronto podrás ver todos nuestros productos aquí ✨</p>
+        </div>
+        <Link href="/" className="text-sm text-slate-400 underline underline-offset-2 hover:text-slate-600">
+          ← Volver al inicio
+        </Link>
+      </main>
+    );
+  }
+
+  const welcomeText    = settings.welcome_text     || "Ropa y accesorios originales de las mejores marcas 🇺🇸";
+  const bannerActive   = settings.banner_active    === "true";
+  const bannerText     = settings.banner_text      || "";
+  const bannerColor    = settings.banner_color     || "emerald";
+  const igHandle       = settings.instagram_handle || "";
+
   return (
-    <main className="min-h-screen bg-slate-50 pb-24">
-      {/* HEADER */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="font-black text-xl text-slate-900 tracking-tight flex items-center gap-2">
-            <span className="text-sm">←</span> AGÉNDALO
-          </Link>
-          <div className="flex items-center gap-3">
-            <Link href={isLoggedIn ? "/perfil" : "/login"} className="hidden sm:flex items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-full font-bold text-sm transition-all">
-              <span>👤</span> {profile ? profile.instagram : (isLoggedIn ? "Mi Cuenta" : "Iniciar Sesión")}
-            </Link>
-            
-            {cartCount > 0 && (
-              <button 
-                onClick={() => setShowCart(true)}
-                className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full font-bold text-sm hover:bg-slate-800 transition-all shadow-lg active:scale-95"
-              >
-                <span>🛒</span>
-                <span>{cartCount}</span>
-              </button>
+    <main className="min-h-screen bg-white">
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100">
+        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+          <Link href="/" className="font-black text-slate-900 text-base tracking-tight shrink-0">← NORESTE</Link>
+          {cartCount > 0 && (
+            <button
+              onClick={() => setShowCart(true)}
+              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full font-bold text-sm hover:bg-slate-800 transition-colors active:scale-95 shrink-0"
+            >
+              🛒 {cartCount}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── Banner ── */}
+      {bannerActive && bannerText && (
+        <div className={`${BANNER_BG[bannerColor] || "bg-emerald-500"} text-white text-sm font-bold text-center px-4 py-2.5`}>
+          {bannerText}
+        </div>
+      )}
+
+      {/* ── Hero ── */}
+      <section className="bg-white pt-10 pb-8 px-4 text-center">
+        <div className="relative inline-block mb-5">
+          <img
+            src="/logo.png"
+            alt="Noreste"
+            className="w-28 h-28 rounded-full shadow-xl object-cover ring-4 ring-white"
+          />
+        </div>
+        <h1 className="font-black text-2xl text-slate-900 mb-1 tracking-tight">Noreste Clothes & More</h1>
+        <p className="text-slate-400 text-sm mb-4 max-w-xs mx-auto">{welcomeText}</p>
+
+        {/* Instagram link */}
+        {igHandle && (
+          <a
+            href={`https://instagram.com/${igHandle}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 mb-6 text-sm font-bold text-slate-500 hover:text-fuchsia-600 transition-colors"
+          >
+            <span>📸</span> @{igHandle}
+          </a>
+        )}
+        {!igHandle && <div className="mb-6" />}
+
+        {/* Search */}
+        <div className="max-w-md mx-auto relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">🔍</span>
+          <input
+            type="text"
+            placeholder="Buscar productos..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-11 pr-10 py-3.5 rounded-2xl bg-slate-100 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all placeholder:text-slate-400"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">✕</button>
+          )}
+        </div>
+      </section>
+
+      {/* ── Search Results ── */}
+      {isSearching && (
+        <section className="max-w-2xl mx-auto px-4 pb-16">
+          {!prodsLoaded ? (
+            <div className="grid grid-cols-2 gap-3">
+              {[1,2,3,4].map(i => <div key={i} className="rounded-2xl bg-slate-100 animate-pulse aspect-[3/4]" />)}
+            </div>
+          ) : searchResults.length === 0 ? (
+            <div className="text-center py-16 text-slate-400">
+              <p className="text-4xl mb-3">🔍</p>
+              <p className="font-bold">Sin resultados para &ldquo;{search}&rdquo;</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-4">
+                {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""}
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-6">
+                {searchResults.map(p => (
+                  <Link key={p.id} href={`/catalogo/producto/${p.id}`} className="group">
+                    <div className="aspect-[3/4] rounded-2xl overflow-hidden bg-slate-50 mb-2 shadow-sm">
+                      {p.image_url
+                        ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        : <div className="w-full h-full flex items-center justify-center text-4xl opacity-15">📦</div>
+                      }
+                    </div>
+                    <p className="font-bold text-sm text-slate-900 leading-tight px-1 line-clamp-2">{p.name}</p>
+                    <p className="text-emerald-600 font-black text-base px-1 mt-1">${p.price}</p>
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {!isSearching && (
+        <section className="max-w-2xl mx-auto px-4 pb-20 space-y-8">
+
+          {/* ── Featured Products ── */}
+          {featured.length > 0 && (
+            <div>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">⭐ Destacados</p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-6">
+                {featured.map(p => (
+                  <Link key={p.id} href={`/catalogo/producto/${p.id}`} className="group">
+                    <div className="aspect-[3/4] rounded-2xl overflow-hidden bg-slate-50 mb-2.5 shadow-sm">
+                      {p.image_url
+                        ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        : <div className="w-full h-full flex items-center justify-center text-5xl opacity-15">📦</div>
+                      }
+                    </div>
+                    <p className="font-bold text-sm text-slate-900 leading-tight px-1 line-clamp-2">{p.name}</p>
+                    <p className="text-emerald-600 font-black text-base px-1 mt-1">${p.price}</p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Categories ── */}
+          <div>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Categorías</p>
+            {categories.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <p className="text-4xl mb-3">📦</p>
+                <p className="font-bold">Catálogo en preparación</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {categories.map((cat, idx) => (
+                  <Link
+                    key={cat.name}
+                    href={`/catalogo/${encodeURIComponent(cat.name)}`}
+                    className="relative aspect-square rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 active:scale-95 group"
+                  >
+                    {cat.image_url ? (
+                      <img
+                        src={cat.image_url}
+                        alt={cat.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className={`w-full h-full bg-gradient-to-br ${GRADIENTS[idx % GRADIENTS.length]}`} />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 p-4">
+                      <p className="text-white font-black text-sm uppercase tracking-widest leading-tight drop-shadow-lg">
+                        {cat.name}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
             )}
           </div>
-        </div>
-        
-      {/* CATEGORÍAS TIPO PILL MODERNAS */}
-      <div className="bg-white border-b border-slate-100 sticky top-16 z-20 shadow-sm overflow-x-auto whitespace-nowrap hide-scrollbar px-4 py-3 flex gap-2">
-        {categories.map(cat => (
+        </section>
+      )}
+
+      {/* ── Floating Cart ── */}
+      {cartCount > 0 && (
+        <div className="fixed bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">
           <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`px-6 py-2 rounded-2xl text-xs font-black transition-all border-2 ${
-              activeCategory === cat 
-                ? 'bg-sky-500 border-sky-500 text-white shadow-lg shadow-sky-500/20 scale-105'
-                : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            {cat.toUpperCase()}
-          </button>
-        ))}
-      </div>
-    </header>
-
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-4">
-            <div className="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Cargando tesoros...</p>
-          </div>
-        ) : flatProducts.length === 0 ? (
-          <div className="text-center py-20">
-            <span className="text-5xl block mb-4">🔍</span>
-            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Sin resultados en esta sección</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {flatProducts.map(item => {
-              const cartKey = item._cartKey;
-              const inCart = cart[cartKey]?.quantity || 0;
-              const allImgs = [item.image_url, ...(item.images || [])].filter(Boolean);
-              const imgIdx = activeImgIdx[cartKey] || 0;
-              return (
-                <div key={cartKey} className="group bg-white rounded-[2.5rem] p-3 border-2 border-slate-100 hover:border-sky-500/30 transition-all duration-300 flex flex-col relative">
-                  <div
-                    className="aspect-[4/5] rounded-[2rem] overflow-hidden bg-slate-50 relative mb-4 cursor-pointer"
-                    onClick={() => allImgs.length > 1 && setActiveImgIdx(prev => ({ ...prev, [cartKey]: (imgIdx + 1) % allImgs.length }))}
-                  >
-                    {allImgs.length > 0 ? (
-                      <img src={allImgs[imgIdx]} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl opacity-10">🛍️</div>
-                    )}
-                    {item.stock <= 5 && (
-                      <div className="absolute top-3 left-3 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg animate-pulse">
-                        ¡ÚLTIMOS {item.stock}!
-                      </div>
-                    )}
-                    {allImgs.length > 1 && (
-                      <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
-                        {allImgs.map((_, i) => (
-                          <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all ${i === imgIdx ? "bg-white scale-125" : "bg-white/50"}`} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="px-2 flex flex-col flex-1">
-                    <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1">{item.category || 'Varios'}</p>
-                    <h3 className="font-bold text-sm text-slate-900 leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{item.name}</h3>
-
-                    <div className="flex items-center justify-between mt-auto pt-2">
-                      <p className="font-black text-slate-900 text-lg">${item.price}</p>
-                      {inCart > 0 ? (
-                        <div className="flex items-center bg-slate-900 rounded-2xl p-1 gap-2 shadow-lg">
-                          <button onClick={() => removeFromCart(cartKey)} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors">-</button>
-                          <span className="font-black text-white text-sm px-1">{inCart}</span>
-                          <button onClick={() => increaseCart(cartKey)} disabled={inCart >= item.stock} className="w-8 h-8 rounded-xl bg-white/10 text-white font-black hover:bg-white/20 transition-colors disabled:opacity-30">+</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => addToCart(item)} className="w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-lg shadow-sky-500/20 hover:scale-110 active:scale-90 transition-all">
-                          <span className="text-xl font-bold">+</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-
-      {/* MODAL DEL CARRITO Y CHECKOUT */}
-      {showCart && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-end">
-          <div className="bg-white w-full max-w-md h-full flex flex-col animate-in slide-in-from-right duration-300">
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-white">
-              <h2 className="text-xl font-black text-slate-900">Tu Pedido</h2>
-              <button onClick={() => setShowCart(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200">✕</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5">
-              {cartItems.length === 0 ? (
-                <div className="text-center py-20 opacity-50">El carrito está vacío</div>
-              ) : (
-                <div className="space-y-4 mb-8">
-                  {cartItems.map(item => (
-                    <div key={item._cartKey || item.id} className="flex gap-4">
-                      {item.image_url ? (
-                        <img src={item.image_url} alt={item.name} className="w-16 h-16 rounded-xl object-cover border border-slate-200" />
-                      ) : (
-                        <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200" />
-                      )}
-                      <div className="flex-1">
-                        <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{item.name}</h4>
-                        <p className="text-sky-500 font-bold text-sm mb-2">${item.price}</p>
-                        <div className="flex items-center gap-3">
-                          <button onClick={() => removeFromCart(item._cartKey || item.id)} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center">-</button>
-                          <span className="text-sm font-bold">{item.quantity}</span>
-                          <button onClick={() => increaseCart(item._cartKey || item.id)} disabled={item.quantity >= item.stock} className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 font-bold flex items-center justify-center disabled:opacity-50">+</button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="pt-4 border-t border-slate-200 flex justify-between items-center mt-6">
-                    <span className="font-bold text-slate-500 uppercase tracking-widest text-xs">Total</span>
-                    <span className="font-black text-2xl text-slate-900">${cartTotal.toFixed(2)}</span>
-                  </div>
-                </div>
-              )}
-
-              {cartItems.length > 0 && (
-                <form onSubmit={handleCheckout} className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                  <h3 className="font-bold text-sm text-slate-900 uppercase tracking-widest mb-4">Tus Datos</h3>
-                  
-                  {errorMsg && (
-                    <div className="p-3 rounded-lg bg-red-50 text-red-500 text-xs font-bold border border-red-200">
-                      {errorMsg}
-                    </div>
-                  )}
-
-                  {!profile ? (
-                    <>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Completo *</label>
-                        <input required type="text" value={clientData.name} onChange={e => setClientData({...clientData, name: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500" placeholder="Ej. Ana Pérez" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Teléfono (WhatsApp) *</label>
-                        <input required type="tel" value={clientData.phone} onChange={e => setClientData({...clientData, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500" placeholder="Ej. 8710000000" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">Usuario de Instagram *</label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
-                          <input required type="text" value={clientData.instagram.replace(/^@/, '')} onChange={e => setClientData({...clientData, instagram: e.target.value.replace(/^@/, '')})} className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500" placeholder="usuario_ig" />
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Confirmando como:</p>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-600 font-bold uppercase">
-                          {profile.name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{profile.name}</p>
-                          <p className="text-xs text-sky-600 font-medium">{profile.instagram}</p>
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-slate-400 pt-1">Tus datos se guardarán automáticamente con este pedido.</p>
-                    </div>
-                  )}
-
-                  <button 
-                    type="submit" 
-                    disabled={processing}
-                    className="w-full py-3.5 mt-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-900 font-black shadow-lg shadow-sky-500/30 transition-all disabled:opacity-50 active:scale-95"
-                  >
-                    {processing ? "Procesando..." : "Confirmar Pedido"}
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* BOTÓN FLOTANTE MÓVIL SI HAY ITEMS */}
-      {cartCount > 0 && !showCart && (
-        <div className="fixed bottom-6 left-0 right-0 px-4 md:hidden z-40">
-          <button 
             onClick={() => setShowCart(true)}
-            className="w-full bg-slate-900 text-white p-4 rounded-2xl font-black shadow-2xl flex items-center justify-between active:scale-95 transition-transform"
+            className="pointer-events-auto flex items-center gap-3 bg-slate-900 text-white px-6 py-4 rounded-full shadow-2xl shadow-slate-900/30 font-bold text-sm hover:bg-slate-800 active:scale-95 transition-all"
           >
-            <span className="flex items-center gap-2">
-              <span className="bg-white/20 px-2 py-0.5 rounded-md text-sm">{cartCount}</span>
-              Ver Pedido
-            </span>
-            <span>${cartTotal.toFixed(2)}</span>
+            🛒 Ver carrito · <span className="font-black">{cartCount}</span>
           </button>
         </div>
       )}
-
-      {/* ESTILOS EXTRA PARA OCULTAR SCROLLBAR */}
-      <style dangerouslySetInnerHTML={{__html: `
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}} />
     </main>
   );
 }
