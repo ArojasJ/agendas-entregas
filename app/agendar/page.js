@@ -115,7 +115,7 @@ export default function AgendarPage() {
   // 🟢 AJUSTE: Iniciamos en domicilio porque bodega está pausada
   const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
-  const [allBookings, setAllBookings] = useState([]); // para contar domicilio
+  const [bookingCounts, setBookingCounts] = useState({}); // { "YYYY-MM-DD": n } para contar domicilio
   const [blockedDays, setBlockedDays] = useState([]);
   const [extraBodegaDays, setExtraBodegaDays] = useState([]);
   const [specialDays, setSpecialDays] = useState([]);
@@ -161,15 +161,14 @@ export default function AgendarPage() {
   // límite domicilio
   const DOMICILIO_LIMIT = 15;
 
-  // traer bookings (para conteo) Y días bloqueados + extra bodega (públicos)
+  // traer conteo de domicilios por fecha (público) y días bloqueados
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("/api/bookings");
+        const res = await fetch("/api/public/booking-counts");
         if (res.ok) {
           const data = await res.json();
-          setSlots(data.slots || null);
-          setAllBookings(data.bookings || []);
+          setBookingCounts(data.counts || {});
         }
       } catch (err) {
         console.error(err);
@@ -271,11 +270,9 @@ export default function AgendarPage() {
   };
 
   let domicilioCountForSelected = 0;
-  if (deliveryDate && allBookings.length > 0) {
+  if (deliveryDate) {
     const selectedStr = toInputDate(deliveryDate);
-    domicilioCountForSelected = allBookings.filter(
-      (b) => b.type === "domicilio" && b.date === selectedStr
-    ).length;
+    domicilioCountForSelected = bookingCounts[selectedStr] || 0;
   }
   const domicilioRemaining =
     deliveryDate != null
@@ -403,18 +400,6 @@ export default function AgendarPage() {
         });
 
         setSuccessModal(true);
-        setAllBookings((prev) => [
-          ...prev,
-          {
-            id: data.booking?.id || Date.now(),
-            type: "bodega",
-            day: dayToSend,
-            date: toInputDate(date),
-            instagram: instaValue,
-            fullName,
-            phone,
-          },
-        ]);
       }
     } catch (err) {
       setError("Error de conexión.");
@@ -477,9 +462,7 @@ export default function AgendarPage() {
       return;
     }
 
-    const alreadyForDay = allBookings.filter(
-      (b) => b.type === "domicilio" && b.date === selectedStr
-    ).length;
+    const alreadyForDay = bookingCounts[selectedStr] || 0;
     if (alreadyForDay >= DOMICILIO_LIMIT) {
       setError("Ya no hay entregas disponibles para ese día.");
       return;
@@ -560,25 +543,10 @@ export default function AgendarPage() {
         setLocationUrl("");
         setSelectedItems([]);
 
-        setAllBookings((prev) => [
+        setBookingCounts((prev) => ({
           ...prev,
-          {
-            id: data.booking?.id || Date.now(),
-            type: "domicilio",
-            date: selectedStr,
-            instagram: instaValue,
-            fullName,
-            phone,
-            address: `Calle: ${street}, Num: ${houseNum}, Col: ${colonia}, Ref: ${references}`,
-            notes,
-            city: domicilioCity,
-            state: domicilioState,
-            postalCode: domicilioCP,
-            locationUrl,
-            products: productsString || null,
-            amount_due: calculatingDebt + deliveryFee
-          },
-        ]);
+          [selectedStr]: (prev[selectedStr] || 0) + 1,
+        }));
       }
     } catch (err) {
       setError("Error de conexión.");
@@ -645,20 +613,6 @@ export default function AgendarPage() {
         setCity("");
         setStateMx("Coahuila");
 
-        setAllBookings((prev) => [
-          ...prev,
-          {
-            id: data.booking?.id || Date.now(),
-            type: "paqueteria",
-            date: todayStr,
-            instagram: instaValue,
-            fullName,
-            phone,
-            address,
-            city,
-            state: stateMx,
-          },
-        ]);
       }
     } catch (err) {
       setError("Error de conexión.");
@@ -1135,8 +1089,21 @@ export default function AgendarPage() {
               <div className="pt-6 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-4">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Fecha de Entrega</label>
-                  {deliveryDate && (
-                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full animate-pulse">
+                  {deliveryDate && domicilioRemaining === 0 && (
+                    <span className="text-[10px] font-black text-red-600 bg-red-50 px-3 py-1 rounded-full">
+                      SIN CUPO
+                    </span>
+                  )}
+                  {deliveryDate && domicilioRemaining > 0 && (
+                    <span className={`text-[10px] font-black px-3 py-1 rounded-full animate-pulse ${
+                      domicilioRemaining >= 10
+                        ? "text-emerald-600 bg-emerald-50"
+                        : domicilioRemaining >= 6
+                        ? "text-lime-600 bg-lime-50"
+                        : domicilioRemaining >= 3
+                        ? "text-amber-600 bg-amber-50"
+                        : "text-red-600 bg-red-50"
+                    }`}>
                       ¡HAY CUPO! {domicilioRemaining} DISP.
                     </span>
                   )}
