@@ -49,7 +49,7 @@ export async function GET(req) {
         unit_price,
         products ( name, barcode )
       ),
-      payments ( amount )
+      payments ( amount, pos_cut_id )
     `);
 
   if (statusFilter) {

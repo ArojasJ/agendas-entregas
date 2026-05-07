@@ -46,8 +46,10 @@ export async function GET(req, { params }) {
         payments (
           id,
           amount,
-          created_at
-        )
+          created_at,
+          pos_cut_id
+        ),
+        pos_cuts ( created_at )
       `)
       .eq("id", id)
       .single();

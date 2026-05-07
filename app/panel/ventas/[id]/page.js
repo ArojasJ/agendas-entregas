@@ -22,6 +22,7 @@ export default function SaleDetailPage() {
   const [newDueDate, setNewDueDate] = useState("");
   const [abonoAmount, setAbonoAmount] = useState("");
   const [savingAbono, setSavingAbono] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   const showToast = (message, type = "success") => {
@@ -174,6 +175,29 @@ export default function SaleDetailPage() {
       showToast("Error de conexión", "error");
     } finally {
       setSavingAbono(false);
+    }
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    if (!confirm("¿Eliminar este abono? Esta acción no se puede deshacer.")) return;
+    setDeletingPaymentId(paymentId);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/payments?id=${paymentId}`, {
+        method: "DELETE",
+        headers: { "x-panel-token": token },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast("Abono eliminado", "success");
+        fetchSaleDetail();
+      } else {
+        showToast(data.message || "Error al eliminar abono", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setDeletingPaymentId(null);
     }
   };
 
@@ -431,6 +455,14 @@ export default function SaleDetailPage() {
                             {new Date(p.created_at).toLocaleString("es-MX", { day: '2-digit', month: 'short', year: 'numeric' })}
                           </p>
                         </div>
+                        <button
+                          onClick={() => handleDeletePayment(p.id)}
+                          disabled={deletingPaymentId === p.id || !!p.pos_cut_id}
+                          title={p.pos_cut_id ? "Ya fue incluido en un corte" : "Eliminar abono"}
+                          className="text-xs text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
+                        >
+                          {deletingPaymentId === p.id ? "..." : "Eliminar"}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -508,7 +540,13 @@ export default function SaleDetailPage() {
                 </div>
                 <div className="flex justify-between border-b border-slate-200 pb-2">
                   <span className="text-slate-500">Corte de Caja:</span>
-                  <span className="font-medium text-slate-900">{sale.pos_cut_id ? `Corte #${sale.pos_cut_id}` : "Pendiente"}</span>
+                  <span className="font-medium text-slate-900">
+                    {sale.pos_cut_id
+                      ? sale.pos_cuts?.created_at
+                        ? new Date(sale.pos_cuts.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                        : "Cortado"
+                      : "Sin corte"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Descuento:</span>

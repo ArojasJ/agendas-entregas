@@ -40,6 +40,54 @@ export async function GET(req) {
   return Response.json({ receivables: receivables || [] });
 }
 
+export async function DELETE(req) {
+  const session = getPanelSession(req);
+  if (!session) {
+    return Response.json({ message: "No autorizado" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const paymentId = searchParams.get("id");
+  if (!paymentId) {
+    return Response.json({ message: "Falta el ID del abono." }, { status: 400 });
+  }
+
+  // Verificar que el abono no esté en un corte ya realizado
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, pos_cut_id, sale_id")
+    .eq("id", paymentId)
+    .single();
+
+  if (!payment) {
+    return Response.json({ message: "Abono no encontrado." }, { status: 404 });
+  }
+  if (payment.pos_cut_id) {
+    return Response.json({ message: "Este abono ya fue incluido en un corte de caja y no se puede eliminar." }, { status: 400 });
+  }
+
+  const { error } = await supabase.from("payments").delete().eq("id", paymentId);
+  if (error) {
+    return Response.json({ message: "Error al eliminar el abono." }, { status: 500 });
+  }
+
+  // Si la venta estaba en 'paid', regresar a 'credit'
+  const { data: sale } = await supabase
+    .from("sales")
+    .select("total, down_payment, status, payments(amount)")
+    .eq("id", payment.sale_id)
+    .single();
+
+  if (sale && sale.status === "paid") {
+    const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
+    if (totalPagado < Number(sale.total)) {
+      await supabase.from("sales").update({ status: "credit" }).eq("id", payment.sale_id);
+    }
+  }
+
+  return Response.json({ message: "Abono eliminado." });
+}
+
 export async function POST(req) {
   const session = getPanelSession(req);
   if (!session) {

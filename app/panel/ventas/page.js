@@ -86,11 +86,20 @@ export default function VentasPage() {
   };
 
   const pendingSales = sales.filter(s => s.pos_cut_id === null && s.status !== "catalog_pending" && s.status !== "cancelled");
-  const totalCaja = pendingSales.reduce((sum, sale) => {
-    const downPayment = Number(sale.down_payment) || 0;
-    const abonos = (sale.payments || []).reduce((ps, p) => ps + Number(p.amount), 0);
-    return sum + downPayment + abonos;
+
+  // Enganches de ventas sin corte
+  const totalDownPayments = pendingSales.reduce((sum, sale) => sum + (Number(sale.down_payment) || 0), 0);
+
+  // Abonos sin corte de TODAS las ventas (incluyendo ventas ya cortadas con abonos posteriores)
+  const totalAbonos = sales.reduce((sum, sale) => {
+    if (sale.status === "catalog_pending" || sale.status === "cancelled") return sum;
+    const abonos = (sale.payments || [])
+      .filter(p => p.pos_cut_id === null)
+      .reduce((ps, p) => ps + Number(p.amount), 0);
+    return sum + abonos;
   }, 0);
+
+  const totalCaja = totalDownPayments + totalAbonos;
 
   const filteredSales = sales.filter((s) => {
     if (!searchQuery) return true;
@@ -259,12 +268,12 @@ export default function VentasPage() {
                       ) : isCancelled ? (
                         <>
                           <p className="text-sm text-red-500 font-bold uppercase tracking-tighter">Penalización</p>
-                          <p className="text-xl font-black text-slate-900">Perdió: ${sale.down_payment}</p>
+                          <p className="text-xl font-black text-slate-900">Perdió: ${sale.penalty_amount ?? sale.down_payment}</p>
                         </>
                       ) : isCredit ? (
                         <>
                           <p className="text-sm text-slate-500">Total: ${sale.total}</p>
-                          <p className="text-xl font-black text-emerald-600">Ingresó: ${sale.down_payment}</p>
+                          <p className="text-xl font-black text-emerald-600">Ingresó: ${Number(sale.down_payment || 0) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0)}</p>
                         </>
                       ) : (
                         <span className="text-2xl font-black text-emerald-600">${sale.total}</span>
