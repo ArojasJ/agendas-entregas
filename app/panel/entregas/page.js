@@ -148,6 +148,10 @@ export default function PanelPage() {
   const [extraStartTime, setExtraStartTime] = useState("18:00");
   const [extraEndTime, setExtraEndTime] = useState("20:00");
 
+  const [specialDays, setSpecialDays] = useState([]);
+  const [specialDate, setSpecialDate] = useState("");
+  const [specialReason, setSpecialReason] = useState("");
+
   const [clients, setClients] = useState([]);
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [clientSearchQuery, setClientSearchQuery] = useState("");
@@ -259,6 +263,7 @@ export default function PanelPage() {
       setSlots(data.slots || null);
       setBlockedDays(data.blockedDays || []);
       setExtraBodegaDays(data.extraBodegaDays || []);
+      setSpecialDays(data.specialDays || []);
 
       if (resC.ok) {
         const dataC = await resC.json();
@@ -416,6 +421,35 @@ export default function PanelPage() {
     } catch (err) {
       alert("Error de conexión.");
     }
+  };
+
+  const handleAddSpecialDay = async () => {
+    if (!specialDate) { alert("Selecciona una fecha."); return; }
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ action: "add-special-day", date: specialDate, reason: specialReason }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.message || "No se pudo agregar."); return; }
+      await fetchBookings();
+      setSpecialDate("");
+      setSpecialReason("");
+    } catch (err) { alert("Error de conexión."); }
+  };
+
+  const handleRemoveSpecialDay = async (id) => {
+    if (!confirm("¿Quitar este día especial?")) return;
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/bookings?specialDayId=${id}`, {
+        method: "DELETE",
+        headers: { "x-panel-token": token },
+      });
+      if (res.ok) fetchBookings();
+    } catch (err) { alert("Error de conexión."); }
   };
 
   const handleAddExtraBodegaDay = async () => {
@@ -916,6 +950,35 @@ export default function PanelPage() {
                 </button>
               </div>
             </div>
+
+            {activeTab === "domicilio" && (
+              <div className={`${cardCls} p-4`}>
+                <h3 className={`text-xs font-semibold uppercase tracking-widest mb-3 flex items-center gap-2 ${D ? "text-slate-500" : "text-slate-500"}`}>
+                  <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${D ? "bg-violet-500/10 border-violet-500/20" : "bg-violet-50 border-violet-200"}`}>⭐</span>
+                  Día especial
+                </h3>
+                <p className={`text-[11px] mb-2 ${D ? "text-slate-600" : "text-slate-400"}`}>Abre entregas a domicilio en un día normalmente cerrado (sábado, domingo).</p>
+                <div className="flex flex-col gap-2">
+                  <input type="date" value={specialDate} onChange={e => setSpecialDate(e.target.value)} className={inputCls} />
+                  <input type="text" value={specialReason} onChange={e => setSpecialReason(e.target.value)}
+                    placeholder="Motivo (ej. Día de las Madres)" className={inputCls} />
+                  <button onClick={handleAddSpecialDay}
+                    className="bg-violet-500/80 hover:bg-violet-500 text-white text-sm rounded-xl py-2 font-medium transition-all">
+                    Activar día especial
+                  </button>
+                </div>
+                {specialDays.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {specialDays.map(d => (
+                      <div key={d.id} className={`flex items-center gap-2 text-xs rounded-full px-3 py-1 border ${D ? "bg-violet-500/10 border-violet-500/20 text-violet-300" : "bg-violet-50 border-violet-200 text-violet-700"}`}>
+                        <span>⭐ {formatBlockedMX(d.date)}{d.reason ? ` · ${d.reason}` : ""}</span>
+                        <button onClick={() => handleRemoveSpecialDay(d.id)} className="opacity-50 hover:opacity-100 ml-1">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {activeTab === "bodega" && BODEGA_ACTIVA && (
               <div className={`${cardCls} p-4`}>

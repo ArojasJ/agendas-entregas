@@ -74,6 +74,12 @@ export async function GET(req) {
     .select("*")
     .order("date", { ascending: true });
 
+  // 4) special_days
+  const { data: specialDays } = await supabase
+    .from("special_days")
+    .select("*")
+    .order("date", { ascending: true });
+
   if (error || blockedErr || extraErr) {
     console.error(error || blockedErr || extraErr);
     return Response.json(
@@ -83,6 +89,7 @@ export async function GET(req) {
         slots: SLOTS,
         blockedDays: blockedDays || [],
         extraBodegaDays: extraBodegaDays || [],
+        specialDays: specialDays || [],
       },
       { status: 500 }
     );
@@ -93,6 +100,7 @@ export async function GET(req) {
     slots: SLOTS,
     blockedDays: blockedDays || [],
     extraBodegaDays: extraBodegaDays || [],
+    specialDays: specialDays || [],
   });
 }
 
@@ -100,6 +108,27 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
+
+    // 0️⃣ agregar DÍA ESPECIAL de domicilio (solo panel)
+    if (body.action === "add-special-day") {
+      const session = getPanelSession(req);
+      if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
+
+      const { date, reason } = body;
+      if (!date) return Response.json({ message: "Falta la fecha." }, { status: 400 });
+
+      const { data, error } = await supabase
+        .from("special_days")
+        .insert([{ date: normalizeDateString(date), reason: reason || null }])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") return Response.json({ message: "Ese día ya está habilitado como día especial." }, { status: 400 });
+        return Response.json({ message: "No se pudo agregar el día especial." }, { status: 500 });
+      }
+      return Response.json({ message: "Día especial agregado.", specialDay: data });
+    }
 
     // 0️⃣ agregar día EXTRA de bodega (solo panel)
     if (body.action === "add-bodega-extra-day") {
@@ -540,6 +569,7 @@ export async function DELETE(req) {
   const id = searchParams.get("id");
   const blockedId = searchParams.get("blockedId");
   const extraDayId = searchParams.get("extraDayId");
+  const specialDayId = searchParams.get("specialDayId");
 
   if (blockedId) {
     const { error } = await supabase.from("blocked_days").delete().eq("id", blockedId);
@@ -551,6 +581,12 @@ export async function DELETE(req) {
     const { error } = await supabase.from("bodega_extra_days").delete().eq("id", extraDayId);
     if (error) return Response.json({ message: "No se pudo quitar el día extra." }, { status: 500 });
     return Response.json({ message: "Día extra de bodega eliminado." });
+  }
+
+  if (specialDayId) {
+    const { error } = await supabase.from("special_days").delete().eq("id", specialDayId);
+    if (error) return Response.json({ message: "No se pudo quitar el día especial." }, { status: 500 });
+    return Response.json({ message: "Día especial eliminado." });
   }
 
   if (!id) {

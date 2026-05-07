@@ -116,8 +116,9 @@ export default function AgendarPage() {
   const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [allBookings, setAllBookings] = useState([]); // para contar domicilio
-  const [blockedDays, setBlockedDays] = useState([]); // lo que viene de Supabase
-  const [extraBodegaDays, setExtraBodegaDays] = useState([]); // ✅ días extra bodega públicos
+  const [blockedDays, setBlockedDays] = useState([]);
+  const [extraBodegaDays, setExtraBodegaDays] = useState([]);
+  const [specialDays, setSpecialDays] = useState([]);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
@@ -181,6 +182,7 @@ export default function AgendarPage() {
         const data2 = await res2.json();
         setBlockedDays(data2.blockedDays || []);
         setExtraBodegaDays(data2.extraBodegaDays || []);
+        setSpecialDays(data2.specialDays || []);
       } catch (err) {
         console.warn("No se pudieron leer los días públicos", err);
       }
@@ -260,8 +262,10 @@ export default function AgendarPage() {
 
   const isWeekday = (date) => {
     const day = date.getDay();
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = toInputDate(date);
     if (isBlocked(dateStr, "domicilio")) return false;
+    // día especial: abre aunque sea sábado o domingo
+    if (specialDays.some(s => s.date === dateStr)) return true;
     if (day === 0 || day === 6) return false;
     return true;
   };

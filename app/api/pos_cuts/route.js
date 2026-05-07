@@ -44,7 +44,7 @@ export async function POST(req) {
     // 1. Obtener todas las ventas nuevas sin corte
     const { data: pendingSales, error: fetchSalesError } = await supabase
       .from("sales")
-      .select("id, down_payment, created_at")
+      .select("id, down_payment, status, penalty_amount, created_at")
       .is("pos_cut_id", null)
       .order("created_at", { ascending: true });
 
@@ -63,8 +63,17 @@ export async function POST(req) {
       return Response.json({ message: "No hay movimientos nuevos para hacer corte." }, { status: 400 });
     }
 
-    // Calcular el total
-    const totalSales = (pendingSales || []).reduce((sum, sale) => sum + Number(sale.down_payment), 0);
+    // Calcular el total:
+    // - Ventas normales: suma down_payment
+    // - Ventas canceladas con penalización: suma solo el penalty_amount (lo que se quedó el negocio)
+    // - Ventas canceladas sin penalización y pedidos web pendientes: no cuentan
+    const totalSales = (pendingSales || []).reduce((sum, sale) => {
+      if (sale.status === "cancelled") {
+        return sum + Number(sale.penalty_amount || 0);
+      }
+      if (sale.status === "catalog_pending") return sum;
+      return sum + Number(sale.down_payment);
+    }, 0);
     const totalPayments = (pendingPayments || []).reduce((sum, p) => sum + Number(p.amount), 0);
     const totalAmount = totalSales + totalPayments;
 
