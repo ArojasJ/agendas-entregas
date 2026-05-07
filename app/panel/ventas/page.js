@@ -85,8 +85,12 @@ export default function VentasPage() {
     }
   };
 
-  const pendingSales = sales.filter(s => s.pos_cut_id === null && s.status !== "catalog_pending");
-  const totalCaja = pendingSales.reduce((sum, sale) => sum + Number(sale.down_payment), 0);
+  const pendingSales = sales.filter(s => s.pos_cut_id === null && s.status !== "catalog_pending" && s.status !== "cancelled");
+  const totalCaja = pendingSales.reduce((sum, sale) => {
+    const downPayment = Number(sale.down_payment) || 0;
+    const abonos = (sale.payments || []).reduce((ps, p) => ps + Number(p.amount), 0);
+    return sum + downPayment + abonos;
+  }, 0);
 
   const filteredSales = sales.filter((s) => {
     if (!searchQuery) return true;
@@ -205,7 +209,6 @@ export default function VentasPage() {
               const isCredit = sale.status === 'credit';
               const isCatalogPending = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
               const isCancelled = sale.status === 'cancelled';
-              const isWebOrigin = isCatalogPending || sale.payment_method === 'Pedido Web';
               const isCut = sale.pos_cut_id !== null;
 
               return (

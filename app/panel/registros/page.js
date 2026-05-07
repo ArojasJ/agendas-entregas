@@ -85,11 +85,12 @@ export default function RegistrosPage() {
       headers: { "Content-Type": "application/json", "x-panel-token": token() },
       body: JSON.stringify({ action: "link", registroId, targetId }),
     });
+    const data = await res.json();
     if (res.ok) {
       setRegistros(prev => prev.filter(r => r.id !== registroId));
       setActive(null);
       showToast("Cuenta vinculada correctamente ✓");
-    } else showToast("Error al vincular", "error");
+    } else showToast(data.message || "Error al vincular", "error");
     setSaving(false);
   };
 

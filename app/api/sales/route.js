@@ -48,7 +48,8 @@ export async function GET(req) {
         quantity,
         unit_price,
         products ( name, barcode )
-      )
+      ),
+      payments ( amount )
     `);
 
   if (statusFilter) {
