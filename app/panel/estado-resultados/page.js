@@ -65,9 +65,11 @@ function SeccionGasto({ titulo, icono, acento, items, onChange, onAdd, onRemove 
 }
 
 export default function EstadoResultadosPage() {
-  const [gastosAdmin, setGastosAdmin] = useState([newItem()]);
-  const [gastosOp,    setGastosOp]    = useState([newItem()]);
-  const [compras,     setCompras]     = useState([newItem()]);
+  const [gastosAdmin,      setGastosAdmin]      = useState([newItem()]);
+  const [gastosOp,         setGastosOp]         = useState([newItem()]);
+  const [compras,          setCompras]          = useState([newItem()]);
+  const [gastosPersonal,   setGastosPersonal]   = useState([newItem()]);
+  const [gastosPersonales, setGastosPersonales] = useState([newItem()]);
   const [ventas,      setVentas]      = useState("");
   const [resultado,   setResultado]   = useState(null);
   const [nombreGuardar, setNombreGuardar] = useState("");
@@ -93,6 +95,113 @@ export default function EstadoResultadosPage() {
     } finally { setLoadingHist(false); }
   };
 
+  function generarPDF({ nombre, ventas: v, totalEgresos, totalPersonales, totalGeneral, utilidad, reserva20, finAnio5, distribuible75, nosotros75, socio25, detalleAdmin, detalleOp, detalleCompras, detallePersonal, detallePersonales }) {
+    const f = (n) => "$" + Number(n || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const filas = (items) => (items || []).filter(i => i.concepto || Number(i.cantidad) > 0).map(i =>
+      `<tr><td style="padding:4px 8px;color:#475569">${i.concepto || "—"}</td><td style="padding:4px 8px;text-align:right;font-weight:600">${f(i.cantidad)}</td></tr>`
+    ).join("") || `<tr><td colspan="2" style="padding:4px 8px;color:#94a3b8;font-style:italic">Sin conceptos</td></tr>`;
+
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+    <title>Estado de Resultados – ${nombre}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:'Inter',sans-serif;background:#fff;color:#0f172a;padding:40px;max-width:780px;margin:0 auto}
+      h1{font-size:26px;font-weight:900;color:#0f172a;margin-bottom:4px}
+      .sub{font-size:13px;color:#64748b;margin-bottom:32px}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
+      .card{border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+      .card-header{padding:10px 14px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;display:flex;justify-content:space-between;align-items:center}
+      .card-body{padding:4px 0}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      .section{margin-bottom:24px}
+      .row{display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid #f1f5f9;font-size:13px}
+      .row:last-child{border-bottom:none}
+      .row.bold{font-weight:800;font-size:14px;background:#f8fafc}
+      .row.total{font-weight:900;font-size:15px;background:#0f172a;color:#fff;border-radius:8px;margin:8px 0}
+      .row.deduct{color:#7c3aed;font-weight:600}
+      .row.grand{font-weight:900;font-size:14px;background:#f1f5f9;border-radius:8px;margin:4px 0}
+      .utilidad-box{background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #6ee7b7;border-radius:12px;padding:20px 24px;margin-bottom:24px}
+      .utilidad-box .label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#059669;margin-bottom:6px}
+      .utilidad-box .amount{font-size:36px;font-weight:900;color:#047857}
+      .utilidad-box .detail{font-size:12px;color:#6b7280;margin-top:4px}
+      .dist-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px}
+      .dist-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:13px}
+      .dist-row:last-child{border-bottom:none}
+      .dist-row.green{color:#059669;font-weight:900;font-size:15px;background:#ecfdf5;border-radius:8px;padding:8px 12px;margin:4px -4px}
+      .dist-row.indigo{color:#4f46e5;font-weight:900;font-size:15px;background:#eef2ff;border-radius:8px;padding:8px 12px;margin:4px -4px}
+      .footer{margin-top:40px;text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:16px}
+      @media print{body{padding:20px}button{display:none}}
+    </style></head><body>
+    <h1>Estado de Resultados</h1>
+    <p class="sub">${nombre} &nbsp;·&nbsp; Generado el ${new Date().toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})}</p>
+
+    <div class="utilidad-box">
+      <div class="label">Utilidad del Período</div>
+      <div class="amount">${f(utilidad)}</div>
+      <div class="detail">${f(v)} ventas &minus; ${f(totalGeneral)} egresos netos</div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <div class="section">
+          <div class="card">
+            <div class="card-header" style="background:#eef2ff;color:#4338ca">🏢 Gastos Administrativos <span>${f(sumaItems(detalleAdmin))}</span></div>
+            <div class="card-body"><table>${filas(detalleAdmin)}</table></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="card">
+            <div class="card-header" style="background:#fff1f2;color:#be123c">⚙️ Gastos Operativos <span>${f(sumaItems(detalleOp))}</span></div>
+            <div class="card-body"><table>${filas(detalleOp)}</table></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="card">
+            <div class="card-header" style="background:#fffbeb;color:#b45309">📦 Compras de Producto <span>${f(sumaItems(detalleCompras))}</span></div>
+            <div class="card-body"><table>${filas(detalleCompras)}</table></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="card">
+            <div class="card-header" style="background:#f0fdfa;color:#0f766e">👥 Gastos de Personal <span>${f(sumaItems(detallePersonal))}</span></div>
+            <div class="card-body"><table>${filas(detallePersonal)}</table></div>
+          </div>
+        </div>
+        <div class="row bold" style="border:1px solid #e2e8f0;border-radius:8px;margin-top:4px"><span>Total de Egresos</span><span>${f(totalEgresos)}</span></div>
+        <div class="row deduct" style="padding:7px 14px"><span>− Gastos Personales</span><span>${f(totalPersonales)}</span></div>
+        <div class="row grand"><span>Total General</span><span>${f(totalGeneral)}</span></div>
+      </div>
+
+      <div>
+        <p style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:12px">Distribución</p>
+        <div class="dist-box">
+          <div class="dist-row"><span>Reserva (20%)</span><span>${f(reserva20)}</span></div>
+          <div class="dist-row"><span>🎄 Fin de Año (5%)</span><span>${f(finAnio5)}</span></div>
+          <div class="dist-row"><span>Para distribuir (75%)</span><span style="font-weight:700">${f(distribuible75)}</span></div>
+          <div class="dist-row green"><span>🏠 Nosotros (75%)</span><span>${f(nosotros75)}</span></div>
+          <div class="dist-row indigo"><span>🤝 Socio (25%)</span><span>${f(socio25)}</span></div>
+        </div>
+
+        <div style="margin-top:20px">
+          <p style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:12px">Gastos Personales</p>
+          <div class="card">
+            <div class="card-header" style="background:#f5f3ff;color:#6d28d9">🧾 Gastos Personales <span>${f(totalPersonales)}</span></div>
+            <div class="card-body"><table>${filas(detallePersonales)}</table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">Agenda Lo TRC &nbsp;·&nbsp; Estado de Resultados generado automáticamente</div>
+    <script>window.onload=()=>window.print()</script>
+    </body></html>`;
+
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+  }
+
   function makeHandlers(setter) {
     return {
       onChange: (id, field, val) => setter(prev => prev.map(i => i.id === id ? { ...i, [field]: val } : i)),
@@ -102,13 +211,16 @@ export default function EstadoResultadosPage() {
   }
 
   const calcular = () => {
-    const totalEgresos   = sumaItems(gastosAdmin) + sumaItems(gastosOp) + sumaItems(compras);
-    const utilidad       = (Number(ventas) || 0) - totalEgresos;
-    const reserva10      = utilidad * 0.10;
-    const distribuible90 = utilidad * 0.90;
-    const nosotros75     = distribuible90 * 0.75;
-    const socio25        = distribuible90 * 0.25;
-    setResultado({ totalEgresos, utilidad, reserva10, distribuible90, nosotros75, socio25 });
+    const totalEgresos   = sumaItems(gastosAdmin) + sumaItems(gastosOp) + sumaItems(compras) + sumaItems(gastosPersonal);
+    const totalPersonales = sumaItems(gastosPersonales);
+    const totalGeneral   = totalEgresos - totalPersonales;
+    const utilidad       = (Number(ventas) || 0) - totalGeneral;
+    const reserva20      = utilidad * 0.20;
+    const finAnio5       = utilidad * 0.05;
+    const distribuible75 = utilidad * 0.75;
+    const nosotros75     = distribuible75 * 0.75;
+    const socio25        = distribuible75 * 0.25;
+    setResultado({ totalEgresos, totalPersonales, totalGeneral, utilidad, reserva20, finAnio5, distribuible75, nosotros75, socio25 });
   };
 
   const guardar = async () => {
@@ -125,10 +237,13 @@ export default function EstadoResultadosPage() {
           gastos_admin: gastosAdmin,
           gastos_operativos: gastosOp,
           compras,
-          total_egresos:    resultado.totalEgresos,
+          gastos_personal: gastosPersonal,
+          gastos_personales: gastosPersonales,
+          total_egresos:    resultado.totalGeneral,
           utilidad:         resultado.utilidad,
-          reserva_10:       resultado.reserva10,
-          distribuible_90:  resultado.distribuible90,
+          reserva_10:       resultado.reserva20,
+          fin_anio:         resultado.finAnio5,
+          distribuible_90:  resultado.distribuible75,
           nosotros_75:      resultado.nosotros75,
           socio_25:         resultado.socio25,
         }),
@@ -136,6 +251,13 @@ export default function EstadoResultadosPage() {
       if (res.ok) {
         showToast("Guardado correctamente");
         setNombreGuardar("");
+        setVentas("");
+        setGastosAdmin([newItem()]);
+        setGastosOp([newItem()]);
+        setCompras([newItem()]);
+        setGastosPersonal([newItem()]);
+        setGastosPersonales([newItem()]);
+        setResultado(null);
         fetchHistorial();
       } else {
         const d = await res.json();
@@ -151,9 +273,11 @@ export default function EstadoResultadosPage() {
   };
 
   const listo = (Number(ventas) || 0) > 0;
-  const hAdmin  = makeHandlers(setGastosAdmin);
-  const hOp     = makeHandlers(setGastosOp);
-  const hCompra = makeHandlers(setCompras);
+  const hAdmin     = makeHandlers(setGastosAdmin);
+  const hOp        = makeHandlers(setGastosOp);
+  const hCompra    = makeHandlers(setCompras);
+  const hPersonal  = makeHandlers(setGastosPersonal);
+  const hPersonales = makeHandlers(setGastosPersonales);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -191,6 +315,18 @@ export default function EstadoResultadosPage() {
             titulo="Compras de Producto" icono="📦"
             acento={{ bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-600", textLight: "text-amber-400", dashed: "border-amber-200" }}
             items={compras} {...hCompra}
+          />
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <SeccionGasto
+            titulo="Gastos de Personal" icono="👥"
+            acento={{ bg: "bg-teal-50", border: "border-teal-100", text: "text-teal-600", textLight: "text-teal-400", dashed: "border-teal-200" }}
+            items={gastosPersonal} {...hPersonal}
+          />
+          <SeccionGasto
+            titulo="Gastos Personales" icono="🧾"
+            acento={{ bg: "bg-violet-50", border: "border-violet-100", text: "text-violet-600", textLight: "text-violet-400", dashed: "border-violet-200" }}
+            items={gastosPersonales} {...hPersonales}
           />
         </div>
 
@@ -236,7 +372,7 @@ export default function EstadoResultadosPage() {
               <p className={`text-4xl font-black ${resultado.utilidad >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                 {fmt(resultado.utilidad)}
               </p>
-              <p className="text-xs text-slate-400 mt-1">{fmt(Number(ventas))} ventas − {fmt(resultado.totalEgresos)} egresos</p>
+              <p className="text-xs text-slate-400 mt-1">{fmt(Number(ventas))} ventas − {fmt(resultado.totalGeneral)} egresos netos</p>
             </div>
 
             {resultado.utilidad > 0 && (
@@ -245,18 +381,30 @@ export default function EstadoResultadosPage() {
                 <div className="space-y-3">
                   <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Desglose de Egresos</p>
                   {[
-                    { label: "Gastos Administrativos", val: sumaItems(gastosAdmin), color: "text-indigo-500" },
-                    { label: "Gastos Operativos",       val: sumaItems(gastosOp),    color: "text-rose-500" },
-                    { label: "Compras de Producto",     val: sumaItems(compras),     color: "text-amber-500" },
+                    { label: "Gastos Administrativos", val: sumaItems(gastosAdmin),    color: "text-indigo-500" },
+                    { label: "Gastos Operativos",       val: sumaItems(gastosOp),       color: "text-rose-500" },
+                    { label: "Compras de Producto",     val: sumaItems(compras),        color: "text-amber-500" },
+                    { label: "Gastos de Personal",      val: sumaItems(gastosPersonal), color: "text-teal-500" },
                   ].map(r => (
                     <div key={r.label} className="flex justify-between items-center py-2 border-b border-slate-100">
                       <span className="text-sm text-slate-600">{r.label}</span>
                       <span className={`font-bold text-sm ${r.color}`}>{fmt(r.val)}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between items-center pt-1">
-                    <span className="text-sm font-bold text-slate-700">Total Egresos</span>
+                  {/* Subtotal sin personales */}
+                  <div className="flex justify-between items-center py-2 border-b-2 border-slate-300">
+                    <span className="text-sm font-black text-slate-700">Total de Egresos</span>
                     <span className="font-black text-slate-800">{fmt(resultado.totalEgresos)}</span>
+                  </div>
+                  {/* Gastos Personales como deducción */}
+                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                    <span className="text-sm text-violet-600">− Gastos Personales</span>
+                    <span className="font-bold text-sm text-violet-500">{fmt(resultado.totalPersonales)}</span>
+                  </div>
+                  {/* Total general */}
+                  <div className="flex justify-between items-center py-2 bg-slate-100 rounded-xl px-3 mt-1">
+                    <span className="text-sm font-black text-slate-900">Total General</span>
+                    <span className="font-black text-slate-900">{fmt(resultado.totalGeneral)}</span>
                   </div>
                 </div>
 
@@ -265,12 +413,16 @@ export default function EstadoResultadosPage() {
                   <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Distribución</p>
                   <div className="bg-slate-50 rounded-2xl p-4 space-y-3 border border-slate-100">
                     <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                      <span className="text-sm text-slate-500">Reserva (10%)</span>
-                      <span className="font-bold text-slate-600">{fmt(resultado.reserva10)}</span>
+                      <span className="text-sm text-slate-500">Reserva (20%)</span>
+                      <span className="font-bold text-slate-600">{fmt(resultado.reserva20)}</span>
                     </div>
                     <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                      <span className="text-sm text-slate-500">Para distribuir (90%)</span>
-                      <span className="font-bold text-slate-700">{fmt(resultado.distribuible90)}</span>
+                      <span className="text-sm text-slate-500">🎄 Fin de Año (5%)</span>
+                      <span className="font-bold text-slate-600">{fmt(resultado.finAnio5)}</span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-200">
+                      <span className="text-sm text-slate-500">Para distribuir (75%)</span>
+                      <span className="font-bold text-slate-700">{fmt(resultado.distribuible75)}</span>
                     </div>
                     <div className="flex justify-between items-center py-2 bg-emerald-50 rounded-xl px-3">
                       <span className="text-sm font-bold text-emerald-700">🏠 Nosotros (75%)</span>
@@ -288,7 +440,30 @@ export default function EstadoResultadosPage() {
             {/* Guardar */}
             <div className="px-6 pb-6 border-t border-slate-100 pt-5">
               <p className="text-sm font-bold text-slate-600 mb-3">Guardar este estado de resultados</p>
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  onClick={() => generarPDF({
+                    nombre: nombreGuardar.trim() || "Sin nombre",
+                    ventas: Number(ventas) || 0,
+                    totalEgresos: resultado.totalEgresos,
+                    totalPersonales: resultado.totalPersonales,
+                    totalGeneral: resultado.totalGeneral,
+                    utilidad: resultado.utilidad,
+                    reserva20: resultado.reserva20,
+                    finAnio5: resultado.finAnio5,
+                    distribuible75: resultado.distribuible75,
+                    nosotros75: resultado.nosotros75,
+                    socio25: resultado.socio25,
+                    detalleAdmin: gastosAdmin,
+                    detalleOp: gastosOp,
+                    detalleCompras: compras,
+                    detallePersonal: gastosPersonal,
+                    detallePersonales: gastosPersonales,
+                  })}
+                  className="px-6 py-3 rounded-xl bg-violet-500 hover:bg-violet-400 text-white font-black text-sm transition-all active:scale-95 shadow-lg shadow-violet-500/20"
+                >
+                  📄 Descargar PDF
+                </button>
                 <input
                   type="text"
                   placeholder='Ej: "Abril 2026" o "Q1 2026"'
@@ -362,6 +537,28 @@ export default function EstadoResultadosPage() {
                             <p className="font-black text-indigo-500">{fmt(e.socio_25)}</p>
                           </div>
                           <button
+                            onClick={() => generarPDF({
+                              nombre: e.nombre,
+                              ventas: e.ventas,
+                              totalEgresos: (e.total_egresos || 0) + (e.gastos_personales || []).reduce((s,p) => s + Number(p.cantidad||0), 0),
+                              totalPersonales: (e.gastos_personales || []).reduce((s,p) => s + Number(p.cantidad||0), 0),
+                              totalGeneral: e.total_egresos,
+                              utilidad: e.utilidad,
+                              reserva20: e.reserva_10,
+                              finAnio5: e.fin_anio,
+                              distribuible75: e.distribuible_90,
+                              nosotros75: e.nosotros_75,
+                              socio25: e.socio_25,
+                              detalleAdmin: e.gastos_admin,
+                              detalleOp: e.gastos_operativos,
+                              detalleCompras: e.compras,
+                              detallePersonal: e.gastos_personal,
+                              detallePersonales: e.gastos_personales,
+                            })}
+                            className="w-8 h-8 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-500 text-sm flex items-center justify-center transition-colors"
+                            title="Descargar PDF"
+                          >📄</button>
+                          <button
                             onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
                             className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 text-sm flex items-center justify-center transition-colors"
                           >{expandedId === e.id ? "▲" : "▼"}</button>
@@ -387,7 +584,7 @@ export default function EstadoResultadosPage() {
                       </div>
                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Distribución</p>
-                        {[["Reserva 10%", e.reserva_10, ""], ["Distribuible 90%", e.distribuible_90, ""], ["Nosotros 75%", e.nosotros_75, "text-emerald-600"], ["Socio 25%", e.socio_25, "text-indigo-500"]].map(([l, v, cls]) => (
+                        {[["Reserva 20%", e.reserva_10, ""], ["Fin de Año 5%", e.fin_anio, ""], ["Distribuible 75%", e.distribuible_90, ""], ["Nosotros 75%", e.nosotros_75, "text-emerald-600"], ["Socio 25%", e.socio_25, "text-indigo-500"]].map(([l, v, cls]) => (
                           <div key={l} className="flex justify-between">
                             <span className="text-slate-500">{l}</span>
                             <span className={`font-bold ${cls}`}>{fmt(v)}</span>

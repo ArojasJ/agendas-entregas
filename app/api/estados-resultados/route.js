@@ -60,7 +60,8 @@ export async function POST(req) {
   const {
     nombre, ventas,
     gastos_admin, gastos_operativos, compras,
-    total_egresos, utilidad, reserva_10,
+    gastos_personal, gastos_personales,
+    total_egresos, utilidad, reserva_10, fin_anio,
     distribuible_90, nosotros_75, socio_25,
   } = body;
 
@@ -71,7 +72,9 @@ export async function POST(req) {
     .insert([{
       nombre, ventas,
       gastos_admin, gastos_operativos, compras,
-      total_egresos, utilidad, reserva_10,
+      gastos_personal: gastos_personal || [],
+      gastos_personales: gastos_personales || [],
+      total_egresos, utilidad, reserva_10, fin_anio,
       distribuible_90, nosotros_75, socio_25,
     }])
     .select()
