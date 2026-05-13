@@ -307,13 +307,14 @@ function InventarioContent() {
       ? p.product_variants.reduce((s, v) => s + (v.stock || 0), 0)
       : (p.stock || 0);
 
+    const normalize = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
     return products
       .filter(p => {
-        const q = search.toLowerCase();
+        const q = normalize(search);
         const matchVariant = p.product_variants?.some(v =>
-          v.name?.toLowerCase().includes(q) || v.barcode?.includes(search)
+          normalize(v.name || "").includes(q) || v.barcode?.includes(search)
         );
-        return p.name.toLowerCase().includes(q) || (p.barcode && p.barcode.includes(search)) || String(p.id).includes(search) || matchVariant;
+        return normalize(p.name).includes(q) || (p.barcode && p.barcode.includes(search)) || String(p.id).includes(search) || matchVariant;
       })
       .sort((a, b) => {
         if (sortBy === "az")    return a.name.localeCompare(b.name);

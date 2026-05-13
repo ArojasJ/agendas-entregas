@@ -3,6 +3,20 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useCart } from "./CartProvider";
 
+function getDisplayPrice(p) {
+  if (p.product_variants && p.product_variants.length > 0) {
+    const prices = p.product_variants
+      .filter(v => v.stock > 0)
+      .map(v => Number(v.price))
+      .filter(x => x > 0);
+    if (prices.length === 0) return null;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return min === max ? `$${min}` : `$${min} – $${max}`;
+  }
+  return p.price > 0 ? `$${p.price}` : null;
+}
+
 const GRADIENTS = [
   "from-rose-300 to-pink-500",
   "from-violet-300 to-purple-500",
@@ -203,7 +217,7 @@ export default function CatalogoPage() {
                       }
                     </div>
                     <p className="font-bold text-sm text-slate-900 leading-tight px-1 line-clamp-2">{p.name}</p>
-                    <p className="text-emerald-600 font-black text-base px-1 mt-1">${p.price}</p>
+                    {getDisplayPrice(p) && <p className="text-emerald-600 font-black text-base px-1 mt-1">{getDisplayPrice(p)}</p>}
                   </Link>
                 ))}
               </div>
@@ -229,7 +243,7 @@ export default function CatalogoPage() {
                       }
                     </div>
                     <p className="font-bold text-sm text-slate-900 leading-tight px-1 line-clamp-2">{p.name}</p>
-                    <p className="text-emerald-600 font-black text-base px-1 mt-1">${p.price}</p>
+                    {getDisplayPrice(p) && <p className="text-emerald-600 font-black text-base px-1 mt-1">{getDisplayPrice(p)}</p>}
                   </Link>
                 ))}
               </div>
