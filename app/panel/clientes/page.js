@@ -19,6 +19,7 @@ function ClientesContent() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [boxFilter, setBoxFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState(""); // "" | "registered" | "no_account"
   const [boxErrors, setBoxErrors] = useState({ box_1: "", box_2: "" });
   
   // Expediente del cliente
@@ -179,10 +180,14 @@ function ClientesContent() {
         const matchBox = !boxStr ||
           (c.box_1 && c.box_1 === boxStr) ||
           (c.box_2 && c.box_2 === boxStr);
-        return matchSearch && matchBox;
+        const matchAccount =
+          accountFilter === "registered" ? !!c.auth_user_id :
+          accountFilter === "no_account" ? !c.auth_user_id :
+          true;
+        return matchSearch && matchBox && matchAccount;
       })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [clients, search, boxFilter]);
+  }, [clients, search, boxFilter, accountFilter]);
 
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-8 py-8 relative">
@@ -241,6 +246,26 @@ function ClientesContent() {
         </div>
       </div>
 
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {[
+          { value: "",            label: "Todos" },
+          { value: "registered",  label: "✓ Registrados" },
+          { value: "no_account",  label: "Sin cuenta" },
+        ].map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setAccountFilter(opt.value)}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+              accountFilter === opt.value
+                ? "bg-slate-900 text-white border-slate-900"
+                : "bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-400"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loading ? (
           <div className="col-span-full p-10 text-center opacity-50">Cargando clientes...</div>
@@ -265,6 +290,10 @@ function ClientesContent() {
                 <div className="flex gap-2 mt-2 flex-wrap">
                   {c.box_1 && <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-md">Caja 1: {c.box_1}</span>}
                   {c.box_2 && <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold rounded-md">Caja 2: {c.box_2}</span>}
+                  {c.auth_user_id
+                    ? <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-bold rounded-md">✓ Registrado</span>
+                    : <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-400 text-[10px] font-bold rounded-md">Sin cuenta</span>
+                  }
                   {Number(c.saldo_favor) > 0 && <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-black rounded-md">💚 ${Number(c.saldo_favor).toFixed(2)} a favor</span>}
                 </div>
               </div>
@@ -371,6 +400,8 @@ function ClientesContent() {
                 <div className="grid gap-4">
                   {clientSales.map(sale => {
                     const isCredit = sale.status === 'credit';
+                    const isCatalogPending = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
+                    const isCancelled = sale.status === 'cancelled';
                     const totalAbonos = (sale.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
                     const remaining = sale.total - sale.down_payment - totalAbonos;
                     const saleDate = new Date(sale.created_at);
@@ -393,9 +424,15 @@ function ClientesContent() {
                             <h4 className="text-2xl font-black text-slate-900">${sale.total.toFixed(2)}</h4>
                           </div>
                           <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                            isCredit && remaining > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            isCatalogPending ? 'bg-violet-100 text-violet-700' :
+                            isCancelled ? 'bg-red-100 text-red-700' :
+                            isCredit && remaining > 0 ? 'bg-amber-100 text-amber-700' :
+                            'bg-emerald-100 text-emerald-700'
                           }`}>
-                            {isCredit && remaining > 0 ? 'CRÉDITO PENDIENTE' : 'PAGADO'}
+                            {isCatalogPending ? 'PEDIDO WEB' :
+                             isCancelled ? 'CANCELADO' :
+                             isCredit && remaining > 0 ? 'CRÉDITO PENDIENTE' :
+                             'PAGADO'}
                           </div>
                         </div>
 

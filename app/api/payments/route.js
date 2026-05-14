@@ -120,18 +120,24 @@ export async function POST(req) {
     // Calcular si ya se liquidó para cambiar el status
     const { data: sale } = await supabase
       .from("sales")
-      .select("total, down_payment, payments(amount)")
+      .select("total, down_payment, status, payments(amount)")
       .eq("id", sale_id)
       .single();
 
     if (sale) {
       const totalAbonado = sale.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const totalPagado = Number(sale.down_payment) + totalAbonado;
-      
+
       if (totalPagado >= Number(sale.total)) {
         await supabase
           .from("sales")
           .update({ status: 'paid' })
+          .eq("id", sale_id);
+      } else if (sale.status === 'catalog_pending' || sale.status === 'catalog_viewed') {
+        // Pedido web con abono parcial → pasa a crédito normal
+        await supabase
+          .from("sales")
+          .update({ status: 'credit' })
           .eq("id", sale_id);
       }
     }
