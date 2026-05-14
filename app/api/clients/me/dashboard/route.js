@@ -45,7 +45,7 @@ export async function GET(request) {
     .from("bookings")
     .select("*")
     .eq("instagram", client.instagram)
-    .order("createdAt", { ascending: false });
+    .order("created_at", { ascending: false });
 
   return NextResponse.json({
     client,
