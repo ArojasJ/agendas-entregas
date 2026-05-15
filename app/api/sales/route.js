@@ -88,7 +88,7 @@ export async function POST(req) {
     if (saleStatus === 'credit') {
       const days = Number(credit_days) || 15;
       const d = new Date();
-      d.setDate(d.getDate() + days);
+      d.setDate(d.getDate() + days - 1);
       due_date = d.toISOString().split("T")[0];
     }
 

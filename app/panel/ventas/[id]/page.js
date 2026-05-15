@@ -251,7 +251,7 @@ export default function SaleDetailPage() {
   const effectiveDueDate = sale?.due_date || (() => {
     if (!sale?.created_at) return null;
     const d = new Date(sale.created_at);
-    d.setDate(d.getDate() + 15);
+    d.setDate(d.getDate() + 14);
     return d.toISOString().split("T")[0];
   })();
 

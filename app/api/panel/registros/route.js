@@ -76,25 +76,29 @@ export async function PATCH(req) {
   }
 
   if (action === "link") {
-    // Get the registration client (has auth_user_id + email)
+    // Get the registration client (has auth_user_id, email, name, phone)
     const { data: registro } = await supabase
       .from("clients")
-      .select("auth_user_id, email")
+      .select("auth_user_id, email, name, phone")
       .eq("id", registroId)
       .single();
 
     if (!registro) return Response.json({ message: "Registro no encontrado" }, { status: 404 });
 
-    const { auth_user_id, email } = registro;
+    const { auth_user_id, email, name, phone } = registro;
 
     // Delete the duplicate first so unique constraints are freed
     const { error: deleteErr } = await supabase.from("clients").delete().eq("id", registroId);
     if (deleteErr) return Response.json({ message: deleteErr.message }, { status: 500 });
 
-    // Now safely transfer auth_user_id + email to the real client
+    // Transfer auth_user_id + email and update name/phone with what the client provided
+    const updateFields = { auth_user_id, email, needs_review: false };
+    if (name) updateFields.name = name;
+    if (phone) updateFields.phone = phone;
+
     const { error: updateErr } = await supabase
       .from("clients")
-      .update({ auth_user_id, email, needs_review: false })
+      .update(updateFields)
       .eq("id", targetId);
 
     if (updateErr) return Response.json({ message: updateErr.message }, { status: 500 });
