@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function CobranzaPage() {
   const router = useRouter();
@@ -219,12 +220,20 @@ export default function CobranzaPage() {
               </div>
 
               <div className="mt-auto pt-4 border-t border-slate-100">
-                <button 
-                  onClick={() => { setSelectedSale(sale); setAbonoAmount(sale.remaining); }}
-                  className="w-full py-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 font-bold text-sm transition-all text-center"
-                >
-                  💵 Registrar Abono
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setSelectedSale(sale); setAbonoAmount(sale.remaining); }}
+                    className="flex-1 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 font-bold text-sm transition-all text-center"
+                  >
+                    💵 Registrar Abono
+                  </button>
+                  <Link
+                    href={`/panel/ventas/${sale.id}`}
+                    className="py-3 px-4 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 font-bold text-sm transition-all text-center text-slate-500"
+                  >
+                    Ver venta
+                  </Link>
+                </div>
               </div>
             </div>
           ))

@@ -619,6 +619,7 @@ export default function PosPage() {
                         type="number"
                         value={downPayment}
                         onChange={e => setDownPayment(Number(e.target.value) || 0)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCheckout(); }}
                         className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
                       />
                     </div>
