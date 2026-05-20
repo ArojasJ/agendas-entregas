@@ -61,11 +61,12 @@ export async function POST(req) {
     // 2. Buscar o crear cliente
     let clientId = null;
     
-    // Buscar por instagram o telefono
+    // Buscar por instagram exacto o teléfono exacto
+    const cleanIg = clientData.instagram.replace('@', '').trim();
     const { data: existingClient } = await supabase
       .from("clients")
       .select("id")
-      .or(`instagram.ilike.%${clientData.instagram.replace('@', '')}%,phone.eq.${clientData.phone}`)
+      .or(`instagram.ilike.${cleanIg},instagram.ilike.@${cleanIg},phone.eq.${clientData.phone}`)
       .limit(1)
       .single();
 

@@ -7,6 +7,8 @@ export default function VentasPage() {
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState(""); // "" | "catalog" | "manual"
   const [panelRole, setPanelRole] = useState(null);
 
   // Modales y alertas
@@ -102,12 +104,24 @@ export default function VentasPage() {
   const totalCaja = totalDownPayments + totalAbonos;
 
   const filteredSales = sales.filter((s) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    const ig = (s.clients?.instagram || "").toLowerCase();
-    const name = (s.clients?.name || "").toLowerCase();
-    const idStr = String(s.id);
-    return ig.includes(q) || name.includes(q) || idStr.includes(q);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const ig = (s.clients?.instagram || "").toLowerCase();
+      const name = (s.clients?.name || "").toLowerCase();
+      const idStr = String(s.id);
+      if (!ig.includes(q) && !name.includes(q) && !idStr.includes(q)) return false;
+    }
+    if (dateFilter) {
+      const saleDate = new Date(s.created_at).toLocaleDateString("en-CA"); // YYYY-MM-DD
+      if (saleDate !== dateFilter) return false;
+    }
+    if (typeFilter === "catalog") {
+      if (s.status !== "catalog_pending" && s.status !== "catalog_viewed") return false;
+    }
+    if (typeFilter === "manual") {
+      if (s.status === "catalog_pending" || s.status === "catalog_viewed") return false;
+    }
+    return true;
   });
 
   return (
@@ -186,16 +200,46 @@ export default function VentasPage() {
         )}
       </div>
 
-      {/* BARRA DE BÚSQUEDA */}
-      <div className="mb-6 relative">
-        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
-        <input 
-          type="text" 
-          placeholder="Buscar por cliente (@instagram o nombre)..." 
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all shadow-sm text-slate-900 placeholder-slate-400"
-        />
+      {/* BARRA DE BÚSQUEDA Y FILTROS */}
+      <div className="mb-6 flex flex-col gap-3">
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+          <input
+            type="text"
+            placeholder="Buscar por cliente (@instagram o nombre)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 text-sm focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all shadow-sm text-slate-900 placeholder-slate-400"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Filtro por fecha */}
+          <div className="relative">
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              className={`py-2 px-3 rounded-xl border text-sm focus:outline-none transition-colors ${dateFilter ? "bg-emerald-50 border-emerald-400 text-emerald-700 font-semibold" : "bg-white border-slate-200 text-slate-500"}`}
+            />
+            {dateFilter && (
+              <button onClick={() => setDateFilter("")} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center font-black">✕</button>
+            )}
+          </div>
+          {/* Filtro por tipo */}
+          {[
+            { value: "",        label: "Todos" },
+            { value: "manual",  label: "Ventas manuales" },
+            { value: "catalog", label: "Pedidos web" },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setTypeFilter(opt.value)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${typeFilter === opt.value ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Lista de Ventas */}
