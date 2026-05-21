@@ -102,7 +102,7 @@ export async function PATCH(req, { params }) {
 
       // Calcular 15% penalización sobre el total de la venta, saldo a favor = lo pagado - penalización
       const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
-      const penalty = Math.round(Number(sale.total) * 0.15 * 100) / 100;
+      const penalty = totalPagado > 0 ? Math.round(Number(sale.total) * 0.15 * 100) / 100 : 0;
       const saldoFavor = Math.max(0, Math.round((totalPagado - penalty) * 100) / 100);
 
       // Actualizar venta

@@ -326,7 +326,7 @@ export default function SaleDetailPage() {
             <div className="bg-emerald-50 p-4">
               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Saldo a favor del cliente</span>
               <span className="text-2xl font-black text-emerald-600">
-                ${(Math.round(((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100).toFixed(2)}
+                ${Math.max(0, Math.round(((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100).toFixed(2)}
               </span>
               <p className="text-xs text-emerald-600/70 mt-0.5">Acreditado en su cuenta para próximas compras</p>
             </div>
