@@ -134,6 +134,14 @@ export default function AgendarPage() {
   const [notes, setNotes] = useState("");
   const [city, setCity] = useState(""); // solo paquetería
   const [stateMx, setStateMx] = useState("Coahuila"); // paquetería
+
+  // campos separados de dirección paquetería
+  const [pkgStreet, setPkgStreet] = useState("");
+  const [pkgNumExt, setPkgNumExt] = useState("");
+  const [pkgNumInt, setPkgNumInt] = useState("");
+  const [pkgColonia, setPkgColonia] = useState("");
+  const [pkgRefs, setPkgRefs] = useState("");
+  const [pkgCP, setPkgCP] = useState("");
   const [deliveryDate, setDeliveryDate] = useState(null);
 
   // DOMICILIO
@@ -561,13 +569,20 @@ export default function AgendarPage() {
     setMsg("");
     setError("");
 
-    if (!insta || !fullName || !phone || !address || !city || !stateMx) {
-      setError("Llena todos los campos de paquetería.");
+    if (!insta || !fullName || !phone || !pkgStreet || !pkgNumExt || !pkgColonia || !pkgRefs || !pkgCP || !city || !stateMx) {
+      setError("Llena todos los campos obligatorios de paquetería.");
       return;
     }
 
     let instaValue = insta.trim();
     if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;
+
+    const composedAddress = [
+      `${pkgStreet} ${pkgNumExt}${pkgNumInt ? ` Int. ${pkgNumInt}` : ""}`,
+      `Col. ${pkgColonia}`,
+      `CP ${pkgCP}`,
+      `Ref: ${pkgRefs}`,
+    ].join(", ");
 
     const todayStr = new Date().toISOString().split("T")[0];
 
@@ -581,7 +596,7 @@ export default function AgendarPage() {
           instagram: instaValue,
           fullName,
           phone,
-          address,
+          address: composedAddress,
           city,
           state: stateMx,
           date: todayStr,
@@ -600,7 +615,7 @@ export default function AgendarPage() {
           date: todayStr,
           fullName,
           phone,
-          address,
+          address: composedAddress,
           city,
           state: stateMx,
         });
@@ -609,7 +624,12 @@ export default function AgendarPage() {
         setInsta("");
         setFullName("");
         setPhone("");
-        setAddress("");
+        setPkgStreet("");
+        setPkgNumExt("");
+        setPkgNumInt("");
+        setPkgColonia("");
+        setPkgRefs("");
+        setPkgCP("");
         setCity("");
         setStateMx("Coahuila");
 
@@ -1224,16 +1244,72 @@ export default function AgendarPage() {
                   inputMode="numeric"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Dirección completa de envío *</label>
-                <textarea
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  required
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
-                  placeholder="Calle, número, colonia, referencias..."
-                  rows={2}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Calle *</label>
+                  <input
+                    value={pkgStreet}
+                    onChange={(e) => setPkgStreet(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Nombre de la calle"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Número exterior *</label>
+                  <input
+                    value={pkgNumExt}
+                    onChange={(e) => setPkgNumExt(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Ej. 123"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Número interior <span className="normal-case font-normal opacity-60">(opcional)</span></label>
+                  <input
+                    value={pkgNumInt}
+                    onChange={(e) => setPkgNumInt(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Ej. 4B"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Colonia *</label>
+                  <input
+                    value={pkgColonia}
+                    onChange={(e) => setPkgColonia(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Nombre de la colonia"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Código postal *</label>
+                  <input
+                    value={pkgCP}
+                    onChange={(e) => setPkgCP(e.target.value)}
+                    required
+                    inputMode="numeric"
+                    maxLength={5}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Ej. 27000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Referencias *</label>
+                  <input
+                    value={pkgRefs}
+                    onChange={(e) => setPkgRefs(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all"
+                    placeholder="Ej. Casa azul, entre calles..."
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
