@@ -67,6 +67,23 @@ function getDeliveryStatusClasses(status) {
   return getStatusStyle(status).pill;
 }
 
+function parsePkgAddress(address) {
+  if (!address) return null;
+  const refIdx = address.indexOf(", Ref: ");
+  const refs = refIdx !== -1 ? address.slice(refIdx + 7) : "";
+  const mainPart = refIdx !== -1 ? address.slice(0, refIdx) : address;
+  const parts = mainPart.split(", ");
+  let street = "";
+  let colonia = "";
+  let cp = "";
+  for (const p of parts) {
+    if (p.startsWith("Col. ")) colonia = p.slice(5);
+    else if (p.startsWith("CP ")) cp = p.slice(3);
+    else if (!street) street = p;
+  }
+  return { street, colonia, cp, refs };
+}
+
 function getInitials(name) {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/);
@@ -1117,7 +1134,7 @@ export default function PanelPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              <div className={`grid gap-5 ${activeTab === "paqueteria" ? "grid-cols-1 xl:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3"}`}>
                 {finalFilteredBookings
                   .slice()
                   .reverse()
@@ -1131,6 +1148,137 @@ export default function PanelPage() {
                     const initials = getInitials(bk.fullName);
                     const grad = getAvatarGradient(bk.fullName);
                     const waUrl = `https://wa.me/52${bk.phone}?text=${encodeURIComponent(buildConfirmationMessage(bk))}`;
+
+                    if (bk.type === "paqueteria") {
+                      const pkg = parsePkgAddress(bk.address);
+                      return (
+                        <div
+                          key={bk.id}
+                          onClick={() => handleSelectBooking(bk)}
+                          className={`cursor-pointer rounded-2xl border-2 transition-all duration-200 overflow-hidden bg-white ${
+                            isSelected ? "border-indigo-400 shadow-lg shadow-indigo-100" : "border-slate-100 hover:border-indigo-200"
+                          }`}
+                        >
+                          {/* Header */}
+                          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center flex-shrink-0 shadow`}>
+                                <span className="text-white font-black text-base">{initials}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <h3 className="font-black text-slate-900 leading-tight truncate">{bk.fullName}</h3>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {bk.instagram && <span className="text-xs font-bold text-emerald-500">@{normalizeInstagram(bk.instagram)}</span>}
+                                  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${pill}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+                                    {statusLabel}
+                                  </div>
+                                </div>
+                                {bk.phone && (
+                                  <p className="text-xs text-slate-400 mt-0.5">📱 {bk.phone}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0 ml-3">
+                              <p className="text-[10px] text-slate-400 uppercase tracking-wide">Adeudo</p>
+                              <p className={`text-xl font-black leading-tight ${bk.amount_due > 0 ? "text-amber-500" : "text-slate-300"}`}>
+                                ${bk.amount_due || 0}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Body: 2 columns */}
+                          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+                            {/* Left: Address */}
+                            <div className="p-5 space-y-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dirección de envío</p>
+                              {pkg ? (
+                                <div className="space-y-2.5">
+                                  <div className="flex items-start gap-2">
+                                    <span className="text-base mt-0.5 flex-shrink-0">📍</span>
+                                    <div>
+                                      <p className="text-sm font-bold text-slate-800 leading-snug">{pkg.street}</p>
+                                      <p className="text-xs text-slate-500 mt-0.5">Col. {pkg.colonia}</p>
+                                      <p className="text-xs text-slate-500">CP {pkg.cp}</p>
+                                    </div>
+                                  </div>
+                                  {pkg.refs && (
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-base flex-shrink-0">🗒️</span>
+                                      <p className="text-xs text-slate-600 italic leading-relaxed">{pkg.refs}</p>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-base flex-shrink-0">🏙️</span>
+                                    <p className="text-xs font-semibold text-slate-600">{[bk.city, bk.state].filter(Boolean).join(", ")}</p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-500">{bk.address || "Sin dirección"}</p>
+                              )}
+                            </div>
+
+                            {/* Right: Products */}
+                            <div className="p-5 space-y-3">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Productos a enviar</p>
+                              <div className="flex items-start gap-2">
+                                <span className="text-base flex-shrink-0">📦</span>
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">{bk.products || "Sin especificar"}</p>
+                              </div>
+                              {bk.notes && (
+                                <div className="flex items-start gap-2 pt-2 border-t border-slate-100">
+                                  <span className="text-sm flex-shrink-0">📝</span>
+                                  <p className="text-xs italic text-slate-500 leading-relaxed">{bk.notes}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer: Actions */}
+                          <div className="px-5 py-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); window.open(`tel:${bk.phone}`, "_self"); }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors border border-slate-200 text-xs font-bold"
+                            >
+                              <span>📞</span> Llamar
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); window.open(waUrl, "_blank"); }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors border border-emerald-200 text-xs font-bold"
+                            >
+                              <span>💬</span> WhatsApp
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCopyMessage(bk); }}
+                              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all border text-xs font-bold ${
+                                copiedBookingId === bk.id
+                                  ? "bg-emerald-500 text-white border-emerald-600"
+                                  : "bg-slate-50 text-slate-500 hover:bg-slate-100 border-slate-200"
+                              }`}
+                            >
+                              <span>{copiedBookingId === bk.id ? "✅" : "📋"}</span>
+                              {copiedBookingId === bk.id ? "Copiado" : "Copiar"}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleOpenReschedule(bk); }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors border border-amber-200 text-xs font-bold"
+                            >
+                              <span>📅</span> Fecha
+                            </button>
+                            <div className="ml-auto flex gap-2">
+                              {isAdmin && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setConfirmDeleteBooking({ show: true, id: bk.id }); }}
+                                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors border border-rose-200 text-xs font-bold"
+                                >
+                                  <span>🗑️</span> Eliminar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
@@ -1171,7 +1319,7 @@ export default function PanelPage() {
                               <p className="text-[11px] text-slate-500 mt-0.5">{[bk.city, bk.postal_code ? `CP ${bk.postal_code}` : ""].filter(Boolean).join(" · ")}</p>
                             </div>
                           </div>
-                          
+
                           <div className="flex items-center justify-between pt-2 border-t border-slate-200/50">
                             <div className="flex items-center gap-2">
                               <span className="text-lg">💰</span>
@@ -1193,7 +1341,6 @@ export default function PanelPage() {
                           )}
                         </div>
 
-                        {/* Botones de acción rápida para móvil */}
                         <div className="grid grid-cols-3 gap-2 pt-1">
                           <button
                             onClick={(e) => { e.stopPropagation(); window.open(`tel:${bk.phone}`, "_self"); }}
@@ -1216,13 +1363,11 @@ export default function PanelPage() {
                             <span className="text-xl">🗺️</span>
                             <span className="text-[9px] font-black uppercase">Mapa</span>
                           </button>
-
-                          {/* Segunda fila de acciones */}
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCopyMessage(bk); }}
                             className={`flex flex-col items-center justify-center gap-1 p-3 rounded-2xl transition-all border ${
-                              copiedBookingId === bk.id 
-                                ? 'bg-emerald-500 text-white border-emerald-600 animate-pulse' 
+                              copiedBookingId === bk.id
+                                ? 'bg-emerald-500 text-white border-emerald-600 animate-pulse'
                                 : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border-slate-200'
                             }`}
                           >
