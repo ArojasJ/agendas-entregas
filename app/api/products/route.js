@@ -57,27 +57,37 @@ export async function GET(req) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
-  const { searchParams } = new URL(req.url);
-  const minimal = searchParams.get("minimal") === "true";
-
   const variantFields = "product_variants(id, name, stock, price, cost, barcode, option_type, image_url, images)";
-  const selectFields = minimal
-    ? `id, name, category, stock, barcode, cost, price, description, image_url, created_at, created_by_staff_id, ${variantFields}`
-    : `*, ${variantFields}`;
+  const baseFields = "id, name, category, stock, barcode, cost, price, description, image_url, images, created_at, created_by_staff_id";
+  const selectFields = `${baseFields}, ${variantFields}`;
 
-  const { data: products, error } = await supabase
-    .from("products")
-    .select(selectFields)
-    .order("name", { ascending: true });
+  const allProducts = [];
+  let from = 0;
+  const pageSize = 500;
+  let fetchError = null;
 
-  if (error) {
-    console.error("Error al obtener productos:", error);
+  while (true) {
+    const { data, error } = await supabase
+      .from("products")
+      .select(selectFields)
+      .order("name", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) { fetchError = error; break; }
+    if (!data || data.length === 0) break;
+    allProducts.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  if (fetchError) {
+    console.error("Error al obtener productos:", fetchError);
     return Response.json({ message: "Error al leer inventario" }, { status: 500 });
   }
 
   // OPTIMIZACIÓN CRÍTICA: Si la imagen es Base64 (pesada), la removemos de la lista 
   // para evitar colapsar la conexión. El usuario deberá re-subirla para que sea una URL.
-  const optimizedProducts = (products || []).map(p => {
+  const optimizedProducts = allProducts.map(p => {
     if (p.image_url && p.image_url.startsWith("data:image")) {
       return { ...p, image_url: null, _hasLegacyImage: true };
     }
