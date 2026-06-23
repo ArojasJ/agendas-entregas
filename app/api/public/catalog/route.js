@@ -2,19 +2,31 @@ import { supabase } from "@/lib/supabaseClient";
 
 export async function GET() {
   try {
-    const { data: products, error } = await supabase
-      .from("products")
-      .select("id, name, category, price, image_url, images, description, stock, product_variants(id, name, price, stock, image_url, images)")
-      .order("category", { ascending: true })
-      .order("name", { ascending: true });
+    const allProducts = [];
+    let from = 0;
+    const pageSize = 500;
 
-    if (error) {
-      console.error(error);
-      return Response.json({ message: "Error al cargar catálogo" }, { status: 500 });
+    while (true) {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, name, category, price, image_url, images, description, stock, product_variants(id, name, price, stock, image_url, images)")
+        .order("category", { ascending: true })
+        .order("name", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.error(error);
+        return Response.json({ message: "Error al cargar catálogo" }, { status: 500 });
+      }
+
+      if (!data || data.length === 0) break;
+      allProducts.push(...data);
+      if (data.length < pageSize) break;
+      from += pageSize;
     }
 
     // Filtrar: mostrar solo productos con stock disponible
-    const available = (products || []).filter(p => {
+    const available = allProducts.filter(p => {
       if (p.product_variants && p.product_variants.length > 0) {
         return p.product_variants.some(v => v.stock > 0);
       }
