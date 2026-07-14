@@ -179,8 +179,12 @@ export default function PanelLayout({ children }) {
   if (panelRole === "driver") {
     const isRutaActive = pathname.startsWith("/panel/entregas/ruta");
     const isEntregasActive = pathname === "/panel/entregas";
+    // El color del espaciador superior coincide con el fondo de cada página
+    const topBg = isRutaActive ? "#020617" : "#f8fafc";
     return (
-      <div className="h-[100dvh] bg-slate-950 flex flex-col overflow-hidden">
+      <div className="h-[100dvh] flex flex-col overflow-hidden">
+        {/* Espaciador para la barra de estado del iPhone (safe-area-inset-top) */}
+        <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 44px)", background: topBg }} />
         <div className="flex-1 overflow-y-auto min-h-0">
           {children}
         </div>
