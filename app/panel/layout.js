@@ -58,6 +58,17 @@ export default function PanelLayout({ children }) {
     } catch (e) {}
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem("panelAuth");
+    localStorage.removeItem("panelToken");
+    localStorage.removeItem("panelRole");
+    localStorage.removeItem("staffName");
+    localStorage.removeItem("staffId");
+    setAuthorized(false);
+    setPanelRole(null);
+    setStaffName("");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -164,6 +175,45 @@ export default function PanelLayout({ children }) {
     );
   }
 
+  // ── Layout exclusivo para repartidor: app móvil con barra inferior ──
+  if (panelRole === "driver") {
+    const isRutaActive = pathname.startsWith("/panel/entregas/ruta");
+    const isEntregasActive = pathname === "/panel/entregas";
+    return (
+      <div className="h-[100dvh] bg-slate-950 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {children}
+        </div>
+        <nav
+          className="shrink-0 bg-slate-900 border-t border-slate-800 flex"
+          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        >
+          <Link
+            href="/panel/entregas"
+            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${isEntregasActive ? "text-sky-400" : "text-slate-500 active:text-slate-300"}`}
+          >
+            <span className="text-2xl">🚚</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Entregas</span>
+          </Link>
+          <Link
+            href="/panel/entregas/ruta"
+            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${isRutaActive ? "text-sky-400" : "text-slate-500 active:text-slate-300"}`}
+          >
+            <span className="text-2xl">🗺️</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Ruta del Día</span>
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex-1 flex flex-col items-center gap-1 py-3 text-slate-600 active:text-red-400 transition-colors"
+          >
+            <span className="text-2xl">🔒</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Salir</span>
+          </button>
+        </nav>
+      </div>
+    );
+  }
+
   const navLinks = [
     { name: "Nueva Venta", href: "/panel/pos", icon: "🛍️", roles: ["admin", "worker"] },
     { name: "Pedidos Web", href: "/panel/catalogo", icon: "🌐", roles: ["admin", "worker"] },
@@ -248,16 +298,7 @@ export default function PanelLayout({ children }) {
            
            <div className="ml-auto flex items-center gap-4">
              <button
-               onClick={() => {
-                  localStorage.removeItem("panelAuth");
-                  localStorage.removeItem("panelToken");
-                  localStorage.removeItem("panelRole");
-                  localStorage.removeItem("staffName");
-                  localStorage.removeItem("staffId");
-                  setAuthorized(false);
-                  setPanelRole(null);
-                  setStaffName("");
-                }}
+               onClick={handleLogout}
                 className="text-sm px-4 py-2 font-medium rounded-xl transition-colors bg-slate-100 text-slate-600 hover:text-red-600 hover:bg-red-50"
               >
                 Cerrar sesión

@@ -58,35 +58,39 @@ export async function POST(req) {
       }
     }
 
-    // 2. Buscar o crear cliente
+    // 2. Buscar o crear cliente (queries separadas para evitar inyección en .or())
     let clientId = null;
-    
-    // Buscar por instagram exacto o teléfono exacto
     const cleanIg = clientData.instagram.replace('@', '').trim();
-    const { data: existingClient } = await supabase
-      .from("clients")
-      .select("id")
-      .or(`instagram.ilike.${cleanIg},instagram.ilike.@${cleanIg},phone.eq.${clientData.phone}`)
-      .limit(1)
-      .single();
+
+    const { data: byIg } = await supabase
+      .from("clients").select("id").ilike("instagram", cleanIg).limit(1).maybeSingle();
+    const { data: byIgAt } = !byIg ? await supabase
+      .from("clients").select("id").ilike("instagram", `@${cleanIg}`).limit(1).maybeSingle()
+      : { data: null };
+    const { data: byPhone } = !byIg && !byIgAt ? await supabase
+      .from("clients").select("id").eq("phone", clientData.phone).limit(1).maybeSingle()
+      : { data: null };
+
+    const existingClient = byIg || byIgAt || byPhone;
 
     if (existingClient) {
       clientId = existingClient.id;
     } else {
-      // Crear nuevo
       const { data: newClient, error: clientErr } = await supabase
         .from("clients")
         .insert([{
           name: clientData.name,
-          instagram: clientData.instagram.replace('@', ''),
+          instagram: cleanIg,
           phone: clientData.phone
         }])
         .select()
         .single();
-        
-      if (!clientErr && newClient) {
-        clientId = newClient.id;
+
+      if (clientErr || !newClient) {
+        console.error("No se pudo crear el cliente:", clientErr);
+        return Response.json({ message: "No se pudo registrar el cliente. Intenta de nuevo." }, { status: 500 });
       }
+      clientId = newClient.id;
     }
 
     // 3. Crear venta
@@ -111,13 +115,17 @@ export async function POST(req) {
       
       await supabase.from("sale_items").insert([item]);
 
-      // Descontar inventario
+      // Descontar inventario (gte previene que stock baje de 0 por peticiones concurrentes)
       if (item.variant_id) {
         const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
-        if (v) await supabase.from("product_variants").update({ stock: Math.max(0, v.stock - item.quantity) }).eq("id", item.variant_id);
+        if (v) await supabase.from("product_variants")
+          .update({ stock: Math.max(0, v.stock - item.quantity) })
+          .eq("id", item.variant_id).gte("stock", item.quantity);
       } else {
-        const { data: productToUpdate } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
-        if (productToUpdate) await supabase.from("products").update({ stock: Math.max(0, productToUpdate.stock - item.quantity) }).eq("id", item.product_id);
+        const { data: p } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
+        if (p) await supabase.from("products")
+          .update({ stock: Math.max(0, p.stock - item.quantity) })
+          .eq("id", item.product_id).gte("stock", item.quantity);
       }
     }
 

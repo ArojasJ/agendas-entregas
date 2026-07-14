@@ -547,7 +547,7 @@ export default function PanelPage() {
       } else {
         setManualMsg("Entrega manual agregada correctamente.");
         await fetchBookings();
-        setManualForm({ instagram: "", fullName: "", phone: "", address: "", date: "", city: "" });
+        setManualForm({ instagram: "", fullName: "", phone: "", address: "", date: "", city: "", products: "", amountDue: 0 });
         setTimeout(() => setShowManualModal(false), 1000);
       }
     } catch {
@@ -561,8 +561,8 @@ export default function PanelPage() {
     const allForThisUser = bookings
       .filter((bk) => normalizeInstagram(bk.instagram) === igNorm)
       .sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
         return db - da;
       });
     setHistoryInstagram(igRaw);
@@ -1147,7 +1147,8 @@ export default function PanelPage() {
                     const { pill, dot } = getStatusStyle(bk.delivery_status);
                     const initials = getInitials(bk.fullName);
                     const grad = getAvatarGradient(bk.fullName);
-                    const waUrl = `https://wa.me/52${bk.phone}?text=${encodeURIComponent(buildConfirmationMessage(bk))}`;
+                    const rawPhone = (bk.phone || "").replace(/\D/g, "").replace(/^52/, "");
+                    const waUrl = `https://wa.me/52${rawPhone}?text=${encodeURIComponent(buildConfirmationMessage(bk))}`;
 
                     if (bk.type === "paqueteria") {
                       const pkg = parsePkgAddress(bk.address);

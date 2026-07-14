@@ -573,6 +573,10 @@ export default function AgendarPage() {
       setError("Llena todos los campos obligatorios de paquetería.");
       return;
     }
+    if (pkgCP.trim().length !== 5) {
+      setError("El código postal debe tener exactamente 5 dígitos.");
+      return;
+    }
 
     let instaValue = insta.trim();
     if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;

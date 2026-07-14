@@ -223,23 +223,26 @@ function InventarioContent() {
 
       if (hasVariants) {
         for (const vid of deletedVariantIds) {
-          await fetch(`/api/products/variants?id=${vid}`, { method: "DELETE", headers: { "x-panel-token": token } });
+          const delRes = await fetch(`/api/products/variants?id=${vid}`, { method: "DELETE", headers: { "x-panel-token": token } });
+          if (!delRes.ok) { showToast("Error al eliminar una variante", "error"); return; }
         }
         for (const v of variants) {
           const vImgs = (v.varImages || []).map(i => i.src);
           const vData = { name: v.name, sku: v.sku, barcode: v.barcode, cost: Number(v.cost) || 0, price: Number(v.price) || 0, stock: Number(v.stock) || 0, image_url: vImgs[0] || null, images: vImgs.slice(1) };
           if (v.id) {
-            await fetch("/api/products/variants", {
+            const vRes = await fetch("/api/products/variants", {
               method: "PATCH",
               headers: { "Content-Type": "application/json", "x-panel-token": token },
               body: JSON.stringify({ id: v.id, ...vData }),
             });
+            if (!vRes.ok) { const e = await vRes.json(); showToast(e.message || "Error al actualizar variante", "error"); return; }
           } else {
-            await fetch("/api/products/variants", {
+            const vRes = await fetch("/api/products/variants", {
               method: "POST",
               headers: { "Content-Type": "application/json", "x-panel-token": token },
               body: JSON.stringify({ product_id: productId, option_type: variantOptionType, ...vData }),
             });
+            if (!vRes.ok) { const e = await vRes.json(); showToast(e.message || "Error al crear variante", "error"); return; }
           }
         }
       }

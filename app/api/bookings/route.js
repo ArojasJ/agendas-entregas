@@ -56,11 +56,25 @@ export async function GET(req) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
 
-  // 1) bookings
-  const { data: bookings, error } = await supabase
-    .from("bookings")
-    .select("*")
-    .order("createdAt", { ascending: false });
+  // 1) bookings (paginado para superar el límite de 1000 filas de PostgREST)
+  const allBookings = [];
+  let bFrom = 0;
+  const bPage = 500;
+  let bookingsError = null;
+  while (true) {
+    const { data: bData, error: bErr } = await supabase
+      .from("bookings")
+      .select("*")
+      .order("createdAt", { ascending: false })
+      .range(bFrom, bFrom + bPage - 1);
+    if (bErr) { bookingsError = bErr; break; }
+    if (!bData || bData.length === 0) break;
+    allBookings.push(...bData);
+    if (bData.length < bPage) break;
+    bFrom += bPage;
+  }
+  const bookings = allBookings;
+  const error = bookingsError;
 
   // 2) blocked_days
   const { data: blockedDays, error: blockedErr } = await supabase

@@ -11,6 +11,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#020617",
+};
+
 // 🧠 Metadatos personalizados
 export const metadata = {
   title: "Agéndalo TRC | Agenda tus entregas fácilmente",
@@ -36,9 +45,14 @@ export const metadata = {
     type: "website",
   },
   icons: {
-    icon: "/favicon-v2.ico",     // 👈 nuevo nombre
+    icon: "/favicon-v2.ico",
     shortcut: "/favicon-v2.ico",
     apple: "/favicon-v2.ico",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TRC Entregas",
   },
 };
 

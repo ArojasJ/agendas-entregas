@@ -6,6 +6,7 @@ import Link from "next/link";
 export default function CobranzaPage() {
   const router = useRouter();
   const [receivables, setReceivables] = useState([]);
+  const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all"); // all, today, tomorrow, overdue
   const [search, setSearch] = useState(""); // Buscador por nombre
@@ -30,15 +31,19 @@ export default function CobranzaPage() {
 
   const fetchData = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const token = localStorage.getItem("panelToken") || "";
       const res = await fetch("/api/payments", { headers: { "x-panel-token": token } });
       if (res.ok) {
         const data = await res.json();
         setReceivables(data.receivables || []);
+      } else {
+        setLoadError(true);
       }
     } catch (e) {
       console.error(e);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -180,6 +185,12 @@ export default function CobranzaPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         {loading ? (
           <div className="col-span-full p-10 text-center opacity-50">Cargando cuentas...</div>
+        ) : loadError ? (
+          <div className="col-span-full p-10 text-center text-red-500 flex flex-col items-center gap-3">
+            <span className="text-4xl">⚠️</span>
+            <p className="font-semibold">Error al cargar las cuentas por cobrar.</p>
+            <button onClick={fetchData} className="px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-100">Reintentar</button>
+          </div>
         ) : filteredData.length === 0 ? (
           <div className="col-span-full p-10 text-center opacity-50 flex flex-col items-center border border-slate-100 rounded-3xl border-dashed">
             <span className="text-5xl mb-4">🙌</span>

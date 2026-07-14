@@ -130,16 +130,19 @@ export async function POST(req) {
 
       if (itemError) {
         console.error("Error al guardar item:", itemError);
+        // Revertir la venta si falla la inserción de un item
+        await supabase.from("sales").delete().eq("id", saleId);
+        return Response.json({ message: "Error al registrar productos de la venta. Intenta de nuevo." }, { status: 500 });
       }
 
-      // Descontar inventario: variante o producto base
+      // Descontar inventario (gte previene stock negativo por peticiones concurrentes)
       if (item.variant_id) {
         const { data: variant } = await supabase
           .from("product_variants").select("stock").eq("id", item.variant_id).single();
         if (variant) {
           await supabase.from("product_variants")
             .update({ stock: Math.max(0, variant.stock - item.quantity) })
-            .eq("id", item.variant_id);
+            .eq("id", item.variant_id).gte("stock", item.quantity);
         }
       } else {
         const { data: product } = await supabase
@@ -147,7 +150,7 @@ export async function POST(req) {
         if (product) {
           await supabase.from("products")
             .update({ stock: Math.max(0, product.stock - item.quantity) })
-            .eq("id", item.product_id);
+            .eq("id", item.product_id).gte("stock", item.quantity);
         }
       }
     }

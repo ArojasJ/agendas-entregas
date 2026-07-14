@@ -619,7 +619,7 @@ export default function PosPage() {
                         type="number"
                         value={downPayment}
                         onChange={e => setDownPayment(Number(e.target.value) || 0)}
-                        onKeyDown={e => { if (e.key === "Enter") handleCheckout(); }}
+                        onKeyDown={e => { if (e.key === "Enter") executeCheckout(); }}
                         className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
                       />
                     </div>
@@ -653,6 +653,19 @@ export default function PosPage() {
                       <span className="text-slate-500">Restante a crédito:</span>
                       <span className="font-bold text-amber-400">${(total - downPayment).toFixed(2)}</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {paymentType === 'paid' && (
+                <div className="mb-6 space-y-3">
+                  <div className="flex gap-2">
+                    {["efectivo", "tarjeta", "transferencia"].map(m => (
+                      <button key={m} onClick={() => setPaymentMethod(m)}
+                        className={`flex-1 py-2.5 rounded-xl border-2 text-xs font-bold capitalize transition-all ${paymentMethod === m ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                        {m}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}

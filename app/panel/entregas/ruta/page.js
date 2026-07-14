@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const ORIGIN = "25.5464865,-103.4497847";
+const DESTINATION = "25.572988616868752,-103.51420759387985";
 const ORIGIN_LABEL = "B";
 
 function getPanelToken() {
@@ -63,13 +64,14 @@ function formatPhoneForWhatsApp(phone) {
 function buildStaticMapUrl(sorted, apiKey) {
   if (!apiKey || sorted.length === 0) return null;
   const originMarker = `markers=color:green|label:${ORIGIN_LABEL}|${ORIGIN}`;
+  const destMarker = `markers=color:blue|label:F|${DESTINATION}`;
   const stopMarkers = sorted.map((bk, idx) => {
     const addr = [bk.address, bk.city, bk.state].filter(Boolean).join(", ");
     if (!addr) return null;
     return `markers=color:red|label:${stopLabel(idx)}|${encodeURIComponent(addr)}`;
   }).filter(Boolean);
   if (stopMarkers.length === 0) return null;
-  return `https://maps.googleapis.com/maps/api/staticmap?size=640x320&scale=2&${originMarker}&${stopMarkers.join("&")}&key=${apiKey}`;
+  return `https://maps.googleapis.com/maps/api/staticmap?size=640x320&scale=2&${originMarker}&${destMarker}&${stopMarkers.join("&")}&key=${apiKey}`;
 }
 
 export default function RutaPage() {
@@ -177,7 +179,11 @@ export default function RutaPage() {
 
   // Persist order
   useEffect(() => {
-    if (order.length > 0) localStorage.setItem("rutaOrder", JSON.stringify(order));
+    if (order.length > 0) {
+      localStorage.setItem("rutaOrder", JSON.stringify(order));
+    } else {
+      localStorage.removeItem("rutaOrder");
+    }
   }, [order]);
 
   // ── Sorted bookings ───────────────────────────────────
@@ -206,7 +212,7 @@ export default function RutaPage() {
       const res = await fetch("/api/optimize-route", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-panel-token": token },
-        body: JSON.stringify({ locations, origin: ORIGIN }),
+        body: JSON.stringify({ locations, origin: ORIGIN, destination: DESTINATION }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -237,10 +243,9 @@ export default function RutaPage() {
   // ── Mark delivery status ──────────────────────────────
   const markStop = async (booking, status, paymentMethod = "efectivo") => {
     setUpdatingId(booking.id);
-    setPendingDelivery(null);
     try {
       const token = getPanelToken();
-      await fetch("/api/bookings/update-delivery", {
+      const res = await fetch("/api/bookings/update-delivery", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "x-panel-token": token },
         body: JSON.stringify({
@@ -251,6 +256,12 @@ export default function RutaPage() {
           amountDue: booking.amount_due || 0,
         }),
       });
+      if (!res.ok) {
+        setStatusMsg({ text: "Error al guardar. Intenta de nuevo.", type: "error" });
+        return;
+      }
+      setPendingDelivery(null);
+      setPendingNoEntregado(null);
       const newBookings = bookings.filter((b) => b.id !== booking.id);
       const newOrder = order.filter((id) => id !== booking.id);
       setBookings(newBookings);
@@ -261,6 +272,7 @@ export default function RutaPage() {
       }
     } catch (err) {
       console.error(err);
+      setStatusMsg({ text: "Sin conexión. Intenta de nuevo.", type: "error" });
     } finally {
       setUpdatingId(null);
     }
@@ -366,17 +378,18 @@ export default function RutaPage() {
       });
       if (res.ok) {
         const updated = await res.json();
-        setBookings((prev) =>
-          prev.map((b) => (b.id === bookingId ? { ...b, ...updated.booking } : b))
+        const updatedBookings = bookings.map((b) =>
+          b.id === bookingId ? { ...b, ...updated.booking } : b
         );
-        regenerateMap(
-          bookings.map((b) => (b.id === bookingId ? { ...b, ...updated.booking } : b)),
-          order
-        );
+        setBookings(updatedBookings);
+        regenerateMap(updatedBookings, order);
         setEditingId(null);
+      } else {
+        setStatusMsg({ text: "Error al guardar la dirección. Intenta de nuevo.", type: "error" });
       }
     } catch (err) {
       console.error(err);
+      setStatusMsg({ text: "Sin conexión. Intenta de nuevo.", type: "error" });
     } finally {
       setSavingAddress(false);
     }
@@ -742,7 +755,7 @@ export default function RutaPage() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
                   <span className="text-sm font-black text-slate-200">Vista de la Ruta</span>
-                  <span className="text-xs text-slate-500 font-medium">— verde = bodega (salida y regreso)</span>
+                  <span className="text-xs text-slate-500 font-medium">— verde = salida · azul = llegada · rojo = paradas</span>
                 </div>
                 <img
                   src={mapUrl}

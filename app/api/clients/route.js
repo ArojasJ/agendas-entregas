@@ -38,35 +38,47 @@ export async function GET(req) {
   }
 
   if (id) {
-    // Traer historial de ventas de un cliente específico
-    const { data, error } = await supabase
-      .from("sales")
-      .select(`
-        *,
-        payments ( amount, created_at ),
-        sale_items ( quantity, unit_price, products (name) )
-      `)
-      .eq("client_id", id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return Response.json({ message: "Error al leer historial: " + error.message }, { status: 500 });
+    // Historial de ventas por cliente (paginado)
+    const allSales = [];
+    let from = 0;
+    const pageSize = 500;
+    while (true) {
+      const { data, error } = await supabase
+        .from("sales")
+        .select(`*, payments ( amount, created_at ), sale_items ( quantity, unit_price, products (name) )`)
+        .eq("client_id", id)
+        .order("created_at", { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) return Response.json({ message: "Error al leer historial: " + error.message }, { status: 500 });
+      if (!data || data.length === 0) break;
+      allSales.push(...data);
+      if (data.length < pageSize) break;
+      from += pageSize;
     }
-    return Response.json({ sales: data || [] });
+    return Response.json({ sales: allSales });
   }
 
-  // Traer todos los clientes
-  const { data: clients, error } = await supabase
-    .from("clients")
-    .select("*, staff(display_name)")
-    .order("name", { ascending: true });
-
-  if (error) {
-    console.error(error);
-    return Response.json({ message: "Error al leer clientes: " + error.message }, { status: 500 });
+  // Traer todos los clientes (paginado)
+  const allClients = [];
+  let from = 0;
+  const pageSize = 500;
+  while (true) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*, staff(display_name)")
+      .order("name", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error(error);
+      return Response.json({ message: "Error al leer clientes: " + error.message }, { status: 500 });
+    }
+    if (!data || data.length === 0) break;
+    allClients.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
   }
 
-  return Response.json({ clients: clients || [] });
+  return Response.json({ clients: allClients });
 }
 
 export async function POST(req) {

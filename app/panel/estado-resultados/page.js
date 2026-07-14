@@ -267,7 +267,8 @@ export default function EstadoResultadosPage() {
   };
 
   const eliminar = async (id) => {
-    await fetch(`/api/estados-resultados?id=${id}`, { method: "DELETE", headers: { "x-panel-token": getPanelToken() } });
+    const res = await fetch(`/api/estados-resultados?id=${id}`, { method: "DELETE", headers: { "x-panel-token": getPanelToken() } });
+    if (!res.ok) { showToast("Error al eliminar", "err"); return; }
     setConfirmDelId(null);
     fetchHistorial();
   };

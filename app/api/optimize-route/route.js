@@ -1,8 +1,6 @@
-import { supabase } from "@/lib/supabaseClient";
-
 export async function POST(req) {
   try {
-    const { locations, origin: customOrigin } = await req.json(); 
+    const { locations, origin: customOrigin, destination: customDestination } = await req.json();
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
 
     if (!apiKey) {
@@ -38,8 +36,8 @@ export async function POST(req) {
       address: await resolveLocation(l)
     })));
 
-    const origin = customOrigin || resolvedLocations[0].address; 
-    const destination = origin; 
+    const origin = customOrigin || resolvedLocations[0].address;
+    const destination = customDestination || origin;
     const waypoints = customOrigin ? resolvedLocations.map(l => l.address).join('|') : resolvedLocations.slice(1).map(l => l.address).join('|');
 
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=optimize:true|${encodeURIComponent(waypoints)}&key=${apiKey}`;

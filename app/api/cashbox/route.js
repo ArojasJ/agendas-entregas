@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+function getPanelSession(req) {
+  const headerToken = req.headers.get("x-panel-token");
+  const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
+  if (!headerToken) return null;
+  try {
+    const decoded = Buffer.from(headerToken, "base64").toString("utf8");
+    const [json, sig] = decoded.split("|");
+    if (sig !== secret) return null;
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
 // 👇 USA LAS MISMAS ENV QUE YA USAS EN /api/bookings
 // (normalmente NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,6 +31,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // - ?history=1: devuelve la lista completa de cortes
 // - ?id=... : devuelve un corte específico + las entregas que entraron en ese corte
 export async function GET(request) {
+  const session = getPanelSession(request);
+  if (!session) return NextResponse.json({ message: "No autorizado" }, { status: 401 });
+
   try {
     const { searchParams } = new URL(request.url);
     const history = searchParams.get("history");
@@ -128,6 +143,9 @@ export async function GET(request) {
 // POST /api/cashbox
 // Crea un nuevo corte de caja
 export async function POST(request) {
+  const session = getPanelSession(request);
+  if (!session) return NextResponse.json({ message: "No autorizado" }, { status: 401 });
+
   try {
     const body = await request.json();
 

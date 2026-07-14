@@ -32,10 +32,15 @@ export default function RegistrosPage() {
 
   const load = async () => {
     setLoading(true);
-    const res = await fetch("/api/panel/registros", { headers: { "x-panel-token": token() } });
-    const data = await res.json();
-    setRegistros(data.registros || []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/panel/registros", { headers: { "x-panel-token": token() } });
+      const data = await res.json();
+      setRegistros(data.registros || []);
+    } catch {
+      showToast("Error de conexión al cargar registros", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);

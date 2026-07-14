@@ -75,7 +75,7 @@ export default function ReportesPage() {
 
                   <div className="bg-slate-50 border border-slate-200 rounded-xl px-6 py-4 text-right min-w-[200px]">
                     <span className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Total del Corte</span>
-                    <span className="text-3xl font-black text-slate-900">${cut.total_amount}</span>
+                    <span className="text-3xl font-black text-slate-900">${Number(cut.total_amount || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               )
