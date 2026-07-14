@@ -24,17 +24,19 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden">
       {/* BOTÓN ARRIBA DERECHA: MI CUENTA */}
       {catalogEnabled ? (
         <a
           href={isLoggedIn ? "/perfil" : "/login"}
-          className="absolute top-6 right-6 bg-white hover:bg-slate-50 text-slate-700 font-bold px-6 py-2.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95 z-10"
+          className="absolute right-6 bg-white hover:bg-slate-50 text-slate-700 font-bold px-6 py-2.5 rounded-full shadow-sm border border-slate-200 flex items-center gap-2 transition-all active:scale-95 z-10"
+          style={{ top: "calc(1.5rem + env(safe-area-inset-top))" }}
         >
           <span>👤</span> {profile ? profile.instagram : (isLoggedIn ? "Mi Cuenta" : "Iniciar Sesión")}
         </a>
       ) : (
-        <div className="absolute top-6 right-6 bg-slate-100 text-slate-400 font-bold px-6 py-2.5 rounded-full border border-slate-200 flex items-center gap-2 cursor-not-allowed select-none z-10">
+        <div className="absolute right-6 bg-slate-100 text-slate-400 font-bold px-6 py-2.5 rounded-full border border-slate-200 flex items-center gap-2 cursor-not-allowed select-none z-10"
+          style={{ top: "calc(1.5rem + env(safe-area-inset-top))" }}>
           <span>🔒</span> Mi Cuenta
         </div>
       )}
