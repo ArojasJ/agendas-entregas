@@ -38,7 +38,7 @@ export default function ProductoPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-white">
-        <div className="h-14 bg-white border-b border-slate-100 sticky top-0 z-20" />
+        <div className="bg-white border-b border-slate-100 sticky top-0 z-20" style={{ height: "calc(3.5rem + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }} />
         <div className="aspect-square bg-slate-100 animate-pulse" />
         <div className="p-5 space-y-4">
           <div className="h-6 bg-slate-100 animate-pulse rounded-xl w-3/4" />
@@ -94,7 +94,7 @@ export default function ProductoPage() {
   return (
     <main className="min-h-screen bg-white pb-28">
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100">
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
           <button
             onClick={() => router.back()}

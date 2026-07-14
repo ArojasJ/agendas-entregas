@@ -93,7 +93,7 @@ export default function CatalogoPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-white flex flex-col">
-        <div className="h-14 bg-white border-b border-slate-100" />
+        <div className="bg-white border-b border-slate-100" style={{ height: "calc(3.5rem + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }} />
         <div className="flex-1 flex flex-col items-center justify-center gap-4 opacity-30">
           <div className="w-24 h-24 rounded-full bg-slate-200 animate-pulse" />
           <div className="h-4 w-40 bg-slate-200 animate-pulse rounded-full" />
@@ -128,7 +128,7 @@ export default function CatalogoPage() {
   return (
     <main className="min-h-screen bg-white">
       {/* ── Header ── */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100">
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-100" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <Link href="/" className="font-black text-slate-900 text-base tracking-tight shrink-0">← NORESTE</Link>
           {cartCount > 0 && (

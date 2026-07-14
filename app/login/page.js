@@ -62,7 +62,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ paddingTop: "env(safe-area-inset-top)" }}>
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl overflow-hidden">
         <div className="p-8">
           <div className="text-center mb-8">
