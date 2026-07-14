@@ -13,8 +13,15 @@ export default function PanelLayout({ children }) {
   const [staffName, setStaffName] = useState("");
   const [pendingOrders, setPendingOrders] = useState(0);
   const [pendingRegistros, setPendingRegistros] = useState(0);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // v2
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const pathname = usePathname();
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const isPhone = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    setIsMobileDevice(isPhone || window.innerWidth < 1024);
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("panelAuth");
@@ -175,6 +182,149 @@ export default function PanelLayout({ children }) {
     );
   }
 
+  const navLinks = [
+    { name: "Nueva Venta",     href: "/panel/pos",              icon: "🛍️", roles: ["admin", "worker"] },
+    { name: "Pedidos Web",     href: "/panel/catalogo",         icon: "🌐", roles: ["admin", "worker"] },
+    { name: "Cobranza",        href: "/panel/cobranza",         icon: "💸", roles: ["admin", "worker"] },
+    { name: "Dashboard",       href: "/panel",                  icon: "📊", roles: ["admin"] },
+    { name: "Ventas",          href: "/panel/ventas",           icon: "💰", roles: ["admin", "worker"] },
+    { name: "Reportes",        href: "/panel/reportes",         icon: "📋", roles: ["admin"] },
+    { name: "Est. Resultados", href: "/panel/estado-resultados",icon: "📑", roles: ["admin"] },
+    { name: "Entregas",        href: "/panel/entregas",         icon: "🚚", roles: ["admin", "worker", "driver"] },
+    { name: "Inventario",      href: "/panel/inventario",       icon: "📦", roles: ["admin", "worker"] },
+    { name: "Clientes",        href: "/panel/clientes",         icon: "👥", roles: ["admin", "worker"] },
+    { name: "Historial",       href: "/panel/historial",        icon: "📋", roles: ["admin"] },
+    { name: "Registros",       href: "/panel/registros",        icon: "🆕", roles: ["admin", "worker"] },
+    { name: "Catálogo",        href: "/panel/categorias",       icon: "🛍️", roles: ["admin"] },
+  ].filter(link => link.roles.includes(panelRole));
+
+  // ── Layout móvil para admin/worker en celular o iPad ──
+  if (isMobileDevice && panelRole && panelRole !== "driver") {
+    const mobileQuickLinks = panelRole === "admin"
+      ? [
+          { name: "Inicio",    href: "/panel",             icon: "📊" },
+          { name: "Venta",     href: "/panel/pos",         icon: "🛍️" },
+          { name: "Entregas",  href: "/panel/entregas",    icon: "🚚" },
+          { name: "Cobranza",  href: "/panel/cobranza",    icon: "💸" },
+          { name: "Menú",      href: null,                 icon: "☰"  },
+        ]
+      : [
+          { name: "Venta",     href: "/panel/pos",         icon: "🛍️" },
+          { name: "Entregas",  href: "/panel/entregas",    icon: "🚚" },
+          { name: "Cobranza",  href: "/panel/cobranza",    icon: "💸" },
+          { name: "Inventario",href: "/panel/inventario",  icon: "📦" },
+          { name: "Menú",      href: null,                 icon: "☰"  },
+        ];
+
+    return (
+      <div className="h-[100dvh] flex flex-col overflow-hidden bg-slate-50">
+        {/* Safe area status bar */}
+        <div className="shrink-0 bg-white" style={{ height: "env(safe-area-inset-top, 44px)" }} />
+
+        {/* Header compacto */}
+        <header className="shrink-0 h-14 bg-white border-b border-slate-100 flex items-center justify-between px-4 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+              <span className="text-sm">🚚</span>
+            </div>
+            <div>
+              <span className="font-black text-sm text-slate-900 block leading-none">TRC</span>
+              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider leading-none">{staffName}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {pendingOrders > 0 && (
+              <Link href="/panel/catalogo" className="bg-red-500 text-white text-xs font-black px-2.5 py-1 rounded-full animate-pulse">
+                {pendingOrders} pedidos
+              </Link>
+            )}
+            <button onClick={handleLogout} className="text-xs font-semibold text-slate-400 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
+              Salir
+            </button>
+          </div>
+        </header>
+
+        {/* Contenido */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {children}
+        </div>
+
+        {/* Barra de navegación inferior */}
+        <nav
+          className="shrink-0 bg-white border-t border-slate-100 grid shadow-[0_-1px_0_rgba(0,0,0,0.06)]"
+          style={{
+            gridTemplateColumns: `repeat(${mobileQuickLinks.length}, 1fr)`,
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}
+        >
+          {mobileQuickLinks.map((link) => {
+            const isActive = link.href && (link.href === "/panel" ? pathname === "/panel" : pathname.startsWith(link.href));
+            if (!link.href) {
+              return (
+                <button
+                  key="menu"
+                  onClick={() => setIsMobileMenuOpen(true)}
+                  className="flex flex-col items-center gap-1 py-3 text-slate-400 active:bg-slate-50 transition-colors"
+                >
+                  <span className="text-xl leading-none">{link.icon}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">{link.name}</span>
+                </button>
+              );
+            }
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`flex flex-col items-center gap-1 py-3 transition-colors active:bg-slate-50 ${isActive ? "text-emerald-600" : "text-slate-400"}`}
+              >
+                <span className="text-xl leading-none">{link.icon}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{link.name}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Drawer de menú completo (móvil) */}
+        {isMobileMenuOpen && (
+          <>
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setIsMobileMenuOpen(false)} />
+            <div className="fixed inset-x-0 bottom-0 bg-white z-50 rounded-t-3xl shadow-2xl flex flex-col max-h-[80dvh]"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
+                <span className="font-black text-slate-900">Menú completo</span>
+                <button onClick={() => setIsMobileMenuOpen(false)} className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">✕</button>
+              </div>
+              <div className="overflow-y-auto p-4 grid grid-cols-2 gap-2">
+                {navLinks.map((link) => {
+                  const isActive = pathname === link.href;
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition-all ${isActive ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-50 text-slate-600 border border-slate-100 active:bg-slate-100"}`}
+                    >
+                      <span className="text-xl">{link.icon}</span>
+                      <span className="leading-tight">{link.name}</span>
+                      {link.href === "/panel/catalogo" && pendingOrders > 0 && (
+                        <span className="ml-auto bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{pendingOrders}</span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+              <div className="px-4 pb-4 pt-2 border-t border-slate-100">
+                <button onClick={handleLogout} className="w-full py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm border border-red-100">
+                  Cerrar sesión
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ── Layout exclusivo para repartidor: app móvil con barra inferior ──
   if (panelRole === "driver") {
     const isRutaActive = pathname.startsWith("/panel/entregas/ruta");
@@ -217,22 +367,6 @@ export default function PanelLayout({ children }) {
       </div>
     );
   }
-
-  const navLinks = [
-    { name: "Nueva Venta", href: "/panel/pos", icon: "🛍️", roles: ["admin", "worker"] },
-    { name: "Pedidos Web", href: "/panel/catalogo", icon: "🌐", roles: ["admin", "worker"] },
-    { name: "Cobranza", href: "/panel/cobranza", icon: "💸", roles: ["admin", "worker"] },
-    { name: "Dashboard", href: "/panel", icon: "📊", roles: ["admin"] },
-    { name: "Ventas", href: "/panel/ventas", icon: "💰", roles: ["admin", "worker"] },
-    { name: "Reportes", href: "/panel/reportes", icon: "📋", roles: ["admin"] },
-    { name: "Est. Resultados", href: "/panel/estado-resultados", icon: "📑", roles: ["admin"] },
-    { name: "Entregas", href: "/panel/entregas", icon: "🚚", roles: ["admin", "worker", "driver"] },
-    { name: "Inventario", href: "/panel/inventario", icon: "📦", roles: ["admin", "worker"] },
-    { name: "Clientes", href: "/panel/clientes", icon: "👥", roles: ["admin", "worker"] },
-    { name: "Historial", href: "/panel/historial", icon: "📋", roles: ["admin"] },
-    { name: "Registros", href: "/panel/registros", icon: "🆕", roles: ["admin", "worker"] },
-    { name: "Catálogo", href: "/panel/categorias", icon: "🛍️", roles: ["admin"] },
-  ].filter(link => link.roles.includes(panelRole));
 
   return (
     <div className="h-screen flex overflow-hidden transition-colors duration-300 bg-slate-50 text-slate-900">
