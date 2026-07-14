@@ -24,7 +24,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex flex-col relative overflow-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
       {/* BOTÓN ARRIBA DERECHA: MI CUENTA */}
       {catalogEnabled ? (
         <a

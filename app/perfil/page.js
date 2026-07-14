@@ -82,7 +82,7 @@ export default function PerfilPage() {
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       {/* HEADER */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-10" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <a href="/" className="text-emerald-600 font-bold flex items-center gap-2 text-sm">
             <span>←</span> Volver a Inicio
