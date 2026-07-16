@@ -394,7 +394,7 @@ export async function POST(req) {
                     const { data: sales } = await supabase.from("sales").select("id").eq("client_id", client.id);
                     if (sales?.length > 0) {
                       const sIds = sales.map(s => s.id);
-                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).neq("delivery_status", "delivered");
+                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).or("delivery_status.neq.delivered,delivery_status.is.null");
                       const matched = items?.find(it => it.products?.name?.toLowerCase().trim() === pName);
                       if (matched) await supabase.from("sale_items").update({ delivery_status: "delivered" }).eq("id", matched.id);
                     }
@@ -409,7 +409,7 @@ export async function POST(req) {
             if (clientForDebt) {
               const { data: activeSales } = await supabase.from("sales").select("id, total").eq("client_id", clientForDebt.id).eq("status", "credit");
               for (const s of activeSales || []) {
-                const { data: pItems } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).neq("delivery_status", "delivered");
+                const { data: pItems } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).or("delivery_status.neq.delivered,delivery_status.is.null");
                 if (!pItems || pItems.length === 0) {
                   await supabase.from("sales").update({ status: 'paid', down_payment: s.total }).eq("id", s.id);
                 }
@@ -847,7 +847,7 @@ export async function PATCH(req) {
                     const { data: sales } = await supabase.from("sales").select("id").eq("client_id", client.id);
                     if (sales?.length > 0) {
                       const sIds = sales.map(s => s.id);
-                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).neq("delivery_status", "delivered");
+                      const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).or("delivery_status.neq.delivered,delivery_status.is.null");
                       // Buscamos coincidencia exacta de nombre
                       const matchedItems = items?.filter(it => it.products?.name?.toLowerCase().trim() === pName) || [];
                       for (const m of matchedItems) {
@@ -866,7 +866,7 @@ export async function PATCH(req) {
             if (cDebt) {
               const { data: activeS } = await supabase.from("sales").select("id, total").eq("client_id", cDebt.id).eq("status", "credit");
               for (const s of activeS || []) {
-                const { data: pending } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).neq("delivery_status", "delivered");
+                const { data: pending } = await supabase.from("sale_items").select("id").eq("sale_id", s.id).or("delivery_status.neq.delivered,delivery_status.is.null");
                 if (!pending || pending.length === 0) {
                   await supabase.from("sales").update({ status: 'paid', down_payment: s.total }).eq("id", s.id);
                 }

@@ -28,7 +28,7 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
-    const { id, products, amountDue, deliveryStatus, paymentMethod } = body;
+    const { id, products, amountDue, deliveryStatus, paymentMethod, saleId } = body;
 
     if (!id) {
       return Response.json({ message: "Falta id" }, { status: 400 });
@@ -138,6 +138,34 @@ export async function PATCH(req) {
           syncLog.push("Cajas vaciadas");
         }
 
+        // 4b-direct. Ruta directa: si se pasa saleId, marcar todos los items pendientes de esa venta
+        if (saleId) {
+          const { error: directErr, count: directCount } = await supabase
+            .from("sale_items")
+            .update({ delivery_status: "delivered" })
+            .eq("sale_id", saleId)
+            .or("delivery_status.neq.delivered,delivery_status.is.null");
+          if (!directErr) {
+            itemsUpdatedCount += (directCount || 1);
+            syncLog.push(`Items marcados por sale_id ${saleId}`);
+            // Verificar si la venta queda liquidada
+            const { data: stillPending } = await supabase
+              .from("sale_items")
+              .select("id")
+              .eq("sale_id", saleId)
+              .or("delivery_status.neq.delivered,delivery_status.is.null");
+            if (!stillPending || stillPending.length === 0) {
+              const { data: saleRow } = await supabase.from("sales").select("id, total, status").eq("id", saleId).single();
+              if (saleRow && saleRow.status === "credit") {
+                await supabase.from("sales").update({ status: "paid", down_payment: saleRow.total }).eq("id", saleId);
+                syncLog.push("Venta liquidada");
+              }
+            }
+          } else {
+            syncLog.push("Error en ruta directa: " + directErr.message);
+          }
+        }
+
         // 4b. Marcar items por ID
         if (Array.isArray(sItemIds) && sItemIds.length > 0) {
           const { error: idErr } = await supabase
@@ -182,7 +210,7 @@ export async function PATCH(req) {
                     .from("sale_items")
                     .select("id, products(name)")
                     .in("sale_id", saleIds)
-                    .neq("delivery_status", "delivered");
+                    .or("delivery_status.neq.delivered,delivery_status.is.null");
 
                   syncLog.push(`Buscando "${pName}" en ${items?.length || 0} items pendientes`);
 
@@ -228,7 +256,7 @@ export async function PATCH(req) {
               .from("sale_items")
               .select("id")
               .eq("sale_id", s.id)
-              .neq("delivery_status", "delivered");
+              .or("delivery_status.neq.delivered,delivery_status.is.null");
 
             if (!pending || pending.length === 0) {
               await supabase

@@ -47,6 +47,9 @@ function InventarioContent() {
   const [form, setForm] = useState(emptyForm);
   const [stats, setStats] = useState(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [statsTab, setStatsTab] = useState("trazabilidad");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [panelRole, setPanelRole] = useState("");
   const [productImages, setProductImages] = useState([]); // [{ _key, src }]
   const [isNewCategory, setIsNewCategory] = useState(false);
   const [barcodeError, setBarcodeError] = useState("");
@@ -78,7 +81,12 @@ function InventarioContent() {
     return Array.from(new Set(cats)).sort();
   }, [products]);
 
-  useEffect(() => { fetchProducts(); }, []);
+  useEffect(() => {
+    fetchProducts();
+    const role = localStorage.getItem("panelRole") || "";
+    setPanelRole(role);
+    setIsAdmin(role === "admin");
+  }, []);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -204,6 +212,7 @@ function InventarioContent() {
         productData.price = 0;
         productData.stock = variants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
         productData.barcode = "";
+        productData.skipStockAudit = true; // El stock del padre es derivado; el log real está en la variante
       }
 
       const res = await fetch("/api/products", {
@@ -724,83 +733,144 @@ function InventarioContent() {
               </div>
             </form>
 
-            {/* Trazabilidad */}
+            {/* Trazabilidad + Movimientos de Stock */}
             {form.id && (
               <div className="px-6 pb-6 border-t border-slate-100">
-                <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 pt-4">
-                  <span className="text-xl">📊</span> Trazabilidad del Producto
-                </h3>
-                {loadingStats ? (
-                  <div className="text-center opacity-50 py-4 text-sm">Cargando estadísticas...</div>
-                ) : stats ? (
-                  <div className="space-y-4">
-                    {/* Resumen en pills */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock inicial</p>
-                        <p className="text-lg font-black text-slate-700">{stats.stats?.estimated_initial_stock ?? "—"}</p>
-                      </div>
-                      <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
-                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Vendidas</p>
-                        <p className="text-lg font-black text-red-600">{stats.stats?.total_units_sold ?? 0}</p>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock actual</p>
-                        <p className="text-lg font-black text-slate-700">{stats.product?.current_stock ?? "—"}</p>
-                      </div>
-                    </div>
+                {/* Pestañas */}
+                <div className="flex gap-1 pt-4 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setStatsTab("trazabilidad")}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${statsTab === "trazabilidad" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                  >
+                    <span>📊</span> Trazabilidad
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setStatsTab("movimientos")}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold transition-all ${statsTab === "movimientos" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                    >
+                      <span>📦</span> Movimientos
+                    </button>
+                  )}
+                </div>
 
-                    {/* Tabla de movimientos */}
-                    <div>
-                      <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                        Últimas Ventas — {stats.sales_history?.length || 0} registros
-                      </p>
-                      {stats.sales_history?.length > 0 ? (
-                        <div className="border border-slate-200 rounded-xl overflow-hidden">
-                          {/* Cabecera */}
-                          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200">
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Comprador</span>
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha</span>
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cant.</span>
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Venta</span>
+                {loadingStats ? (
+                  <div className="text-center opacity-50 py-4 text-sm">Cargando...</div>
+                ) : stats ? (
+                  <>
+                    {/* ── Pestaña Trazabilidad ── */}
+                    {statsTab === "trazabilidad" && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock inicial</p>
+                            <p className="text-lg font-black text-slate-700">{stats.stats?.estimated_initial_stock ?? "—"}</p>
                           </div>
-                          {/* Filas */}
-                          <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                            {stats.sales_history.map((sale, idx) => (
-                              <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2.5 hover:bg-slate-50 transition-colors">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-bold text-slate-800 truncate">
-                                    {sale.client_instagram ? `@${sale.client_instagram.replace(/^@/, "")}` : sale.client_name}
-                                  </p>
-                                  {sale.client_instagram && sale.client_name && sale.client_name !== "Público General" && (
-                                    <p className="text-[10px] text-slate-400 truncate">{sale.client_name}</p>
-                                  )}
-                                </div>
-                                <span className="text-[11px] text-slate-400 whitespace-nowrap">
-                                  {new Date(sale.date).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
-                                </span>
-                                <span className="inline-flex items-center gap-1 text-[11px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-md whitespace-nowrap">
-                                  ↓ Salida <span className="text-red-600">{sale.quantity}</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => router.push(`/panel/ventas/${sale.sale_id}`)}
-                                  className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline whitespace-nowrap"
-                                >
-                                  #{sale.sale_id?.toString().slice(-5)}
-                                </button>
+                          <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Vendidas</p>
+                            <p className="text-lg font-black text-red-600">{stats.stats?.total_units_sold ?? 0}</p>
+                          </div>
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock actual</p>
+                            <p className="text-lg font-black text-slate-700">{stats.product?.current_stock ?? "—"}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+                            Últimas Ventas — {stats.sales_history?.length || 0} registros
+                          </p>
+                          {stats.sales_history?.length > 0 ? (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden">
+                              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Comprador</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cant.</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Venta</span>
                               </div>
-                            ))}
+                              <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                                {stats.sales_history.map((sale, idx) => (
+                                  <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-bold text-slate-800 truncate">
+                                        {sale.client_instagram ? `@${sale.client_instagram.replace(/^@/, "")}` : sale.client_name}
+                                      </p>
+                                      {sale.client_instagram && sale.client_name && sale.client_name !== "Público General" && (
+                                        <p className="text-[10px] text-slate-400 truncate">{sale.client_name}</p>
+                                      )}
+                                    </div>
+                                    <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                                      {new Date(sale.date).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-black text-red-500 bg-red-50 border border-red-100 px-2 py-0.5 rounded-md whitespace-nowrap">
+                                      ↓ {sale.quantity}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => router.push(`/panel/ventas/${sale.sale_id}`)}
+                                      className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline whitespace-nowrap"
+                                    >
+                                      #{sale.sale_id?.toString().slice(-5)}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl p-6 text-center">
+                              <p className="text-3xl mb-2">🛍️</p>
+                              <p className="text-sm text-slate-400 font-medium">Aún no hay ventas registradas</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Pestaña Movimientos (solo admin) ── */}
+                    {statsTab === "movimientos" && isAdmin && (
+                      <div>
+                        <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">
+                          Cambios manuales de stock — {stats.stock_movements?.length || 0} registros
+                        </p>
+                        {stats.stock_movements?.length > 0 ? (
+                          <div className="border border-slate-200 rounded-xl overflow-hidden">
+                            <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2 bg-slate-50 border-b border-slate-200">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Empleado · Fecha</span>
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Antes → Después</span>
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cambio</span>
+                            </div>
+                            <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                              {stats.stock_movements.map((mov, idx) => {
+                                const added = mov.diff > 0;
+                                return (
+                                  <div key={idx} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-bold text-slate-800 truncate">{mov.staff_name}</p>
+                                      <p className="text-[10px] text-slate-400">
+                                        {new Date(mov.created_at).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                      </p>
+                                    </div>
+                                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                                      {mov.old_stock} → {mov.new_stock} pzs.
+                                    </span>
+                                    <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-md whitespace-nowrap border ${added ? "text-emerald-600 bg-emerald-50 border-emerald-100" : "text-amber-600 bg-amber-50 border-amber-100"}`}>
+                                      {added ? "▲" : "▼"} {added ? "+" : ""}{mov.diff} pzs.
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="border border-slate-200 rounded-xl p-6 text-center">
-                          <p className="text-3xl mb-2">🛍️</p>
-                          <p className="text-sm text-slate-400 font-medium">Aún no hay ventas registradas</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                        ) : (
+                          <div className="border border-slate-200 rounded-xl p-6 text-center">
+                            <p className="text-3xl mb-2">📦</p>
+                            <p className="text-sm text-slate-400 font-medium">Sin movimientos manuales registrados</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center text-red-500 py-4 text-sm">Error al cargar estadísticas.</div>
                 )}

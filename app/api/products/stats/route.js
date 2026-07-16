@@ -87,6 +87,40 @@ export async function GET(req) {
     // El stock inicial estimado es el stock actual + lo que ya se vendió
     const estimatedInitialStock = Number(product.stock) + totalUnitsSold;
 
+    // Movimientos de stock manuales (solo para admin)
+    let stockMovements = [];
+    if (session.role === "admin") {
+      const { data: logs } = await supabase
+        .from("stock_logs")
+        .select("*")
+        .eq("product_id", id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (logs && logs.length > 0) {
+        // Obtener nombres de staff para los IDs encontrados
+        const staffIds = [...new Set(logs.map(l => l.staff_id).filter(Boolean))];
+        let staffMap = {};
+        if (staffIds.length > 0) {
+          const { data: staffList } = await supabase
+            .from("staff")
+            .select("id, display_name")
+            .in("id", staffIds);
+          (staffList || []).forEach(s => { staffMap[String(s.id)] = s.display_name; });
+        }
+
+        stockMovements = logs.map(l => ({
+          id: l.id,
+          old_stock: l.old_stock,
+          new_stock: l.new_stock,
+          diff: Number(l.new_stock) - Number(l.old_stock),
+          reason: l.reason || "manual_update",
+          staff_name: staffMap[String(l.staff_id)] || l.staff_name || "—",
+          created_at: l.created_at,
+        }));
+      }
+    }
+
     return Response.json({
       product: {
         created_at: product.created_at,
@@ -97,7 +131,8 @@ export async function GET(req) {
         total_units_sold: totalUnitsSold,
         estimated_initial_stock: estimatedInitialStock
       },
-      sales_history: salesList
+      sales_history: salesList,
+      stock_movements: stockMovements,
     });
   } catch (error) {
     console.error(error);

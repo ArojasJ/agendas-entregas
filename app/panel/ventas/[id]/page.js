@@ -24,6 +24,7 @@ export default function SaleDetailPage() {
   const [savingAbono, setSavingAbono] = useState(false);
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+  const [resyncingDelivery, setResyncingDelivery] = useState(false);
 
   const showToast = (message, type = "success") => {
     setToast({ show: true, message, type });
@@ -83,6 +84,46 @@ export default function SaleDetailPage() {
   const date = new Date(sale.created_at).toLocaleString("es-MX", {
     day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
   });
+
+  // Detectar items pendientes y buscar la entrega "entregado" vinculada
+  const pendingDeliveryItems = (sale.sale_items || []).filter(it => it.delivery_status !== "delivered");
+  const clientIg = (sale.clients?.instagram || "").trim().replace(/^@/, "").toLowerCase();
+  const matchingDeliveredBooking = pendingDeliveryItems.length > 0
+    ? bookings.find(bk => {
+        if (bk.delivery_status !== "entregado") return false;
+        let ids = bk.sale_item_ids || [];
+        if (typeof ids === "string") { try { ids = JSON.parse(ids); } catch (e) { ids = []; } }
+        if (Array.isArray(ids) && ids.length > 0) {
+          return pendingDeliveryItems.some(it => ids.includes(it.id));
+        }
+        const bkIg = (bk.instagram || "").trim().replace(/^@/, "").toLowerCase();
+        return clientIg && bkIg === clientIg;
+      })
+    : null;
+
+  const handleResyncDelivery = async () => {
+    if (!matchingDeliveredBooking) return;
+    setResyncingDelivery(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/bookings/update-delivery", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ id: matchingDeliveredBooking.id, deliveryStatus: "entregado", saleId: sale.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Sincronización completada", "success");
+        fetchSaleDetail();
+      } else {
+        showToast(data.message || "Error al sincronizar", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setResyncingDelivery(false);
+    }
+  };
 
   const isCatalog = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
   const isCredit = sale.status === 'credit';
@@ -481,6 +522,17 @@ export default function SaleDetailPage() {
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
             <h3 className="font-bold text-sm uppercase tracking-widest text-slate-500 mb-4">Acciones de Venta</h3>
             <div className="space-y-3 text-sm">
+
+              {/* Re-sincronizar entrega: aparece cuando hay items pendientes pero la entrega ya está marcada como entregado */}
+              {matchingDeliveredBooking && (
+                <button
+                  onClick={handleResyncDelivery}
+                  disabled={resyncingDelivery}
+                  className="w-full py-2.5 bg-white border border-sky-200 text-sky-600 font-bold rounded-xl hover:bg-sky-50 transition-colors disabled:opacity-50 text-sm"
+                >
+                  {resyncingDelivery ? "Sincronizando..." : "↺ Re-sincronizar Entrega"}
+                </button>
+              )}
 
               {/* Vencimiento — solo ventas a crédito pendientes */}
               {isCredit && deuda > 0 && (() => {

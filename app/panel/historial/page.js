@@ -3,8 +3,10 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 const ACTION_LABELS = {
-  delete_sale: { label: "Eliminó venta", icon: "🗑", color: "text-red-500 bg-red-500/10 border-red-500/20" },
-  delete_product: { label: "Eliminó producto", icon: "📦", color: "text-orange-500 bg-orange-500/10 border-orange-500/20" },
+  delete_sale:    { label: "Eliminó venta",     icon: "🗑",  color: "text-red-500 bg-red-500/10 border-red-500/20" },
+  delete_product: { label: "Eliminó producto",  icon: "📦",  color: "text-orange-500 bg-orange-500/10 border-orange-500/20" },
+  stock_add:      { label: "Agregó al stock",   icon: "📈",  color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/20" },
+  stock_remove:   { label: "Quitó del stock",   icon: "📉",  color: "text-amber-600 bg-amber-500/10 border-amber-500/20" },
 };
 
 function formatDate(iso) {
@@ -75,6 +77,8 @@ export default function HistorialPage() {
           <option value="all">Todas las acciones</option>
           <option value="delete_sale">Ventas eliminadas</option>
           <option value="delete_product">Productos eliminados</option>
+          <option value="stock_add">Stock agregado</option>
+          <option value="stock_remove">Stock quitado</option>
         </select>
 
         <select
@@ -113,6 +117,15 @@ export default function HistorialPage() {
               summary = { title: `$${Number(snap.total || 0).toFixed(2)} — ${clientInfo}`, detail: items };
             } else if (log.action === "delete_product" && snap) {
               summary = { title: snap.name || "Sin nombre", detail: `Precio: $${snap.price || 0} · Stock: ${snap.stock ?? "—"} · Cat: ${snap.category || "—"}` };
+            } else if ((log.action === "stock_add" || log.action === "stock_remove") && snap) {
+              const productLabel = snap.variant_name
+                ? `${snap.product_name} — ${snap.variant_name}`
+                : snap.product_name || "Producto";
+              const arrow = log.action === "stock_add" ? "+" : "-";
+              summary = {
+                title: productLabel,
+                detail: `${snap.old_stock ?? "?"} → ${snap.new_stock ?? "?"} piezas (${arrow}${snap.diff ?? "?"})`,
+              };
             }
 
             return (
@@ -224,6 +237,30 @@ export default function HistorialPage() {
                           </div>
                         )}
                       </>
+                    ) : (log.action === "stock_add" || log.action === "stock_remove") ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="bg-white border border-slate-200 rounded-xl p-3 sm:col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Producto</p>
+                          <p className="font-black text-slate-900">{snap.product_name || "—"}</p>
+                          {snap.variant_name && (
+                            <p className="text-xs text-slate-400 mt-0.5">Variante: {snap.variant_name}</p>
+                          )}
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-3">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock anterior</p>
+                          <p className="font-black text-slate-500">{snap.old_stock ?? "—"} pzs.</p>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-3">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock nuevo</p>
+                          <p className="font-black text-slate-900">{snap.new_stock ?? "—"} pzs.</p>
+                        </div>
+                        <div className={`bg-white border rounded-xl p-3 ${log.action === "stock_add" ? "border-emerald-200" : "border-amber-200"}`}>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cambio</p>
+                          <p className={`font-black text-lg ${log.action === "stock_add" ? "text-emerald-600" : "text-amber-600"}`}>
+                            {log.action === "stock_add" ? "+" : "-"}{snap.diff ?? "?"} pzs.
+                          </p>
+                        </div>
+                      </div>
                     ) : (
                       <pre className="text-xs text-slate-600 overflow-x-auto whitespace-pre-wrap bg-white border border-slate-200 rounded-xl p-3 max-h-64 overflow-y-auto">
                         {JSON.stringify(snap, null, 2)}

@@ -172,7 +172,7 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
-    const { id, name, category, stock, barcode, cost, price, image_url, description, images } = body;
+    const { id, name, category, stock, barcode, cost, price, image_url, description, images, skipStockAudit } = body;
 
     if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
 
@@ -232,18 +232,42 @@ export async function PATCH(req) {
 
     // 3. Registrar el log de stock si la cantidad cambió
     if (stock !== undefined && currentProduct && Number(currentProduct.stock) !== Number(stock)) {
+      const oldStock = Number(currentProduct.stock);
+      const newStock = Number(stock);
+      const diff = newStock - oldStock;
+      const action = diff > 0 ? "stock_add" : "stock_remove";
       try {
         await supabase.from("stock_logs").insert([{
           product_id: id,
-          old_stock: Number(currentProduct.stock),
-          new_stock: Number(stock),
-          reason: 'manual_update',
+          old_stock: oldStock,
+          new_stock: newStock,
+          reason: "manual_update",
           staff_id: session.staffId || null,
-          created_at: new Date().toISOString()
+          staff_name: session.displayName || session.username || null,
+          created_at: new Date().toISOString(),
         }]);
       } catch (logErr) {
-        // Ignoramos el error si la tabla aún no existe o falla, para no romper la edición
         console.error("No se pudo registrar log de stock:", logErr);
+      }
+      if (!skipStockAudit) {
+        try {
+          await supabase.from("audit_logs").insert([{
+            action,
+            entity_type: "product",
+            entity_id: String(id),
+            entity_snapshot: {
+              product_name: data.name,
+              old_stock: oldStock,
+              new_stock: newStock,
+              diff: Math.abs(diff),
+            },
+            staff_id: session.staffId ? String(session.staffId) : null,
+            staff_name: session.displayName || session.username || null,
+            staff_role: session.role || null,
+          }]);
+        } catch (auditErr) {
+          console.error("No se pudo registrar audit log de stock:", auditErr);
+        }
       }
     }
 

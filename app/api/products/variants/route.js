@@ -72,6 +72,14 @@ export async function PATCH(req) {
   if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
   const { id, name, sku, barcode, cost, price, stock, image_url, images } = await req.json();
   if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
+
+  // Leer estado actual para comparar stock y obtener nombre del producto
+  const { data: current } = await supabase
+    .from("product_variants")
+    .select("stock, name, product_id, products(name)")
+    .eq("id", id)
+    .single();
+
   const update = {};
   if (name !== undefined) update.name = name;
   if (sku !== undefined) update.sku = sku || null;
@@ -81,9 +89,39 @@ export async function PATCH(req) {
   if (stock !== undefined) update.stock = Number(stock);
   if (image_url !== undefined) update.image_url = await uploadImage(image_url, name || id);
   if (images !== undefined) update.images = await Promise.all((images || []).map(img => uploadImage(img, name || id)));
+
   const { data, error } = await supabase
     .from("product_variants").update(update).eq("id", id).select().single();
   if (error) return Response.json({ message: error.message }, { status: 500 });
+
+  // Registrar en audit_logs si el stock cambió
+  if (stock !== undefined && current && Number(current.stock) !== Number(stock)) {
+    const oldStock = Number(current.stock);
+    const newStock = Number(stock);
+    const diff = newStock - oldStock;
+    const variantLabel = current.name || id;
+    const productName = current.products?.name || "";
+    try {
+      await supabase.from("audit_logs").insert([{
+        action: diff > 0 ? "stock_add" : "stock_remove",
+        entity_type: "variant",
+        entity_id: String(id),
+        entity_snapshot: {
+          product_name: productName,
+          variant_name: variantLabel,
+          old_stock: oldStock,
+          new_stock: newStock,
+          diff: Math.abs(diff),
+        },
+        staff_id: session.staffId ? String(session.staffId) : null,
+        staff_name: session.displayName || session.username || null,
+        staff_role: session.role || null,
+      }]);
+    } catch (auditErr) {
+      console.error("No se pudo registrar audit log de variante:", auditErr);
+    }
+  }
+
   return Response.json({ variant: data });
 }
 

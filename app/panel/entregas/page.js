@@ -177,6 +177,8 @@ export default function PanelPage() {
 
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualType, setManualType] = useState("bodega");
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   const [manualForm, setManualForm] = useState({
     instagram: "",
     fullName: "",
@@ -249,6 +251,25 @@ export default function PanelPage() {
     }
   }, [isDark]);
 
+
+  const handleSyncAllDeliveries = async () => {
+    setSyncingAll(true);
+    setSyncResult(null);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/panel/sync-deliveries", {
+        method: "POST",
+        headers: { "x-panel-token": token },
+      });
+      const data = await res.json();
+      setSyncResult({ ok: res.ok, message: data.message, fixed: data.fixed || 0 });
+      if (res.ok && data.fixed > 0) fetchBookings();
+    } catch {
+      setSyncResult({ ok: false, message: "Error de conexión" });
+    } finally {
+      setSyncingAll(false);
+    }
+  };
 
   const fetchBookings = async () => {
     setLoadingData(true);
@@ -816,13 +837,31 @@ export default function PanelPage() {
             </p>
           </div>
           {isAdmin && (
-            <button
-              onClick={() => setShowManualModal(true)}
-              className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.35)] active:scale-[0.98]"
-            >
-              <span className="text-base leading-none">+</span>
-              <span>Nueva entrega manual</span>
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncAllDeliveries}
+                  disabled={syncingAll}
+                  title="Sincroniza automáticamente todos los productos que siguen pendientes aunque su entrega ya esté marcada como entregada"
+                  className="flex items-center justify-center gap-2 bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
+                >
+                  <span className="text-base leading-none">{syncingAll ? "⏳" : "↺"}</span>
+                  <span>{syncingAll ? "Sincronizando..." : "Sincronizar entregas"}</span>
+                </button>
+                <button
+                  onClick={() => setShowManualModal(true)}
+                  className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.35)] active:scale-[0.98]"
+                >
+                  <span className="text-base leading-none">+</span>
+                  <span>Nueva entrega manual</span>
+                </button>
+              </div>
+              {syncResult && (
+                <p className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${syncResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+                  {syncResult.message}
+                </p>
+              )}
+            </div>
           )}
         </div>
 
