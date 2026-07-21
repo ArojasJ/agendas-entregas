@@ -25,6 +25,15 @@ export default function SaleDetailPage() {
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
   const [resyncingDelivery, setResyncingDelivery] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}/compra/${sale.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    });
+  };
 
   const showToast = (message, type = "success") => {
     setToast({ show: true, message, type });
@@ -522,6 +531,18 @@ export default function SaleDetailPage() {
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
             <h3 className="font-bold text-sm uppercase tracking-widest text-slate-500 mb-4">Acciones de Venta</h3>
             <div className="space-y-3 text-sm">
+
+              {/* Link compartible para el cliente */}
+              <button
+                onClick={handleCopyLink}
+                className={`w-full py-2.5 border font-bold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
+                  linkCopied
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {linkCopied ? "✓ Link copiado" : "🔗 Copiar link del cliente"}
+              </button>
 
               {/* Re-sincronizar entrega: aparece cuando hay items pendientes pero la entrega ya está marcada como entregado */}
               {matchingDeliveredBooking && (

@@ -849,6 +849,13 @@ export default function PanelPage() {
                   <span>{syncingAll ? "Sincronizando..." : "Sincronizar entregas"}</span>
                 </button>
                 <button
+                  onClick={() => router.push("/panel/entregas/live")}
+                  className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-sky-400 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all active:scale-[0.98]"
+                >
+                  <span className="text-base leading-none">📍</span>
+                  <span>Ver ruta en vivo</span>
+                </button>
+                <button
                   onClick={() => setShowManualModal(true)}
                   className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.35)] active:scale-[0.98]"
                 >

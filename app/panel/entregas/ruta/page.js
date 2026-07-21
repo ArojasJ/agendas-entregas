@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -89,6 +89,9 @@ export default function RutaPage() {
   const [mode, setMode] = useState("review"); // 'review' | 'driving'
   const [currentIdx, setCurrentIdx] = useState(0);
   const [updatingId, setUpdatingId] = useState(null);
+  const [sharingGps, setSharingGps] = useState(false);
+  const gpsWatchRef = useRef(null);
+  const gpsSendRef = useRef(null);
   const [pendingDelivery, setPendingDelivery] = useState(null); // { booking } — awaiting payment method
   const [pendingNoEntregado, setPendingNoEntregado] = useState(null); // { booking } — awaiting confirmation
   const [saldoMap, setSaldoMap] = useState({}); // instagram (sin @) → saldo_favor
@@ -159,6 +162,17 @@ export default function RutaPage() {
           if (valid.length === ids.length) {
             setOrder(valid);
             regenerateMap(todayDom, valid);
+            // Restaurar mapa guardado mientras regenera
+            const cachedMap = localStorage.getItem("rutaMapUrl");
+            if (cachedMap) setMapUrl(cachedMap);
+            // Restaurar modo y parada actual
+            const savedMode = localStorage.getItem("rutaMode");
+            const savedIdx = parseInt(localStorage.getItem("rutaIdx") || "0", 10);
+            if (savedMode === "driving") setMode("driving");
+            if (!isNaN(savedIdx) && savedIdx > 0 && savedIdx < valid.length) {
+              setCurrentIdx(savedIdx);
+            }
+            setStatusMsg({ text: `✓ Ruta restaurada — ${valid.length} paradas pendientes`, type: "success" });
             return;
           }
         } catch {}
@@ -175,16 +189,26 @@ export default function RutaPage() {
     const sorted = ord.map((id) => bks.find((b) => b.id === id)).filter(Boolean);
     const url = buildStaticMapUrl(sorted, apiKey);
     setMapUrl(url);
+    if (url) localStorage.setItem("rutaMapUrl", url);
+    else localStorage.removeItem("rutaMapUrl");
   };
 
-  // Persist order
+  // Persist order, mode y posición actual
+  // IMPORTANTE: solo guardar cuando hay orden real, nunca borrar aquí
+  // (el borrado ocurre en markStop cuando se completa la ruta)
   useEffect(() => {
     if (order.length > 0) {
       localStorage.setItem("rutaOrder", JSON.stringify(order));
-    } else {
-      localStorage.removeItem("rutaOrder");
     }
   }, [order]);
+
+  useEffect(() => {
+    localStorage.setItem("rutaMode", mode);
+  }, [mode]);
+
+  useEffect(() => {
+    localStorage.setItem("rutaIdx", String(currentIdx));
+  }, [currentIdx]);
 
   // ── Sorted bookings ───────────────────────────────────
   const sorted = useMemo(() => {
@@ -219,6 +243,7 @@ export default function RutaPage() {
         setStatusMsg({ text: data.message || "Error al optimizar", type: "error" });
       } else {
         const newOrder = data.order || bookings.map((b) => b.id);
+        localStorage.setItem("rutaOrder", JSON.stringify(newOrder));
         setOrder(newOrder);
         regenerateMap(bookings, newOrder);
         setStatusMsg({ text: `Ruta optimizada — ${newOrder.length} paradas`, type: "success" });
@@ -267,6 +292,12 @@ export default function RutaPage() {
       setBookings(newBookings);
       setOrder(newOrder);
       regenerateMap(newBookings, newOrder);
+      if (newOrder.length === 0) {
+        localStorage.removeItem("rutaOrder");
+        localStorage.removeItem("rutaMode");
+        localStorage.removeItem("rutaIdx");
+        localStorage.removeItem("rutaMapUrl");
+      }
       if (currentIdx >= newBookings.length && currentIdx > 0) {
         setCurrentIdx(currentIdx - 1);
       }
@@ -395,6 +426,59 @@ export default function RutaPage() {
     }
   };
 
+  // ── GPS sharing ───────────────────────────────────────
+  const sendLocation = useCallback(async (lat, lng) => {
+    const token = getPanelToken();
+    await fetch("/api/driver-location", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": token },
+      body: JSON.stringify({ lat, lng, is_active: true }),
+    });
+  }, []);
+
+  const startGps = useCallback(() => {
+    if (!navigator.geolocation) return;
+    setSharingGps(true);
+    let lastLat = null, lastLng = null;
+    gpsWatchRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        lastLat = pos.coords.latitude;
+        lastLng = pos.coords.longitude;
+        sendLocation(lastLat, lastLng);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+    // Enviar cada 5s aunque no haya cambio
+    gpsSendRef.current = setInterval(() => {
+      if (lastLat !== null) sendLocation(lastLat, lastLng);
+    }, 5000);
+  }, [sendLocation]);
+
+  const stopGps = useCallback(async () => {
+    if (gpsWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchRef.current);
+      gpsWatchRef.current = null;
+    }
+    clearInterval(gpsSendRef.current);
+    gpsSendRef.current = null;
+    setSharingGps(false);
+    const token = getPanelToken();
+    await fetch("/api/driver-location", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": token },
+      body: JSON.stringify({ lat: 0, lng: 0, is_active: false }),
+    });
+  }, []);
+
+  // Detener GPS al desmontar
+  useEffect(() => {
+    return () => {
+      if (gpsWatchRef.current !== null) navigator.geolocation.clearWatch(gpsWatchRef.current);
+      clearInterval(gpsSendRef.current);
+    };
+  }, []);
+
   // ── UI helpers ────────────────────────────────────────
   const statusClasses = {
     success: "bg-emerald-50 border border-emerald-200 text-emerald-700",
@@ -422,13 +506,23 @@ export default function RutaPage() {
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
         {/* Header */}
         <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-          <button onClick={() => setMode("review")} className="text-slate-400 hover:text-white text-sm font-bold flex items-center gap-2">
+          <button onClick={() => { setMode("review"); stopGps(); }} className="text-slate-400 hover:text-white text-sm font-bold flex items-center gap-2">
             ← Revisión
           </button>
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
             Parada {currentIdx + 1} de {sorted.length}
           </span>
-          <span className="text-sky-400 font-black text-sm">{sorted.length - currentIdx - 1} restantes</span>
+          <button
+            onClick={sharingGps ? stopGps : startGps}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border transition-all active:scale-95 ${
+              sharingGps
+                ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                : "bg-slate-800 border-slate-700 text-slate-400 hover:border-sky-500/40 hover:text-sky-400"
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${sharingGps ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+            {sharingGps ? "GPS ON" : "GPS"}
+          </button>
         </div>
 
         {/* Barra de progreso */}
@@ -455,10 +549,10 @@ export default function RutaPage() {
             <h2 className="text-2xl font-black">¡Ruta completada!</h2>
             <p className="text-slate-400">Todas las paradas del día han sido procesadas.</p>
             <div className="flex flex-col gap-3 mt-4 w-full max-w-xs">
-              <button onClick={() => setMode("review")} className="bg-sky-500 text-white px-6 py-3 rounded-2xl font-black">
+              <button onClick={() => { setMode("review"); stopGps(); }} className="bg-sky-500 text-white px-6 py-3 rounded-2xl font-black">
                 Ver resumen
               </button>
-              <button onClick={() => router.push("/panel/entregas")} className="bg-slate-800 border border-slate-700 text-slate-300 px-6 py-3 rounded-2xl font-black hover:bg-slate-700 transition-colors">
+              <button onClick={() => { stopGps(); router.push("/panel/entregas"); }} className="bg-slate-800 border border-slate-700 text-slate-300 px-6 py-3 rounded-2xl font-black hover:bg-slate-700 transition-colors">
                 ← Volver a Entregas
               </button>
             </div>
@@ -742,7 +836,7 @@ export default function RutaPage() {
                 )}
               </button>
               <button
-                onClick={() => { setMode("driving"); setCurrentIdx(0); }}
+                onClick={() => { setMode("driving"); setCurrentIdx(0); startGps(); }}
                 disabled={sorted.length === 0}
                 className="flex-1 flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-400 text-white font-black py-3 rounded-2xl transition-all disabled:opacity-50 active:scale-95 shadow-lg shadow-sky-500/20"
               >
