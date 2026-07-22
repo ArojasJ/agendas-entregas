@@ -11,7 +11,7 @@ const PANEL_PASSWORD_ENV =
 const CASHBOX_INITIAL = 300;
 
 // 🚩 VARIABLE DE CONTROL: Cambia a true para volver a mostrar Bodega en el panel
-const BODEGA_ACTIVA = false;
+const BODEGA_ACTIVA = true;
 
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;

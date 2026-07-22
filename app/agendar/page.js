@@ -10,7 +10,7 @@ import { registerLocale } from "react-datepicker";
 registerLocale("es", es);
 
 // 🚩 VARIABLE DE CONTROL: Cambia a true para volver a mostrar la opción de Bodega
-const BODEGA_ACTIVA = false;
+const BODEGA_ACTIVA = true;
 
 // 🔹 genera los siguientes días válidos LUN-VIE (siempre a partir de MAÑANA)
 function getNextPickupDates(count = 6) {
@@ -393,7 +393,7 @@ export default function AgendarPage() {
         const horario =
           isExtraDay && extraInfo?.start_time && extraInfo?.end_time
             ? `${extraInfo.start_time} – ${extraInfo.end_time}`
-            : "5:00 pm – 7:00 pm";
+            : "1:00 pm – 5:00 pm";
 
         setSuccessBooking({
           type: "bodega",
@@ -803,13 +803,13 @@ export default function AgendarPage() {
           <div className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Las entregas en bodega son <b>de lunes a viernes</b> de{" "}
-              <b>5:00 pm a 7:00 pm</b>. Debes agendar con al menos{" "}
+              <b>1:00 pm a 5:00 pm</b>. Debes agendar con al menos{" "}
               <b>1 día de anticipación (no mismo día)</b>.
             </p>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
               <p className="font-semibold mb-1">POLÍTICA ENTREGA EN BODEGA</p>
-              <p>Entregas únicamente de 5:00 pm a 7:00 pm sin excepción.</p>
+              <p>Entregas únicamente de 1:00 pm a 5:00 pm sin excepción.</p>
             </div>
 
             <div>
