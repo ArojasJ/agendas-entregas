@@ -9,8 +9,7 @@ import { registerLocale } from "react-datepicker";
 
 registerLocale("es", es);
 
-// 🚩 VARIABLE DE CONTROL: Cambia a true para volver a mostrar la opción de Bodega
-const BODEGA_ACTIVA = true;
+// Bodega ahora se controla dinámicamente desde el panel (app_settings)
 
 // 🔹 genera los siguientes días válidos LUN-VIE (siempre a partir de MAÑANA)
 function getNextPickupDates(count = 6) {
@@ -113,6 +112,7 @@ export default function AgendarPage() {
 
   // "bodega" | "domicilio" | "paqueteria"
   // 🟢 AJUSTE: Iniciamos en domicilio porque bodega está pausada
+  const [bodegaActiva, setBodegaActiva] = useState(false);
   const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [bookingCounts, setBookingCounts] = useState({}); // { "YYYY-MM-DD": n } para contar domicilio
@@ -181,6 +181,14 @@ export default function AgendarPage() {
       } catch (err) {
         console.error(err);
       }
+
+      try {
+        const resSettings = await fetch("/api/settings");
+        if (resSettings.ok) {
+          const ds = await resSettings.json();
+          setBodegaActiva(ds.settings?.bodega_activa === "true");
+        }
+      } catch {}
 
       try {
         const res2 = await fetch("/api/blocked-days", {
@@ -319,7 +327,7 @@ export default function AgendarPage() {
   }, [selectedItems, clientSales]);
 
   const handleBodegaBooking = async (day, date, extraInfo = {}) => {
-    if (!BODEGA_ACTIVA) return; // Protección extra
+    if (!bodegaActiva) return; // Protección extra
     if (isSubmitting) return;
     setMsg("");
     setError("");
@@ -693,7 +701,7 @@ export default function AgendarPage() {
 
         {/* SELECTOR DE MODO PREMIUM */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
-          {BODEGA_ACTIVA && (
+          {bodegaActiva && (
             <button
               onClick={() => setMode("bodega")}
               className={`py-4 px-4 rounded-3xl text-sm font-black transition-all flex items-center justify-center gap-3 border-2 ${
@@ -799,7 +807,7 @@ export default function AgendarPage() {
 
         {/* contenido */}
         {/* 🟢 AJUSTE: Contenido de Bodega solo si está activa */}
-        {mode === "bodega" && BODEGA_ACTIVA ? (
+        {mode === "bodega" && bodegaActiva ? (
           <div className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
               Las entregas en bodega son <b>de lunes a viernes</b> de{" "}

@@ -11,7 +11,7 @@ const PANEL_PASSWORD_ENV =
 const CASHBOX_INITIAL = 300;
 
 // 🚩 VARIABLE DE CONTROL: Cambia a true para volver a mostrar Bodega en el panel
-const BODEGA_ACTIVA = true;
+const bodegaActiva = true; // legacy — reemplazado por estado dinámico
 
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
@@ -152,7 +152,7 @@ export default function PanelPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [filterStart, setFilterStart] = useState("");
   const [filterEnd, setFilterEnd] = useState("");
-  const [activeTab, setActiveTab] = useState(BODEGA_ACTIVA ? "bodega" : "domicilio");
+  const [activeTab, setActiveTab] = useState("domicilio");
   const [filterInstagram, setFilterInstagram] = useState("");
 
   const [blockDate, setBlockDate] = useState("");
@@ -174,6 +174,9 @@ export default function PanelPage() {
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [pendingItems, setPendingItems] = useState([]);
   const [selectedPendingIds, setSelectedPendingIds] = useState([]);
+
+  const [bodegaActiva, setBodegaActiva] = useState(true);
+  const [togglingBodega, setTogglingBodega] = useState(false);
 
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualType, setManualType] = useState("bodega");
@@ -354,8 +357,38 @@ export default function PanelPage() {
     if (authorized) {
       fetchBookings();
       if (isAdmin) fetchCashboxInfo();
+      fetchSettings();
     }
   }, [authorized, isAdmin]);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        const val = data.settings?.bodega_activa;
+        if (val !== undefined) setBodegaActiva(val === "true");
+      }
+    } catch {}
+  };
+
+  const handleToggleBodega = async () => {
+    setTogglingBodega(true);
+    const newVal = !bodegaActiva;
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ key: "bodega_activa", value: String(newVal) }),
+      });
+      if (res.ok) {
+        setBodegaActiva(newVal);
+        if (!newVal && activeTab === "bodega") setActiveTab("domicilio");
+      }
+    } catch {}
+    setTogglingBodega(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -856,6 +889,18 @@ export default function PanelPage() {
                   <span>Ver ruta en vivo</span>
                 </button>
                 <button
+                  onClick={handleToggleBodega}
+                  disabled={togglingBodega}
+                  className={`flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 ${
+                    bodegaActiva
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                      : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  <span className="text-base leading-none">{bodegaActiva ? "📦" : "📦"}</span>
+                  <span>Bodega: {bodegaActiva ? "Activa" : "Inactiva"}</span>
+                </button>
+                <button
                   onClick={() => setShowManualModal(true)}
                   className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.35)] active:scale-[0.98]"
                 >
@@ -877,7 +922,7 @@ export default function PanelPage() {
             D ? "bg-slate-50 border-white/[0.07]" : "bg-slate-200/70 border-slate-200"
           }`}
         >
-          {isAdmin && BODEGA_ACTIVA && (
+          {isAdmin && bodegaActiva && (
             <TabBtn label="Bodega" icon="📦" id="bodega" active={activeTab} onClick={setActiveTab} dark={D} />
           )}
           <TabBtn label="Domicilio" icon="🚚" id="domicilio" active={activeTab} onClick={setActiveTab} dark={D} />
@@ -1043,7 +1088,7 @@ export default function PanelPage() {
               </div>
             )}
 
-            {activeTab === "bodega" && BODEGA_ACTIVA && (
+            {activeTab === "bodega" && bodegaActiva && (
               <div className={`${cardCls} p-4`}>
                 <h3 className={`text-xs font-semibold uppercase tracking-widest mb-3 flex items-center gap-2 ${D ? "text-slate-500" : "text-slate-500"}`}>
                   <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs border ${D ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-200"}`}>➕</span>
@@ -1134,7 +1179,7 @@ export default function PanelPage() {
           </div>
         )}
 
-        {isAdmin && BODEGA_ACTIVA && activeTab === "bodega" && extraBodegaDays?.length > 0 && (
+        {isAdmin && bodegaActiva && activeTab === "bodega" && extraBodegaDays?.length > 0 && (
           <div className={`${cardCls} p-4 mb-4`}>
             <h3 className={`text-xs font-semibold uppercase tracking-widest mb-3 ${D ? "text-slate-500" : "text-slate-500"}`}>
               Días extra bodega
