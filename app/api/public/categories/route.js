@@ -7,10 +7,27 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    const [{ data: products }, { data: catRows }] = await Promise.all([
-      supabase.from("products").select("category, stock, product_variants(stock)"),
-      supabase.from("catalog_categories").select("*").order("sort_order", { ascending: true }),
-    ]);
+    const allProducts = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("products")
+        .select("category, stock, product_variants(stock)")
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allProducts.push(...data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    const { data: catRows } = await supabase
+      .from("catalog_categories")
+      .select("*")
+      .order("sort_order", { ascending: true });
+
+    const products = allProducts;
 
     const catMap = {};
     for (const c of catRows || []) catMap[c.name] = c;
