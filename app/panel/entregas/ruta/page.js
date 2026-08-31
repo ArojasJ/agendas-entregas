@@ -27,6 +27,12 @@ function isValidUrl(url) {
   return url && (url.startsWith("http://") || url.startsWith("https://"));
 }
 
+function geoAddress(bk) {
+  // Strip the "Ref:" landmark description — it confuses Google's geocoder and can resolve outside Mexico
+  const raw = bk.address ? bk.address.replace(/,?\s*Ref:.*$/i, "").trim() : "";
+  return [raw, bk.city, bk.state, "México"].filter(Boolean).join(", ");
+}
+
 function buildNavUrl(booking) {
   if (isValidUrl(booking.location_url)) return booking.location_url;
   const parts = [booking.address, booking.city, booking.state].filter(Boolean).join(", ");
@@ -66,7 +72,7 @@ function buildStaticMapUrl(sorted, apiKey) {
   const originMarker = `markers=color:green|label:${ORIGIN_LABEL}|${ORIGIN}`;
   const destMarker = `markers=color:blue|label:F|${DESTINATION}`;
   const stopMarkers = sorted.map((bk, idx) => {
-    const addr = [bk.address, bk.city, bk.state].filter(Boolean).join(", ");
+    const addr = geoAddress(bk);
     if (!addr) return null;
     return `markers=color:red|label:${stopLabel(idx)}|${encodeURIComponent(addr)}`;
   }).filter(Boolean);
@@ -230,7 +236,7 @@ export default function RutaPage() {
       const locations = bookings.map((bk) => ({
         id: bk.id,
         url: bk.location_url || null,
-        addressText: [bk.address, bk.city, bk.state].filter(Boolean).join(", "),
+        addressText: geoAddress(bk),
       }));
       const token = getPanelToken();
       const res = await fetch("/api/optimize-route", {
