@@ -112,8 +112,15 @@ export async function POST(req) {
     // 4. Insertar items y descontar stock
     for (let item of itemsToInsert) {
       item.sale_id = newSale.id;
-      
-      await supabase.from("sale_items").insert([item]);
+
+      const { error: itemError } = await supabase.from("sale_items").insert([item]);
+
+      if (itemError) {
+        // Revertir: borrar la venta para no dejar un total incorrecto
+        await supabase.from("sales").delete().eq("id", newSale.id);
+        console.error("Error al insertar sale_item, venta revertida:", itemError);
+        return Response.json({ message: "Error al registrar uno de los productos. Intenta de nuevo." }, { status: 500 });
+      }
 
       // Descontar inventario (gte previene que stock baje de 0 por peticiones concurrentes)
       if (item.variant_id) {
