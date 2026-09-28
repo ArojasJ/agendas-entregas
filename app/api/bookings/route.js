@@ -1,5 +1,6 @@
 // app/api/bookings/route.js — CACHE BUST v2 (23-04-2026 11:35)
 import { supabase as supabaseAnon } from "@/lib/supabaseClient";
+import { getPanelSession } from "@/lib/panelAuth";
 import { createClient } from "@supabase/supabase-js";
 
 // Creamos un cliente con Service Role para saltar RLS si la llave existe
@@ -7,20 +8,6 @@ const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : supabaseAnon;
 
-// 🔐 helper para validar token del panel
-function getPanelSession(req) {
-  const headerToken = req.headers.get("x-panel-token");
-  const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
-  if (!headerToken) return null;
-  try {
-    const decoded = Buffer.from(headerToken, "base64").toString("utf8");
-    const [json, sig] = decoded.split("|");
-    if (sig !== secret) return null;
-    return JSON.parse(json);
-  } catch (err) {
-    return null;
-  }
-}
 
 // 👉 helper para asegurarnos de que la fecha venga en formato YYYY-MM-DD
 function normalizeDateString(date) {
@@ -35,18 +22,32 @@ function makeLocalDate(dateStr) {
   return new Date(y, m - 1, d);
 }
 
-// máximo de domicilios por día
-const DOMICILIO_LIMIT = 15;
+import { DOMICILIO_LIMIT } from "@/lib/constants";
 
-// ✅ slots fijos solo para la UI (no vienen de la DB aún)
-// BODEGA ahora es LUNES a VIERNES
-let SLOTS = {
-  monday: { used: 0, capacity: 12, disabled: false },
-  tuesday: { used: 0, capacity: 12, disabled: false },
-  wednesday: { used: 0, capacity: 12, disabled: false },
-  thursday: { used: 0, capacity: 12, disabled: false },
-  friday: { used: 0, capacity: 12, disabled: false },
-};
+const SLOT_CAPACITY = 12;
+const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+async function computeSlots() {
+  const today = new Date().toISOString().split("T")[0];
+  const { data: bodegas } = await supabase
+    .from("bookings")
+    .select("date")
+    .eq("type", "bodega")
+    .gte("date", today)
+    .not("delivery_status", "in", '("entregado","cancelado")');
+
+  const used = { monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0 };
+  for (const b of bodegas || []) {
+    const dow = DAY_NAMES[new Date(b.date + "T12:00:00").getDay()];
+    if (dow in used) used[dow]++;
+  }
+
+  const slots = {};
+  for (const day of Object.keys(used)) {
+    slots[day] = { used: used[day], capacity: SLOT_CAPACITY, disabled: false };
+  }
+  return slots;
+}
 
 // 🟢 GET → obtener todas las agendas, los slots, los días bloqueados y días extra de bodega
 export async function GET(req) {
@@ -94,13 +95,16 @@ export async function GET(req) {
     .select("*")
     .order("date", { ascending: true });
 
+  // 5) slots con conteo real de bodega pendiente
+  const slots = await computeSlots();
+
   if (error || blockedErr || extraErr) {
     console.error(error || blockedErr || extraErr);
     return Response.json(
       {
         message: "Error al leer",
         bookings: bookings || [],
-        slots: SLOTS,
+        slots,
         blockedDays: blockedDays || [],
         extraBodegaDays: extraBodegaDays || [],
         specialDays: specialDays || [],
@@ -111,7 +115,7 @@ export async function GET(req) {
 
   return Response.json({
     bookings: bookings || [],
-    slots: SLOTS,
+    slots,
     blockedDays: blockedDays || [],
     extraBodegaDays: extraBodegaDays || [],
     specialDays: specialDays || [],

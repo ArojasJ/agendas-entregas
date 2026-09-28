@@ -1,4 +1,11 @@
+import { getPanelSession } from "@/lib/panelAuth";
+
 export async function POST(req) {
+  const session = getPanelSession(req);
+  if (!session) {
+    return Response.json({ message: "No autorizado." }, { status: 401 });
+  }
+
   try {
     const { locations, origin: customOrigin, destination: customDestination } = await req.json();
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;

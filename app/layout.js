@@ -22,23 +22,22 @@ export const viewport = {
 
 // 🧠 Metadatos personalizados
 export const metadata = {
-  title: "Agéndalo TRC | Agenda tus entregas fácilmente",
+  title: "Noreste CM | Agenda tus entregas fácilmente",
   description:
     "Sistema rápido y sencillo para agendar tus entregas a domicilio, bodega o paquetería en la Comarca Lagunera. Disponible 24/7.",
-  metadataBase: new URL("https://www.agendalotrc.com"),
+  metadataBase: new URL("https://www.norestecm.com"),
   openGraph: {
-    title: "Agéndalo TRC",
+    title: "Noreste CM",
     description:
       "Agenda tus entregas en segundos. Domicilio, bodega y paquetería — todo en un solo lugar.",
-    url: "https://www.agendalotrc.com",
-    siteName: "Agéndalo TRC",
+    url: "https://www.norestecm.com",
+    siteName: "Noreste CM",
     images: [
       {
         url: "/logo.png",
-                           // 👈 pon aquí tu imagen del logo o portada
         width: 1200,
         height: 630,
-        alt: "Agéndalo TRC",
+        alt: "Noreste CM",
       },
     ],
     locale: "es_MX",
@@ -52,7 +51,7 @@ export const metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "TRC Entregas",
+    title: "Noreste CM",
   },
 };
 

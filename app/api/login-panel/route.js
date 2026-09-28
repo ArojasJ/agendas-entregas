@@ -1,5 +1,6 @@
 // app/api/login-panel/route.js
 import { supabase } from "@/lib/supabaseClient";
+import bcrypt from "bcryptjs";
 
 export async function POST(request) {
   try {
@@ -14,12 +15,11 @@ export async function POST(request) {
       );
     }
 
-    // 🔍 Buscar en la tabla staff
+    // Buscar solo por username — la comparación de contraseña se hace en JS
     const { data: user, error } = await supabase
       .from("staff")
       .select("*")
       .eq("username", username.toLowerCase())
-      .eq("password", password) // En un sistema real usaríamos bcrypt, pero seguiremos la estructura simple solicitada
       .single();
 
     if (error || !user) {
@@ -29,7 +29,30 @@ export async function POST(request) {
       );
     }
 
-    // ✅ token con info completa
+    // Migración automática: si la contraseña NO es un hash bcrypt, comparar en texto
+    // plano y rehashear en la BD para que en el próximo login ya use bcrypt
+    const storedPassword = user.password || "";
+    const isBcryptHash = storedPassword.startsWith("$2b$") || storedPassword.startsWith("$2a$");
+
+    let passwordOk = false;
+    if (isBcryptHash) {
+      passwordOk = await bcrypt.compare(password, storedPassword);
+    } else {
+      passwordOk = password === storedPassword;
+      if (passwordOk) {
+        // Rehashear y guardar — migración silenciosa
+        const hash = await bcrypt.hash(password, 12);
+        await supabase.from("staff").update({ password: hash }).eq("id", user.id);
+      }
+    }
+
+    if (!passwordOk) {
+      return new Response(
+        JSON.stringify({ success: false, message: "Usuario o contraseña incorrectos." }),
+        { status: 401 }
+      );
+    }
+
     const payload = {
       issuedAt: Date.now(),
       staffId: user.id,
@@ -61,5 +84,3 @@ export async function POST(request) {
     );
   }
 }
-
-

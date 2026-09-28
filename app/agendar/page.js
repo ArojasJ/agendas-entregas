@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DOMICILIO_LIMIT } from "@/lib/constants";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -166,8 +167,6 @@ export default function AgendarPage() {
   // modal ayuda ubicación
   const [showLocationHelp, setShowLocationHelp] = useState(false);
 
-  // límite domicilio
-  const DOMICILIO_LIMIT = 15;
 
   // traer conteo de domicilios por fecha (público) y días bloqueados
   useEffect(() => {
@@ -1186,11 +1185,11 @@ export default function AgendarPage() {
                 <div className="flex justify-between items-end relative z-10">
                   <div>
                     <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Costo de envío</p>
-                    <p className="text-3xl font-black">$45.00</p>
+                    <p className="text-3xl font-black">${hasPendingFailedAttempt ? "90.00" : "45.00"}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Total a Pagar</p>
-                    <p className="text-3xl font-black">${(calculatingDebt + 45).toFixed(2)}</p>
+                    <p className="text-3xl font-black">${(calculatingDebt + (hasPendingFailedAttempt ? 90 : 45)).toFixed(2)}</p>
                   </div>
                 </div>
               </div>

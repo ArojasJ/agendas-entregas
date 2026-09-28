@@ -33,7 +33,9 @@ export async function GET() {
       return p.stock > 0;
     });
 
-    return Response.json({ products: available });
+    return Response.json({ products: available }, {
+      headers: { "Cache-Control": "public, s-maxage=120, stale-while-revalidate=300" }
+    });
   } catch (err) {
     console.error(err);
     return Response.json({ message: "Error interno del servidor" }, { status: 500 });

@@ -116,23 +116,35 @@ export async function POST(req) {
       const { error: itemError } = await supabase.from("sale_items").insert([item]);
 
       if (itemError) {
-        // Revertir: borrar la venta para no dejar un total incorrecto
+        // Revertir: borrar items ya insertados y luego la venta
+        await supabase.from("sale_items").delete().eq("sale_id", newSale.id);
         await supabase.from("sales").delete().eq("id", newSale.id);
         console.error("Error al insertar sale_item, venta revertida:", itemError);
         return Response.json({ message: "Error al registrar uno de los productos. Intenta de nuevo." }, { status: 500 });
       }
 
-      // Descontar inventario (gte previene que stock baje de 0 por peticiones concurrentes)
+      // Decremento atómico via RPC (función SQL en Supabase)
+      // La función hace UPDATE SET stock = stock - n WHERE stock >= n y devuelve true/false
       if (item.variant_id) {
-        const { data: v } = await supabase.from("product_variants").select("stock").eq("id", item.variant_id).single();
-        if (v) await supabase.from("product_variants")
-          .update({ stock: Math.max(0, v.stock - item.quantity) })
-          .eq("id", item.variant_id).gte("stock", item.quantity);
+        const { data: ok } = await supabase.rpc("decrement_variant_stock", {
+          p_variant_id: item.variant_id,
+          p_amount: item.quantity,
+        });
+        if (!ok) {
+          await supabase.from("sale_items").delete().eq("sale_id", newSale.id);
+          await supabase.from("sales").delete().eq("id", newSale.id);
+          return Response.json({ message: "Stock agotado. Intenta de nuevo." }, { status: 409 });
+        }
       } else {
-        const { data: p } = await supabase.from("products").select("stock").eq("id", item.product_id).single();
-        if (p) await supabase.from("products")
-          .update({ stock: Math.max(0, p.stock - item.quantity) })
-          .eq("id", item.product_id).gte("stock", item.quantity);
+        const { data: ok } = await supabase.rpc("decrement_product_stock", {
+          p_product_id: item.product_id,
+          p_amount: item.quantity,
+        });
+        if (!ok) {
+          await supabase.from("sale_items").delete().eq("sale_id", newSale.id);
+          await supabase.from("sales").delete().eq("id", newSale.id);
+          return Response.json({ message: "Stock agotado. Intenta de nuevo." }, { status: 409 });
+        }
       }
     }
 

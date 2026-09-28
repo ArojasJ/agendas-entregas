@@ -3,10 +3,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-const PANEL_PASSWORD_ENV =
-  process.env.NEXT_PUBLIC_PANEL_PASSWORD ||
-  process.env.PANEL_PASSWORD ||
-  "MELANNY";
 
 const CASHBOX_INITIAL = 300;
 
@@ -412,16 +408,7 @@ export default function PanelPage() {
     } catch (err) {
       console.warn("Error al conectar con la API de login:", err);
     }
-
-    if (password === PANEL_PASSWORD_ENV) {
-      setAuthorized(true);
-      setPanelRole("admin");
-      localStorage.setItem("panelAuth", "true");
-      localStorage.setItem("panelRole", "admin");
-      setMessage("");
-    } else {
-      setMessage("Contraseña incorrecta.");
-    }
+    setMessage("Contraseña incorrecta.");
   };
 
   const handleMarkCotizado = async (id) => {
