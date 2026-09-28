@@ -42,6 +42,13 @@ export async function generateMetadata({ params }) {
       description = `Hola ${clientName}, toca aquí para ver el detalle de tu pedido en Noreste CM.`;
     }
 
+    const image = {
+      url: "https://www.norestecm.com/logo.png",
+      width: 1200,
+      height: 630,
+      alt: "Noreste CM",
+    };
+
     return {
       title,
       description,
@@ -51,11 +58,13 @@ export async function generateMetadata({ params }) {
         type: "website",
         siteName: "Noreste CM",
         locale: "es_MX",
+        images: [image],
       },
       twitter: {
-        card: "summary",
+        card: "summary_large_image",
         title,
         description,
+        images: ["https://www.norestecm.com/logo.png"],
       },
     };
   } catch {
@@ -66,6 +75,7 @@ export async function generateMetadata({ params }) {
         title: "🛍️ Resumen de tu compra — Noreste CM",
         description: "Toca para ver el detalle de tu pedido en Noreste CM.",
         siteName: "Noreste CM",
+        images: [{ url: "https://www.norestecm.com/logo.png", width: 1200, height: 630 }],
       },
     };
   }
