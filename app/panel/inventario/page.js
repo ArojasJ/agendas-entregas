@@ -50,6 +50,7 @@ function InventarioContent() {
   const [statsTab, setStatsTab] = useState("trazabilidad");
   const [isAdmin, setIsAdmin] = useState(false);
   const [panelRole, setPanelRole] = useState("");
+  const [inventoryValue, setInventoryValue] = useState(null);
   const [productImages, setProductImages] = useState([]); // [{ _key, src }]
   const [isNewCategory, setIsNewCategory] = useState(false);
   const [barcodeError, setBarcodeError] = useState("");
@@ -86,7 +87,18 @@ function InventarioContent() {
     const role = localStorage.getItem("panelRole") || "";
     setPanelRole(role);
     setIsAdmin(role === "admin");
+    if (role === "admin") fetchInventoryValue();
   }, []);
+
+  const fetchInventoryValue = async () => {
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/products/inventory-value", {
+        headers: { "x-panel-token": token },
+      });
+      if (res.ok) setInventoryValue(await res.json());
+    } catch {}
+  };
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -257,6 +269,7 @@ function InventarioContent() {
       }
 
       await fetchProducts();
+      if (isAdmin) fetchInventoryValue();
       closeModal();
       showToast(isEdit ? "Producto actualizado" : "Producto agregado", "success");
     } catch (err) {
@@ -272,7 +285,7 @@ function InventarioContent() {
     try {
       const token = localStorage.getItem("panelToken") || "";
       const res = await fetch(`/api/products?id=${id}`, { method: "DELETE", headers: { "x-panel-token": token } });
-      if (res.ok) { fetchProducts(); showToast("Producto eliminado", "success"); }
+      if (res.ok) { fetchProducts(); if (isAdmin) fetchInventoryValue(); showToast("Producto eliminado", "success"); }
       else showToast("Error al eliminar", "error");
     } catch { showToast("Error de conexión", "error"); }
   };
@@ -387,6 +400,50 @@ function InventarioContent() {
             <button onClick={() => openModal()} className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold px-5 py-2.5 rounded-xl transition-all shadow-lg active:scale-95">+ Nuevo</button>
           </div>
         </div>
+
+        {isAdmin && inventoryValue && (
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Valor del inventario
+              </p>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                Solo admin
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-100">
+              <div className="px-5 py-4">
+                <p className="text-xs text-slate-500 mb-1">Invertido (costo)</p>
+                <p className="text-2xl font-black text-slate-900">
+                  ${inventoryValue.costoTotal.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-xs text-slate-500 mb-1">Valor de venta</p>
+                <p className="text-2xl font-black text-emerald-600">
+                  ${inventoryValue.ventaTotal.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-xs text-slate-500 mb-1">Ganancia potencial</p>
+                <p className="text-2xl font-black text-sky-600">
+                  ${inventoryValue.gananciaPotencial.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-xs text-slate-500 mb-1">Piezas en stock</p>
+                <p className="text-2xl font-black text-slate-900">
+                  {inventoryValue.unidades.toLocaleString("es-MX")}
+                </p>
+                {inventoryValue.unidadesSinCosto > 0 && (
+                  <p className="text-[11px] text-amber-600 font-semibold mt-1">
+                    {inventoryValue.unidadesSinCosto} sin costo capturado
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sort buttons */}
         <div className="flex items-center gap-2 flex-wrap">
