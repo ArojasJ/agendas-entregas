@@ -933,7 +933,7 @@ export default function PanelPage() {
                   <span>Nueva entrega manual</span>
                 </button>
               </div>
-              {bodegaActiva && (
+              {bodegaActiva && activeTab === "bodega" && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
                     Días de bodega:
