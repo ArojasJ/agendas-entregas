@@ -709,28 +709,6 @@ export default function PanelPage() {
   const handleCreateCashboxCut = async ({ countedCash, note }) => {
     try {
       const token = localStorage.getItem("panelToken") || "";
-      const domicilioBookingsAll = bookings.filter(
-        (bk) => String(bk.type || "").trim().toLowerCase() === "domicilio"
-      );
-      let lastCutTimestamp = null;
-      if (cashboxLastCut && cashboxLastCut.created_at) {
-        lastCutTimestamp = new Date(cashboxLastCut.created_at).getTime();
-      }
-      const effectiveDeliveries = domicilioBookingsAll.filter((bk) => {
-        const status = String(bk.delivery_status || "").toLowerCase();
-        if (status !== "entregado") return false;
-        const method = String(bk.payment_method || "efectivo").toLowerCase();
-        if (method !== "efectivo") return false;
-        if (!bk.delivered_at) return false;
-        const deliveredTs = new Date(bk.delivered_at).getTime();
-        if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
-        return true;
-      });
-      const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {
-        const v = bk.amount_due !== undefined && bk.amount_due !== null ? Number(bk.amount_due) : 0;
-        return sum + (isNaN(v) ? 0 : v);
-      }, 0);
-      const expectedCash = CASHBOX_INITIAL + deliveriesAmount;
       const res = await fetch("/api/cashbox", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-panel-token": token },
@@ -809,7 +787,10 @@ export default function PanelPage() {
     if (method !== "efectivo") return false;
     if (!bk.delivered_at) return false;
     const deliveredTs = new Date(bk.delivered_at).getTime();
-    if (lastCutTimestamp && deliveredTs <= lastCutTimestamp) return false;
+    // Sin corte de referencia hay que acotar a hoy: sumar desde el inicio de los
+    // tiempos daba el histórico completo si la lectura del último corte fallaba.
+    const piso = lastCutTimestamp ?? new Date(todayInput + "T00:00:00").getTime();
+    if (deliveredTs <= piso) return false;
     return true;
   });
   const deliveriesAmount = effectiveDeliveries.reduce((sum, bk) => {

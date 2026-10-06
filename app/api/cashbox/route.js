@@ -1,20 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPanelSession } from "@/lib/panelAuth";
-import { createClient } from "@supabase/supabase-js";
-
-
-// 👇 USA LAS MISMAS ENV QUE YA USAS EN /api/bookings
-// (normalmente NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error(
-    "Faltan variables de entorno NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY"
-  );
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 // GET  /api/cashbox
 // - Sin query: devuelve el último corte de caja (como antes)
