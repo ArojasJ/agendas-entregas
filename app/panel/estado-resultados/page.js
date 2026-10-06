@@ -193,7 +193,7 @@ export default function EstadoResultadosPage() {
       </div>
     </div>
 
-    <div class="footer">Agenda Lo TRC &nbsp;·&nbsp; Estado de Resultados generado automáticamente</div>
+    <div class="footer">Noreste CM &nbsp;·&nbsp; Estado de Resultados generado automáticamente</div>
     <script>window.onload=()=>window.print()</script>
     </body></html>`;
 

@@ -819,7 +819,7 @@ export default function PanelPage() {
             <div className="w-20 h-20 bg-emerald-500 rounded-[2rem] flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
               <span className="text-3xl">🚚</span>
             </div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-900">TRC Logística</h1>
+            <h1 className="text-2xl font-black tracking-tight text-slate-900">Noreste CM</h1>
             <p className="text-sm text-slate-500 mt-2">Ingrese su contraseña de acceso</p>
           </div>
 

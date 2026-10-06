@@ -136,7 +136,7 @@ export default function PanelLayout({ children }) {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 mb-5 shadow-[0_0_40px_rgba(16,185,129,0.15)]">
               <span className="text-3xl">🚚</span>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">TRC Entregas</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Noreste CM</h1>
             <p className="text-slate-500 text-sm mt-1">Panel de administración</p>
           </div>
 
@@ -228,7 +228,7 @@ export default function PanelLayout({ children }) {
               <span className="text-sm">🚚</span>
             </div>
             <div>
-              <span className="font-black text-sm text-slate-900 block leading-none">TRC</span>
+              <span className="font-black text-sm text-slate-900 block leading-none">Noreste CM</span>
               <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider leading-none">{staffName}</span>
             </div>
           </div>
@@ -377,7 +377,7 @@ export default function PanelLayout({ children }) {
              <div className="w-8 h-8 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-200">
                <span className="text-sm">🚚</span>
              </div>
-             <span className="font-bold text-sm text-slate-900">Agéndalo TRC</span>
+             <span className="font-bold text-sm text-slate-900">Noreste CM</span>
            </a>
         </div>
         <div className="p-4 flex-1 flex flex-col gap-2 overflow-y-auto">
@@ -431,7 +431,7 @@ export default function PanelLayout({ children }) {
              <div className="w-8 h-8 rounded-lg flex items-center justify-center border bg-emerald-50 border-emerald-200">
                <span className="text-sm">🚚</span>
              </div>
-             <span className="font-bold text-sm text-slate-900">TRC</span>
+             <span className="font-bold text-sm text-slate-900">Noreste CM</span>
            </div>
            
            <div className="ml-auto flex items-center gap-4">

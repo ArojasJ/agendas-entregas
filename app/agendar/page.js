@@ -1446,13 +1446,13 @@ export default function AgendarPage() {
                   const lines = [
                     "BEGIN:VCALENDAR",
                     "VERSION:2.0",
-                    "PRODID:-//Noreste CM//Agendalo TRC//ES",
+                    "PRODID:-//Noreste CM//Noreste CM//ES",
                     "BEGIN:VEVENT",
-                    `UID:AG-${Date.now()}@trc.com`,
+                    `UID:AG-${Date.now()}@norestecm.com`,
                     `DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}Z`,
                     `DTSTART;VALUE=DATE:${d}`,
                     `DTEND;VALUE=DATE:${dNext}`,
-                    `SUMMARY:Entrega TRC - ${fullName}`,
+                    `SUMMARY:Entrega Noreste CM - ${fullName}`,
                     `DESCRIPTION:Tu entrega de Noreste CM agendada para el ${formatDateStringMX(date)}`,
                     address ? `LOCATION:${address}\\, ${city}` : "",
                     "END:VEVENT",
@@ -1462,7 +1462,7 @@ export default function AgendarPage() {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   a.href = url;
-                  a.download = "entrega-trc.ics";
+                  a.download = "entrega-noreste.ics";
                   a.click();
                   URL.revokeObjectURL(url);
                 }}

@@ -46,7 +46,7 @@ export default function HomePage() {
         {/* LOGO ANIMADO */}
         <motion.img
           src="/logo.png"
-          alt="Logo Agéndalo TRC"
+          alt="Logo Noreste CM"
           className="w-40 h-40 md:w-44 md:h-44 rounded-full shadow-xl"
           initial={{ opacity: 0, y: 40, scale: 0.9 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
