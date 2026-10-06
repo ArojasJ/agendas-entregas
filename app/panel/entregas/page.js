@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { geoAddress } from "@/lib/address";
 
 
 const CASHBOX_INITIAL = 300;
@@ -1436,7 +1437,7 @@ export default function PanelPage() {
                             <span className="text-[9px] font-black uppercase">WhatsApp</span>
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); const _mu = (bk.location_url && (bk.location_url.startsWith("http://") || bk.location_url.startsWith("https://"))) ? bk.location_url : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bk.address + " " + bk.city)}`; window.open(_mu, "_blank"); }}
+                            onClick={(e) => { e.stopPropagation(); const _mu = (bk.location_url && (bk.location_url.startsWith("http://") || bk.location_url.startsWith("https://"))) ? bk.location_url : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(geoAddress(bk))}`; window.open(_mu, "_blank"); }}
                             className="flex flex-col items-center justify-center gap-1 p-3 rounded-2xl bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors border border-sky-200"
                           >
                             <span className="text-xl">🗺️</span>

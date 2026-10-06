@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { geoAddress } from "@/lib/address";
 
 const ORIGIN = { lat: 25.5464865, lng: -103.4497847 };
 const DESTINATION = { lat: 25.572988616868752, lng: -103.51420759387985 };
@@ -182,7 +183,7 @@ export default function LiveTrackingPage() {
 
     [...pendingOnly, ...deliveredOnly].forEach((bk, idx) => {
       const isDelivered = bk.delivery_status === "entregado";
-      const addressParts = [bk.address, bk.city, bk.state].filter(Boolean).join(", ");
+      const addressParts = geoAddress(bk);
       if (!addressParts && !bk.location_url) return;
 
       const label = isDelivered ? "✓" : String(pendingOnly.indexOf(bk) + 1);

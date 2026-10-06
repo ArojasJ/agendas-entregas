@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { geoAddress } from "@/lib/address";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
@@ -27,17 +28,9 @@ function isValidUrl(url) {
   return url && (url.startsWith("http://") || url.startsWith("https://"));
 }
 
-function geoAddress(bk) {
-  // Strip the "Ref:" landmark description — it confuses Google's geocoder and can resolve outside Mexico
-  const raw = bk.address ? bk.address.replace(/,?\s*Ref:.*$/i, "").trim() : "";
-  return [raw, bk.city, bk.state, "México"].filter(Boolean).join(", ");
-}
-
 function buildNavUrl(booking) {
   if (isValidUrl(booking.location_url)) return booking.location_url;
-  const parts = [booking.address, booking.city, booking.state].filter(Boolean).join(", ");
-  if (parts) return parts;
-  return null;
+  return geoAddress(booking) || null;
 }
 
 function openNavigation(booking) {
@@ -45,7 +38,7 @@ function openNavigation(booking) {
     window.open(booking.location_url, "_blank");
     return;
   }
-  const parts = [booking.address, booking.city, booking.state].filter(Boolean).join(", ");
+  const parts = geoAddress(booking);
   if (!parts) return;
   const encoded = encodeURIComponent(parts);
   const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
