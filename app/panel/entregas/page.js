@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { geoAddress } from "@/lib/address";
@@ -143,6 +143,7 @@ export default function PanelPage() {
   const [message, setMessage] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [panelRole, setPanelRole] = useState(null);
+  const authFailuresRef = useRef(0);
   const [bookings, setBookings] = useState([]);
   const [slots, setSlots] = useState(null);
   const [blockedDays, setBlockedDays] = useState([]);
@@ -282,6 +283,14 @@ export default function PanelPage() {
 
       if (!resB.ok) {
         if (resB.status === 401 || resB.status === 403) {
+          // El token no caduca, así que un 401 suelto casi siempre es transitorio
+          // (arranque en frío del PWA, cambio de antena a media ruta). Cerrar sesión
+          // al primero dejaba a las repartidoras fuera sin poder volver a la ruta.
+          authFailuresRef.current += 1;
+          if (authFailuresRef.current < 2) {
+            setTimeout(fetchBookings, 1500);
+            return;
+          }
           localStorage.removeItem("panelAuth");
           localStorage.removeItem("panelToken");
           localStorage.removeItem("panelRole");
@@ -296,6 +305,7 @@ export default function PanelPage() {
         return;
       }
 
+      authFailuresRef.current = 0;
       const data = await resB.json();
       setBookings(data.bookings || []);
       setSlots(data.slots || null);

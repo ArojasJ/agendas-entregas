@@ -34,22 +34,35 @@ function buildNavUrl(booking) {
 }
 
 function openNavigation(booking) {
-  if (isValidUrl(booking.location_url)) {
-    window.open(booking.location_url, "_blank");
+  const pinUrl = isValidUrl(booking.location_url) ? booking.location_url : null;
+  const parts = pinUrl ? null : geoAddress(booking);
+  if (!pinUrl && !parts) return;
+
+  // Navegar en la misma pestaña: abrir una nueva deja la ruta en segundo plano y el
+  // navegador la descarta durante el trayecto. Así el botón "atrás" la recupera.
+  const webUrl = pinUrl
+    || `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(parts)}&travelmode=driving`;
+
+  if (!parts || !/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+    window.location.href = webUrl;
     return;
   }
-  const parts = geoAddress(booking);
-  if (!parts) return;
-  const encoded = encodeURIComponent(parts);
-  const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  if (isIOS) {
-    // comgooglemaps:// forces Google Maps app; fallback to web if not installed
-    window.location.href = `comgooglemaps://?daddr=${encoded}&directionsmode=driving`;
-    setTimeout(() => window.open(webUrl, "_blank"), 1200);
-  } else {
-    window.open(webUrl, "_blank");
-  }
+
+  // comgooglemaps:// abre la app de Maps directo. El respaldo web solo debe correr si
+  // ese esquema no existe — si la app abrió, la página queda oculta y hay que cancelarlo.
+  let timer;
+  const onHide = () => {
+    if (!document.hidden) return;
+    clearTimeout(timer);
+    document.removeEventListener("visibilitychange", onHide);
+  };
+  document.addEventListener("visibilitychange", onHide);
+  timer = setTimeout(() => {
+    document.removeEventListener("visibilitychange", onHide);
+    window.location.href = webUrl;
+  }, 1500);
+
+  window.location.href = `comgooglemaps://?daddr=${encodeURIComponent(parts)}&directionsmode=driving`;
 }
 
 function formatPhoneForWhatsApp(phone) {
