@@ -28,6 +28,10 @@ function isValidUrl(url) {
   return url && (url.startsWith("http://") || url.startsWith("https://"));
 }
 
+function isDone(bk) {
+  return bk.delivery_status === "entregado" || bk.delivery_status === "no_entregado";
+}
+
 function buildNavUrl(booking) {
   if (isValidUrl(booking.location_url)) return booking.location_url;
   return geoAddress(booking) || null;
@@ -80,7 +84,10 @@ function buildStaticMapUrl(sorted, apiKey) {
   const stopMarkers = sorted.map((bk, idx) => {
     const addr = geoAddress(bk);
     if (!addr) return null;
-    return `markers=color:red|label:${stopLabel(idx)}|${encodeURIComponent(addr)}`;
+    const color = bk.delivery_status === "entregado" ? "green"
+      : bk.delivery_status === "no_entregado" ? "gray"
+      : "red";
+    return `markers=color:${color}|label:${stopLabel(idx)}|${encodeURIComponent(addr)}`;
   }).filter(Boolean);
   if (stopMarkers.length === 0) return null;
   return `https://maps.googleapis.com/maps/api/staticmap?size=640x320&scale=2&${originMarker}&${destMarker}&${stopMarkers.join("&")}&key=${apiKey}`;
@@ -157,20 +164,24 @@ export default function RutaPage() {
         }
         setSaldoMap(map);
       }
+      const saved = localStorage.getItem("rutaOrder");
+      let savedIds = [];
+      try { savedIds = saved ? JSON.parse(saved) : []; } catch {}
+
       const todayDom = (data.bookings || []).filter(
         (bk) =>
           bk.type === "domicilio" &&
           bk.date === today &&
-          bk.delivery_status !== "entregado"
+          // Una ruta nueva arranca solo con pendientes, pero las ya entregadas se
+          // conservan si forman parte de la ruta en curso para no recorrer los números.
+          (bk.delivery_status !== "entregado" || savedIds.includes(bk.id))
       );
       setBookings(todayDom);
       // Restore saved order if it matches today's set
-      const saved = localStorage.getItem("rutaOrder");
-      if (saved) {
+      if (savedIds.length > 0) {
         try {
-          const parsed = JSON.parse(saved);
           const ids = todayDom.map((b) => b.id);
-          const valid = parsed.filter((id) => ids.includes(id));
+          const valid = savedIds.filter((id) => ids.includes(id));
           if (valid.length === ids.length) {
             setOrder(valid);
             regenerateMap(todayDom, valid);
@@ -184,7 +195,8 @@ export default function RutaPage() {
             if (!isNaN(savedIdx) && savedIdx > 0 && savedIdx < valid.length) {
               setCurrentIdx(savedIdx);
             }
-            setStatusMsg({ text: `✓ Ruta restaurada — ${valid.length} paradas pendientes`, type: "success" });
+            const pendientes = todayDom.filter((b) => !isDone(b)).length;
+            setStatusMsg({ text: `✓ Ruta restaurada — ${pendientes} de ${valid.length} paradas pendientes`, type: "success" });
             return;
           }
         } catch {}
@@ -299,20 +311,41 @@ export default function RutaPage() {
       }
       setPendingDelivery(null);
       setPendingNoEntregado(null);
-      const newBookings = bookings.filter((b) => b.id !== booking.id);
-      const newOrder = order.filter((id) => id !== booking.id);
+
+      // La parada se marca en su lugar en vez de quitarla de la lista: sacarla recorría
+      // los índices (la 2 pasaba a ser la 1), borraba su marcador del mapa y dejaba sin
+      // forma de volver a ella. El orden no cambia, así que la numeración es estable.
+      const newBookings = bookings.map((b) =>
+        b.id === booking.id ? { ...b, delivery_status: status } : b
+      );
       setBookings(newBookings);
-      setOrder(newOrder);
-      regenerateMap(newBookings, newOrder);
-      if (newOrder.length === 0) {
+      regenerateMap(newBookings, order);
+
+      const remaining = order.filter((id) => {
+        const b = newBookings.find((x) => x.id === id);
+        return b && !isDone(b);
+      });
+
+      if (remaining.length === 0) {
         localStorage.removeItem("rutaOrder");
         localStorage.removeItem("rutaMode");
         localStorage.removeItem("rutaIdx");
         localStorage.removeItem("rutaMapUrl");
+        return;
       }
-      if (currentIdx >= newBookings.length && currentIdx > 0) {
-        setCurrentIdx(currentIdx - 1);
-      }
+
+      // Al reabrir una parada hay que quedarse en ella; solo se avanza al completarla
+      if (status === "pendiente") return;
+
+      const nextIdx = order.findIndex(
+        (id, i) => i > currentIdx && remaining.includes(id)
+      );
+      const prevIdx = order.reduce(
+        (acc, id, i) => (i < currentIdx && remaining.includes(id) ? i : acc),
+        -1
+      );
+      if (nextIdx !== -1) setCurrentIdx(nextIdx);
+      else if (prevIdx !== -1) setCurrentIdx(prevIdx);
     } catch (err) {
       console.error(err);
       setStatusMsg({ text: "Sin conexión. Intenta de nuevo.", type: "error" });
@@ -510,9 +543,13 @@ export default function RutaPage() {
   // MODO CONDUCCIÓN — una parada a la vez
   // ═══════════════════════════════════════════════════════
   if (mode === "driving") {
-    const progress = sorted.length > 0 ? ((currentIdx) / sorted.length) * 100 : 0;
+    const doneCount = sorted.filter(isDone).length;
+    const allDone = sorted.length > 0 && doneCount === sorted.length;
+    const progress = sorted.length > 0 ? (doneCount / sorted.length) * 100 : 0;
     const totalToCobrar = sorted.reduce((sum, bk) => sum + (Number(bk.amount_due) || 0), 0);
-    const cobradoHasta = sorted.slice(0, currentIdx).reduce((sum, bk) => sum + (Number(bk.amount_due) || 0), 0);
+    const cobradoHasta = sorted
+      .filter((bk) => bk.delivery_status === "entregado")
+      .reduce((sum, bk) => sum + (Number(bk.amount_due) || 0), 0);
 
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
@@ -555,7 +592,7 @@ export default function RutaPage() {
           </div>
         )}
 
-        {sorted.length === 0 ? (
+        {sorted.length === 0 || allDone ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
             <div className="text-6xl">🎉</div>
             <h2 className="text-2xl font-black">¡Ruta completada!</h2>
@@ -573,11 +610,23 @@ export default function RutaPage() {
           <div className="flex-1 flex flex-col p-4 gap-4 max-w-lg mx-auto w-full">
             {/* Número de parada */}
             <div className="flex items-center gap-3 pt-2">
-              <div className="w-12 h-12 rounded-2xl bg-sky-500 flex items-center justify-center text-xl font-black text-white shadow-lg shadow-sky-500/30">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black text-white shadow-lg ${
+                currentStop.delivery_status === "entregado"
+                  ? "bg-emerald-500 shadow-emerald-500/30"
+                  : currentStop.delivery_status === "no_entregado"
+                  ? "bg-slate-600 shadow-slate-600/30"
+                  : "bg-sky-500 shadow-sky-500/30"
+              }`}>
                 {stopLabel(currentIdx)}
               </div>
               <div>
-                <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Parada actual</p>
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+                  {currentStop.delivery_status === "entregado"
+                    ? "✓ Entregada"
+                    : currentStop.delivery_status === "no_entregado"
+                    ? "✗ Intento fallido"
+                    : "Parada actual"}
+                </p>
                 <p className="font-black text-lg leading-tight">{currentStop.instagram ? `@${currentStop.instagram.replace(/^@/, "")}` : currentStop.fullName}</p>
                 {currentStop.instagram && <p className="text-xs text-slate-400 leading-tight">{currentStop.fullName}</p>}
               </div>
@@ -654,28 +703,45 @@ export default function RutaPage() {
             )}
 
             {/* Acciones */}
-            <div className="grid grid-cols-2 gap-3 mt-auto">
-              <button
-                disabled={!!updatingId || !!pendingDelivery || !!pendingNoEntregado}
-                onClick={() => setPendingNoEntregado({ booking: currentStop })}
-                className="py-4 rounded-2xl bg-slate-800 border border-slate-700 text-slate-300 font-black hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
-              >
-                ✗ No estaba
-              </button>
-              <button
-                disabled={!!updatingId || !!pendingDelivery}
-                onClick={() => {
-                  if (Number(currentStop.amount_due) > 0) {
-                    setPendingDelivery({ booking: currentStop });
-                  } else {
-                    markStop(currentStop, "entregado", "efectivo");
-                  }
-                }}
-                className="py-4 rounded-2xl bg-sky-500 text-white font-black shadow-lg shadow-sky-500/30 hover:bg-sky-400 transition-all active:scale-95 disabled:opacity-50"
-              >
-                {updatingId === currentStop.id ? "..." : "✓ Entregado"}
-              </button>
-            </div>
+            {isDone(currentStop) ? (
+              <div className="mt-auto rounded-2xl bg-slate-900 border border-slate-800 p-4 text-center space-y-3">
+                <p className="text-sm font-black text-slate-300">
+                  {currentStop.delivery_status === "entregado"
+                    ? "Esta parada ya está entregada"
+                    : "Esta parada quedó como intento fallido"}
+                </p>
+                <button
+                  disabled={!!updatingId}
+                  onClick={() => markStop(currentStop, "pendiente", "efectivo")}
+                  className="text-xs font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-xl hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                >
+                  {updatingId === currentStop.id ? "..." : "↺ Reabrir parada"}
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 mt-auto">
+                <button
+                  disabled={!!updatingId || !!pendingDelivery || !!pendingNoEntregado}
+                  onClick={() => setPendingNoEntregado({ booking: currentStop })}
+                  className="py-4 rounded-2xl bg-slate-800 border border-slate-700 text-slate-300 font-black hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  ✗ No estaba
+                </button>
+                <button
+                  disabled={!!updatingId || !!pendingDelivery}
+                  onClick={() => {
+                    if (Number(currentStop.amount_due) > 0) {
+                      setPendingDelivery({ booking: currentStop });
+                    } else {
+                      markStop(currentStop, "entregado", "efectivo");
+                    }
+                  }}
+                  className="py-4 rounded-2xl bg-sky-500 text-white font-black shadow-lg shadow-sky-500/30 hover:bg-sky-400 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {updatingId === currentStop.id ? "..." : "✓ Entregado"}
+                </button>
+              </div>
+            )}
 
             {/* Selector de método de pago */}
             {pendingDelivery && pendingDelivery.booking.id === currentStop.id && (
@@ -808,7 +874,9 @@ export default function RutaPage() {
             ← Entregas
           </Link>
           <h1 className="font-black text-sm uppercase tracking-widest text-slate-200">Ruta del Día</h1>
-          <span className="text-xs font-bold text-slate-500">{sorted.length} paradas</span>
+          <span className="text-xs font-bold text-slate-500">
+            {sorted.filter((b) => !isDone(b)).length} de {sorted.length} pendientes
+          </span>
         </div>
       </div>
 
@@ -879,10 +947,20 @@ export default function RutaPage() {
                 Paradas en orden — usa las flechas para ajustar
               </p>
               {sorted.map((bk, idx) => (
-                <div key={bk.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <div key={bk.id} className={`border rounded-2xl overflow-hidden transition-opacity ${
+                  isDone(bk)
+                    ? "bg-slate-900/50 border-slate-800/60 opacity-60"
+                    : "bg-slate-900 border-slate-800"
+                }`}>
                   <div className="p-4 flex items-start gap-3">
                     {/* Número */}
-                    <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center font-black text-sm text-sky-400 shrink-0 mt-0.5">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0 mt-0.5 ${
+                      bk.delivery_status === "entregado"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : bk.delivery_status === "no_entregado"
+                        ? "bg-slate-700 text-slate-400"
+                        : "bg-slate-800 text-sky-400"
+                    }`}>
                       {stopLabel(idx)}
                     </div>
 
@@ -897,6 +975,16 @@ export default function RutaPage() {
                         <p className="text-xs text-slate-500 mt-1 line-clamp-2">{bk.products}</p>
                       )}
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        {bk.delivery_status === "entregado" && (
+                          <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                            ✓ Entregada
+                          </span>
+                        )}
+                        {bk.delivery_status === "no_entregado" && (
+                          <span className="text-[10px] font-black text-slate-400 bg-slate-700/40 px-2 py-0.5 rounded-md">
+                            ✗ Intento fallido
+                          </span>
+                        )}
                         {bk.amount_due > 0 && (
                           <span className="text-[10px] font-black text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">
                             Adeudo: ${Number(bk.amount_due).toFixed(2)}
