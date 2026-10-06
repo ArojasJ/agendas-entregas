@@ -128,7 +128,7 @@ ${products}
 
 Aún queda pendiente $${adeudo}, puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
-Puedes pasar a recoger tus productos de 5 a 7pm✨
+Puedes pasar a recoger tus productos de 4 a 6pm✨
 
 Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones 🖤
 
