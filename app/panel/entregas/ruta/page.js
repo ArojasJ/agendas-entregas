@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { geoAddress } from "@/lib/address";
+import { decodePanelTokenUnsafe } from "@/lib/panelToken";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
@@ -128,14 +129,8 @@ export default function RutaPage() {
   useEffect(() => {
     const token = getPanelToken();
     if (!token) { router.push("/panel"); return; }
-    try {
-      const decoded = atob(token);
-      const [json] = decoded.split("|");
-      JSON.parse(json);
-      setAuthChecked(true);
-    } catch {
-      router.push("/panel");
-    }
+    if (!decodePanelTokenUnsafe(token)) { router.push("/panel"); return; }
+    setAuthChecked(true);
   }, []);
 
   // ── Load today's domicilio bookings ───────────────────

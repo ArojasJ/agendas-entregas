@@ -1,12 +1,12 @@
 // app/api/login-panel/route.js
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import bcrypt from "bcryptjs";
+import { signPanelToken } from "@/lib/panelAuth";
 
 export async function POST(request) {
   try {
     const { username, password } = await request.json();
 
-    const secret = process.env.PANEL_TOKEN_SECRET || "agenda_super_secreta_123";
 
     if (!username || !password) {
       return new Response(
@@ -61,9 +61,7 @@ export async function POST(request) {
       displayName: user.display_name
     };
 
-    const token = Buffer.from(
-      JSON.stringify(payload) + "|" + secret
-    ).toString("base64");
+    const token = signPanelToken(payload);
 
     return new Response(
       JSON.stringify({

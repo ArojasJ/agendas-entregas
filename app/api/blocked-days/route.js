@@ -1,5 +1,5 @@
 // app/api/blocked-days/route.js
-import { supabase } from "@/lib/supabaseClient";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export async function GET() {
   const [
