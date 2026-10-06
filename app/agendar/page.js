@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias } from "@/lib/constants";
+import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias, textoDiasBodega } from "@/lib/constants";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -813,7 +813,7 @@ export default function AgendarPage() {
         {mode === "bodega" && bodegaActiva ? (
           <div className="space-y-4 mb-4">
             <p className="text-sm text-slate-600">
-              Las entregas en bodega son <b>de lunes a viernes</b> de{" "}
+              Las entregas en bodega son <b>{textoDiasBodega(bodegaDias)}</b> de{" "}
               <b>4:00 pm a 6:00 pm</b>. Debes agendar con al menos{" "}
               <b>1 día de anticipación (no mismo día)</b>.
             </p>
