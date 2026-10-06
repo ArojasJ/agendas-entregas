@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { geoAddress } from "@/lib/address";
+import { BODEGA_DIAS_DEFAULT, parseBodegaDias, NOMBRE_DIA } from "@/lib/constants";
 
 
 const CASHBOX_INITIAL = 300;
@@ -174,6 +175,8 @@ export default function PanelPage() {
   const [selectedPendingIds, setSelectedPendingIds] = useState([]);
 
   const [bodegaActiva, setBodegaActiva] = useState(true);
+  const [bodegaDias, setBodegaDias] = useState(BODEGA_DIAS_DEFAULT);
+  const [savingDias, setSavingDias] = useState(false);
   const [togglingBodega, setTogglingBodega] = useState(false);
 
   const [showManualModal, setShowManualModal] = useState(false);
@@ -375,6 +378,7 @@ export default function PanelPage() {
         const data = await res.json();
         const val = data.settings?.bodega_activa;
         if (val !== undefined) setBodegaActiva(val === "true");
+        setBodegaDias(parseBodegaDias(data.settings?.bodega_dias));
       }
     } catch {}
   };
@@ -395,6 +399,29 @@ export default function PanelPage() {
       }
     } catch {}
     setTogglingBodega(false);
+  };
+
+  const handleToggleDiaBodega = async (dia) => {
+    const next = bodegaDias.includes(dia)
+      ? bodegaDias.filter((d) => d !== dia)
+      : [...bodegaDias, dia].sort();
+    if (next.length === 0) return; // debe quedar al menos un día
+
+    setSavingDias(true);
+    const prev = bodegaDias;
+    setBodegaDias(next);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ key: "bodega_dias", value: next.join(",") }),
+      });
+      if (!res.ok) setBodegaDias(prev);
+    } catch {
+      setBodegaDias(prev);
+    }
+    setSavingDias(false);
   };
 
   const handleSubmit = async (e) => {
@@ -906,6 +933,31 @@ export default function PanelPage() {
                   <span>Nueva entrega manual</span>
                 </button>
               </div>
+              {bodegaActiva && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                    Días de bodega:
+                  </span>
+                  {[1, 2, 3, 4, 5].map((dia) => {
+                    const on = bodegaDias.includes(dia);
+                    return (
+                      <button
+                        key={dia}
+                        onClick={() => handleToggleDiaBodega(dia)}
+                        disabled={savingDias || (on && bodegaDias.length === 1)}
+                        title={on && bodegaDias.length === 1 ? "Debe quedar al menos un día" : ""}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all active:scale-95 disabled:opacity-60 ${
+                          on
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                            : "bg-slate-100 border-slate-300 text-slate-400 hover:bg-slate-200"
+                        }`}
+                      >
+                        {NOMBRE_DIA[dia]}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {syncResult && (
                 <p className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${syncResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
                   {syncResult.message}

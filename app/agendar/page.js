@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DOMICILIO_LIMIT } from "@/lib/constants";
+import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias } from "@/lib/constants";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -13,7 +13,7 @@ registerLocale("es", es);
 // Bodega ahora se controla dinámicamente desde el panel (app_settings)
 
 // 🔹 genera los siguientes días válidos LUN-VIE (siempre a partir de MAÑANA)
-function getNextPickupDates(count = 6) {
+function getNextPickupDates(count = 6, dias = BODEGA_DIAS_DEFAULT) {
   const result = [];
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -22,10 +22,12 @@ function getNextPickupDates(count = 6) {
   let d = new Date(today);
   d.setDate(d.getDate() + 1);
 
-  while (result.length < count) {
-    const day = d.getDay(); // 0 dom, 1 lun, ... 6 sáb
-    // lunes(1) a viernes(5)
-    if (day >= 1 && day <= 5) {
+  // Tope de días a recorrer: con un solo día hábil por semana, 6 fechas son ~6 semanas
+  const limite = new Date(today);
+  limite.setDate(limite.getDate() + 120);
+
+  while (result.length < count && d <= limite) {
+    if (dias.includes(d.getDay())) {
       result.push(new Date(d));
     }
     d.setDate(d.getDate() + 1);
@@ -114,6 +116,7 @@ export default function AgendarPage() {
   // "bodega" | "domicilio" | "paqueteria"
   // 🟢 AJUSTE: Iniciamos en domicilio porque bodega está pausada
   const [bodegaActiva, setBodegaActiva] = useState(false);
+  const [bodegaDias, setBodegaDias] = useState(BODEGA_DIAS_DEFAULT);
   const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [bookingCounts, setBookingCounts] = useState({}); // { "YYYY-MM-DD": n } para contar domicilio
@@ -186,6 +189,7 @@ export default function AgendarPage() {
         if (resSettings.ok) {
           const ds = await resSettings.json();
           setBodegaActiva(ds.settings?.bodega_activa === "true");
+          setBodegaDias(parseBodegaDias(ds.settings?.bodega_dias));
         }
       } catch {}
 
@@ -230,7 +234,7 @@ export default function AgendarPage() {
   };
 
   const getBodegaCardDates = () => {
-    const baseDates = getNextPickupDates(6);
+    const baseDates = getNextPickupDates(6, bodegaDias);
     const now = new Date();
     const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrowLocal = new Date(todayLocal);
