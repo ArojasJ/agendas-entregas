@@ -114,7 +114,7 @@ ${products}
 
 Aún queda pendiente $${adeudo}, puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
-Tu entrega será después de las 3pm✨
+Tu entrega será después de la 1pm✨
 
 Recuerda revisar tus productos al recibirlos con el repartidor ya que una vez entregados no hay cambios ni devoluciones. Solo podemos permanecer 10 min en el domicilio en caso de exceder este tiempo deberás agendar tu entrega nuevamente 🚚 🖤
 
