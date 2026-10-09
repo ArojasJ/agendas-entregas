@@ -179,6 +179,10 @@ export default function PanelPage() {
   const [savingDias, setSavingDias] = useState(false);
   const [showParadaModal, setShowParadaModal] = useState(false);
   const [paqueterias, setPaqueterias] = useState([]);
+  const [floreriaActiva, setFloreriaActiva] = useState(false);
+  const [togglingFloreria, setTogglingFloreria] = useState(false);
+  const [showFloreriaModal, setShowFloreriaModal] = useState(false);
+  const [floreriaCfg, setFloreriaCfg] = useState({ horario: "", direccion: "", maps_url: "" });
   const [togglingBodega, setTogglingBodega] = useState(false);
 
   const [showManualModal, setShowManualModal] = useState(false);
@@ -382,6 +386,12 @@ export default function PanelPage() {
         const val = data.settings?.bodega_activa;
         if (val !== undefined) setBodegaActiva(val === "true");
         setBodegaDias(parseBodegaDias(data.settings?.bodega_dias));
+        setFloreriaActiva(data.settings?.floreria_activa === "true");
+        setFloreriaCfg({
+          horario: data.settings?.floreria_horario || "",
+          direccion: data.settings?.floreria_direccion || "",
+          maps_url: data.settings?.floreria_maps_url || "",
+        });
       }
     } catch {}
   };
@@ -402,6 +412,35 @@ export default function PanelPage() {
       }
     } catch {}
     setTogglingBodega(false);
+  };
+
+  const guardarAjuste = async (key, value) => {
+    const token = localStorage.getItem("panelToken") || "";
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-panel-token": token },
+      body: JSON.stringify({ key, value: String(value) }),
+    });
+    return res.ok;
+  };
+
+  const handleToggleFloreria = async () => {
+    setTogglingFloreria(true);
+    const nuevo = !floreriaActiva;
+    if (await guardarAjuste("floreria_activa", nuevo)) {
+      setFloreriaActiva(nuevo);
+      if (!nuevo && activeTab === "floreria") setActiveTab("domicilio");
+    }
+    setTogglingFloreria(false);
+  };
+
+  const handleGuardarFloreria = async (cfg) => {
+    const ok =
+      (await guardarAjuste("floreria_horario", cfg.horario)) &&
+      (await guardarAjuste("floreria_direccion", cfg.direccion)) &&
+      (await guardarAjuste("floreria_maps_url", cfg.maps_url));
+    if (ok) setFloreriaCfg(cfg);
+    return ok;
   };
 
   const fetchPaqueterias = async () => {
@@ -770,6 +809,7 @@ export default function PanelPage() {
     if (activeTab === "bodega") return t.includes("bod");
     if (activeTab === "domicilio") return t.includes("dom");
     if (activeTab === "paqueteria") return t.includes("paq");
+    if (activeTab === "floreria") return t.includes("flor");
     return false;
   });
 
@@ -937,6 +977,18 @@ export default function PanelPage() {
                   <span>Bodega: {bodegaActiva ? "Activa" : "Inactiva"}</span>
                 </button>
                 <button
+                  onClick={handleToggleFloreria}
+                  disabled={togglingFloreria}
+                  className={`flex items-center justify-center gap-2 text-sm font-semibold px-4 py-2.5 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 ${
+                    floreriaActiva
+                      ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                      : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  <span className="text-base leading-none">🌷</span>
+                  <span>Florería: {floreriaActiva ? "Activa" : "Inactiva"}</span>
+                </button>
+                <button
                   onClick={() => setShowManualModal(true)}
                   className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all hover:shadow-[0_0_20px_rgba(16,185,129,0.35)] active:scale-[0.98]"
                 >
@@ -944,6 +996,14 @@ export default function PanelPage() {
                   <span>Nueva entrega manual</span>
                 </button>
               </div>
+              {floreriaActiva && activeTab === "floreria" && (
+                <button
+                  onClick={() => setShowFloreriaModal(true)}
+                  className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition-colors"
+                >
+                  ⚙️ Horario y dirección de la florería
+                </button>
+              )}
               {bodegaActiva && activeTab === "bodega" && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
@@ -989,6 +1049,9 @@ export default function PanelPage() {
           <TabBtn label="Domicilio" icon="🚚" id="domicilio" active={activeTab} onClick={setActiveTab} dark={D} />
           {isAdmin && (
             <TabBtn label="Paquetería" icon="📦" id="paqueteria" active={activeTab} onClick={setActiveTab} dark={D} />
+          )}
+          {isAdmin && floreriaActiva && (
+            <TabBtn label="Florería" icon="🌷" id="floreria" active={activeTab} onClick={setActiveTab} dark={D} />
           )}
         </div>
 
@@ -1985,6 +2048,14 @@ export default function PanelPage() {
         />
       )}
 
+      {showFloreriaModal && (
+        <FloreriaConfigModal
+          cfg={floreriaCfg}
+          onClose={() => setShowFloreriaModal(false)}
+          onSave={handleGuardarFloreria}
+        />
+      )}
+
       {showParadaModal && (
         <ParadaPaqueteriaModal
           paqueterias={paqueterias}
@@ -2246,6 +2317,69 @@ function RescheduleModal({ booking, dark: D, onClose, onSaved }) {
           <button onClick={handleSave} disabled={saving}
             className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-sm font-semibold transition-all disabled:opacity-50">
             {saving ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FloreriaConfigModal({ cfg, onClose, onSave }) {
+  const [form, setForm] = useState(cfg);
+  const [guardando, setGuardando] = useState(false);
+
+  const inputCls = "rounded-xl px-3 py-2.5 text-sm border w-full bg-white border-slate-300 text-slate-900 focus:outline-none focus:border-rose-500 transition-all";
+
+  const guardar = async () => {
+    setGuardando(true);
+    const ok = await onSave(form);
+    setGuardando(false);
+    if (ok) onClose();
+    else alert("No se pudo guardar.");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-black text-lg text-slate-900">Florería</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Lo que ve la clienta al agendar</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Horario</label>
+            <input value={form.horario} onChange={(e) => setForm({ ...form, horario: e.target.value })}
+              placeholder="ej. 10:00 am a 7:00 pm" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Dirección</label>
+            <textarea value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })}
+              rows={2} placeholder="Calle, número, colonia, Gómez Palacio, Durango" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Link de Google Maps</label>
+            <input value={form.maps_url} onChange={(e) => setForm({ ...form, maps_url: e.target.value })}
+              placeholder="https://maps.app.goo.gl/..." className={inputCls} />
+            <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+              Opcional. Si lo pones, a la clienta le aparece un botón &quot;Cómo llegar&quot; que le
+              abre el punto exacto. En Google Maps busca tu florería, dale Compartir y copia el link.
+            </p>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+            <p className="text-xs text-slate-600 leading-relaxed">
+              La florería recibe de <b>lunes a viernes</b> con <b>2 días hábiles</b> de
+              anticipación: quien agenda el viernes recoge el martes.
+            </p>
+          </div>
+
+          <button onClick={guardar} disabled={guardando}
+            className="w-full bg-rose-500 hover:bg-rose-400 text-white font-black py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-50">
+            {guardando ? "Guardando…" : "Guardar"}
           </button>
         </div>
       </div>

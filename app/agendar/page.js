@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias, textoDiasBodega } from "@/lib/constants";
+import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias, textoDiasBodega, fechasFloreria } from "@/lib/constants";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -117,6 +117,10 @@ export default function AgendarPage() {
   // 🟢 AJUSTE: Iniciamos en domicilio porque bodega está pausada
   const [bodegaActiva, setBodegaActiva] = useState(false);
   const [bodegaDias, setBodegaDias] = useState(BODEGA_DIAS_DEFAULT);
+  const [floreriaActiva, setFloreriaActiva] = useState(false);
+  const [floreriaHorario, setFloreriaHorario] = useState("");
+  const [floreriaDireccion, setFloreriaDireccion] = useState("");
+  const [floreriaMapsUrl, setFloreriaMapsUrl] = useState("");
   const [mode, setMode] = useState("domicilio");
   const [slots, setSlots] = useState(null); // para bodega (si existe)
   const [bookingCounts, setBookingCounts] = useState({}); // { "YYYY-MM-DD": n } para contar domicilio
@@ -190,6 +194,10 @@ export default function AgendarPage() {
           const ds = await resSettings.json();
           setBodegaActiva(ds.settings?.bodega_activa === "true");
           setBodegaDias(parseBodegaDias(ds.settings?.bodega_dias));
+          setFloreriaActiva(ds.settings?.floreria_activa === "true");
+          setFloreriaHorario(ds.settings?.floreria_horario || "");
+          setFloreriaDireccion(ds.settings?.floreria_direccion || "");
+          setFloreriaMapsUrl(ds.settings?.floreria_maps_url || "");
         }
       } catch {}
 
@@ -266,6 +274,7 @@ export default function AgendarPage() {
   };
 
   const bodegaCardDates = getBodegaCardDates();
+  const floreriaCardDates = fechasFloreria(6);
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -328,6 +337,69 @@ export default function AgendarPage() {
     });
     setCalculatingDebt(debt);
   }, [selectedItems, clientSales]);
+
+  const handleFloreriaBooking = async (date) => {
+    setError("");
+    if (!insta.trim() || !fullName.trim() || !phone.trim()) {
+      setError("Completa Instagram, nombre y teléfono.");
+      return;
+    }
+    if (!date) {
+      setError("Selecciona una fecha.");
+      return;
+    }
+
+    const dateStr = toInputDate(date);
+    if (isBlocked(dateStr, "floreria")) {
+      setError("Ese día la florería no recibe pedidos. Elige otro.");
+      return;
+    }
+
+    let instaValue = insta.trim();
+    if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;
+
+    try {
+      setIsSubmitting(true);
+      const productsString = selectedItems.length > 0
+        ? selectedItems.map((i) => `${i.quantity}x ${i.product_name}`).join(", ")
+        : "";
+
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "floreria",
+          date: dateStr,
+          instagram: instaValue,
+          fullName,
+          phone,
+          products: productsString || null,
+          amountDue: calculatingDebt,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "No se pudo agendar.");
+      } else {
+        setSuccessText("✅ Tu pedido quedó registrado en la florería.");
+        setSuccessBooking({
+          type: "floreria",
+          instagram: instaValue,
+          date: dateStr,
+          fullName,
+          phone,
+          horario: floreriaHorario,
+          direccion: floreriaDireccion,
+          mapsUrl: floreriaMapsUrl,
+        });
+      }
+    } catch {
+      setError("Error de conexión. Intenta de nuevo.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleBodegaBooking = async (day, date, extraInfo = {}) => {
     if (!bodegaActiva) return; // Protección extra
@@ -703,7 +775,7 @@ export default function AgendarPage() {
         </div>
 
         {/* SELECTOR DE MODO PREMIUM */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+        <div className={`grid grid-cols-1 gap-3 mb-8 ${floreriaActiva ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
           {bodegaActiva && (
             <button
               onClick={() => setMode("bodega")}
@@ -736,6 +808,18 @@ export default function AgendarPage() {
           >
             <span className="text-xl">📦</span> Paquetería
           </button>
+          {floreriaActiva && (
+            <button
+              onClick={() => setMode("floreria")}
+              className={`py-4 px-4 rounded-3xl text-sm font-black transition-all flex items-center justify-center gap-3 border-2 ${
+                mode === "floreria"
+                  ? "bg-rose-500 border-rose-500 text-white shadow-xl scale-105"
+                  : "bg-white border-slate-100 text-slate-400"
+              }`}
+            >
+              <span className="text-xl">🌷</span> Florería
+            </button>
+          )}
         </div>
 
         {/* SELECCIÓN DE PRODUCTOS (INTERFAZ TÁCTIL) */}
@@ -929,6 +1013,74 @@ export default function AgendarPage() {
                       <p className="text-[11px] text-red-600 mt-1">
                         ⛔ Este día no nos encontramos en bodega
                       </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : mode === "floreria" && floreriaActiva ? (
+          <div className="space-y-4 mb-4">
+            <p className="text-sm text-slate-600">
+              Puedes pasar a recoger tu pedido en nuestra <b>florería en Gómez Palacio</b>
+              {floreriaHorario ? <> de <b>{floreriaHorario}</b></> : null}. Necesitamos{" "}
+              <b>2 días hábiles de anticipación</b> y recibimos de <b>lunes a viernes</b>.
+            </p>
+
+            {floreriaDireccion && (
+              <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-sm text-rose-900">
+                <p className="font-semibold mb-1">📍 DÓNDE RECOGER</p>
+                <p className="leading-relaxed">{floreriaDireccion}</p>
+                {floreriaMapsUrl && (
+                  <a href={floreriaMapsUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-block mt-2 text-xs font-bold underline">
+                    Cómo llegar →
+                  </a>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Instagram *</label>
+              <input value={insta} onChange={(e) => setInsta(e.target.value)} required
+                placeholder="@tuusuario" className="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Nombre completo *</label>
+              <input value={fullName} onChange={(e) => setFullName(e.target.value)} required
+                className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nombre y apellidos" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Teléfono / WhatsApp *</label>
+              <input type="tel" value={phone} onChange={handlePhoneChange} required
+                className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="871..." inputMode="numeric" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              {floreriaCardDates.map((d) => {
+                const dateStr = toInputDate(d);
+                const blocked = isBlocked(dateStr, "floreria");
+                const disabled = blocked || isSubmitting;
+                const weekdayLabel = capitalizeFirst(
+                  d.toLocaleDateString("es-MX", { weekday: "long" })
+                );
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => handleFloreriaBooking(d)}
+                    disabled={disabled}
+                    className={`border rounded-xl p-3 text-left transition ${
+                      blocked
+                        ? "bg-red-100 border-red-200 text-red-700 cursor-not-allowed"
+                        : disabled
+                        ? "bg-slate-100 text-slate-500 cursor-not-allowed"
+                        : "bg-white hover:border-rose-400"
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{toNiceDate(d)}</p>
+                    <p className="text-[11px] text-slate-500">{weekdayLabel}</p>
+                    {blocked && (
+                      <p className="text-[11px] text-red-600 mt-1">⛔ La florería no recibe este día</p>
                     )}
                   </button>
                 );
@@ -1389,7 +1541,10 @@ export default function AgendarPage() {
             <div className="bg-emerald-500 p-8 text-center relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl">✨</div>
               <div className="w-20 h-20 bg-white rounded-[2rem] flex items-center justify-center text-4xl shadow-xl mx-auto mb-4 relative z-10">
-                {successBooking.type === "domicilio" ? "🛵" : successBooking.type === "bodega" ? "🏪" : "📦"}
+                {successBooking.type === "domicilio" ? "🛵"
+                  : successBooking.type === "bodega" ? "🏪"
+                  : successBooking.type === "floreria" ? "🌷"
+                  : "📦"}
               </div>
               <h2 className="text-2xl font-black text-slate-900 leading-tight relative z-10">¡Todo listo!</h2>
               <p className="text-[10px] font-black text-slate-900/60 uppercase tracking-widest mt-1 relative z-10">Tu entrega ha sido agendada</p>
@@ -1427,6 +1582,24 @@ export default function AgendarPage() {
                   <div className="bg-amber-50 rounded-2xl p-4 border-2 border-amber-100">
                     <p className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-1 text-center">Horario de Recolección</p>
                     <p className="text-xl font-black text-amber-900 text-center">{successBooking.horario}</p>
+                  </div>
+                )}
+
+                {successBooking.type === "floreria" && (
+                  <div className="bg-rose-50 rounded-2xl p-4 border-2 border-rose-100 space-y-2">
+                    <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest text-center">Recoge en la florería</p>
+                    {successBooking.horario && (
+                      <p className="text-xl font-black text-rose-900 text-center">{successBooking.horario}</p>
+                    )}
+                    {successBooking.direccion && (
+                      <p className="text-xs text-rose-900 text-center leading-relaxed">{successBooking.direccion}</p>
+                    )}
+                    {successBooking.mapsUrl && (
+                      <a href={successBooking.mapsUrl} target="_blank" rel="noopener noreferrer"
+                        className="block text-center text-xs font-black text-rose-700 underline">
+                        Cómo llegar →
+                      </a>
+                    )}
                   </div>
                 )}
               </div>

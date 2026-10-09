@@ -22,7 +22,7 @@ function makeLocalDate(dateStr) {
   return new Date(y, m - 1, d);
 }
 
-import { DOMICILIO_LIMIT } from "@/lib/constants";
+import { DOMICILIO_LIMIT, esDiaHabil, primeraFechaFloreria } from "@/lib/constants";
 
 const SLOT_CAPACITY = 12;
 const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -300,7 +300,7 @@ export async function POST(req) {
     }
 
     // 🆕 2.a) si NO es override y es bodega o domicilio → checamos si está bloqueado
-    if (!override && (type === "bodega" || type === "domicilio")) {
+    if (!override && (type === "bodega" || type === "domicilio" || type === "floreria")) {
       const { data: blockedForThatDay, error: blockedCheckErr } = await supabase
         .from("blocked_days")
         .select("id")
@@ -483,6 +483,26 @@ export async function POST(req) {
 
       // ✅ si es día extra: day = null, si es normal: day = monday..friday
       dayToSave = isExtraDay ? null : day;
+    }
+
+    // 🌷 FLORERÍA → lun-vie y 2 días hábiles de anticipación
+    if (type === "floreria" && !override) {
+      const seleccionada = makeLocalDate(dateToSave);
+
+      if (!esDiaHabil(seleccionada)) {
+        return Response.json(
+          { message: "La florería solo recibe de lunes a viernes." },
+          { status: 400 }
+        );
+      }
+
+      const minima = primeraFechaFloreria();
+      if (seleccionada < minima) {
+        return Response.json(
+          { message: "La florería necesita 2 días hábiles de anticipación." },
+          { status: 400 }
+        );
+      }
     }
 
     // 🟣 DOMICILIO → validar máximo por día + validar ciudad/estado/CP
