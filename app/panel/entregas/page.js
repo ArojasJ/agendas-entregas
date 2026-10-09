@@ -2254,8 +2254,13 @@ function RescheduleModal({ booking, dark: D, onClose, onSaved }) {
 }
 
 function ParadaPaqueteriaModal({ paqueterias, isAdmin, dark: D, onClose, onConfirm, onCatalogoChange }) {
+  const aInput = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const hoy = new Date();
-  const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  const manana = new Date(hoy);
+  manana.setDate(manana.getDate() + 1);
+  const fechaHoy = aInput(hoy);
+  const fechaManana = aInput(manana);
 
   const [paqueteriaId, setPaqueteriaId] = useState("");
   const [fecha, setFecha] = useState(fechaHoy);
@@ -2361,7 +2366,25 @@ function ParadaPaqueteriaModal({ paqueterias, isAdmin, dark: D, onClose, onConfi
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Fecha</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Fecha</label>
+                      <div className="flex gap-1">
+                        {[{ v: fechaHoy, l: "Hoy" }, { v: fechaManana, l: "Mañana" }].map(({ v, l }) => (
+                          <button
+                            key={l}
+                            type="button"
+                            onClick={() => setFecha(v)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors ${
+                              fecha === v
+                                ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                                : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200"
+                            }`}
+                          >
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputCls} />
                   </div>
                   <div>
@@ -2370,6 +2393,14 @@ function ParadaPaqueteriaModal({ paqueterias, isAdmin, dark: D, onClose, onConfi
                       onChange={(e) => setPaquetes(e.target.value)} className={inputCls} />
                   </div>
                 </div>
+
+                <p className="text-xs font-semibold text-slate-600">
+                  {fecha === fechaHoy
+                    ? "Entra a la ruta de hoy."
+                    : fecha === fechaManana
+                    ? "Entra a la ruta de mañana."
+                    : `Entra a la ruta del ${new Date(fecha + "T12:00:00").toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })}.`}
+                </p>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nota (opcional)</label>
