@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { geoAddress } from "@/lib/address";
 import { decodePanelTokenUnsafe } from "@/lib/panelToken";
+import { TIPO_PARADA_PAQUETERIA } from "@/lib/constants";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
@@ -165,7 +166,7 @@ export default function RutaPage() {
 
       const todayDom = (data.bookings || []).filter(
         (bk) =>
-          bk.type === "domicilio" &&
+          (bk.type === "domicilio" || bk.type === TIPO_PARADA_PAQUETERIA) &&
           bk.date === today &&
           // Una ruta nueva arranca solo con pendientes, pero las ya entregadas se
           // conservan si forman parte de la ruta en curso para no recorrer los números.

@@ -177,6 +177,8 @@ export default function PanelPage() {
   const [bodegaActiva, setBodegaActiva] = useState(true);
   const [bodegaDias, setBodegaDias] = useState(BODEGA_DIAS_DEFAULT);
   const [savingDias, setSavingDias] = useState(false);
+  const [showParadaModal, setShowParadaModal] = useState(false);
+  const [paqueterias, setPaqueterias] = useState([]);
   const [togglingBodega, setTogglingBodega] = useState(false);
 
   const [showManualModal, setShowManualModal] = useState(false);
@@ -368,6 +370,7 @@ export default function PanelPage() {
       fetchBookings();
       if (isAdmin) fetchCashboxInfo();
       fetchSettings();
+      fetchPaqueterias();
     }
   }, [authorized, isAdmin]);
 
@@ -399,6 +402,33 @@ export default function PanelPage() {
       }
     } catch {}
     setTogglingBodega(false);
+  };
+
+  const fetchPaqueterias = async () => {
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/paqueterias", { headers: { "x-panel-token": token } });
+      if (res.ok) {
+        const d = await res.json();
+        setPaqueterias((d.paqueterias || []).filter((p) => p.activa));
+      }
+    } catch {}
+  };
+
+  const handleAgregarParada = async ({ paqueteriaId, fecha, paquetes, notas }) => {
+    const token = localStorage.getItem("panelToken") || "";
+    const res = await fetch("/api/paqueterias/parada", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": token },
+      body: JSON.stringify({ paqueteriaId, fecha, paquetes, notas }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.message || "No se pudo agregar la parada.");
+      return false;
+    }
+    await fetchBookings();
+    return data;
   };
 
   const handleToggleDiaBodega = async (dia) => {
@@ -1031,6 +1061,16 @@ export default function PanelPage() {
               >
                 🚛 Ruta del Día
               </Link>
+            )}
+            {activeTab === "domicilio" && (
+              <button
+                onClick={() => setShowParadaModal(true)}
+                className={`px-4 py-2 text-sm rounded-xl font-bold transition-all border flex items-center gap-1.5 ${
+                  D ? "bg-amber-500/15 text-amber-400 border-amber-500/25 hover:bg-amber-500/25" : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                }`}
+              >
+                📦 Parada de paquetería
+              </button>
             )}
             <button
               onClick={() => {
@@ -1945,6 +1985,17 @@ export default function PanelPage() {
         />
       )}
 
+      {showParadaModal && (
+        <ParadaPaqueteriaModal
+          paqueterias={paqueterias}
+          isAdmin={isAdmin}
+          dark={D}
+          onClose={() => setShowParadaModal(false)}
+          onConfirm={handleAgregarParada}
+          onCatalogoChange={fetchPaqueterias}
+        />
+      )}
+
       {showCashboxModal && (
         <CashboxCutModal
           initialCash={CASHBOX_INITIAL}
@@ -2197,6 +2248,205 @@ function RescheduleModal({ booking, dark: D, onClose, onSaved }) {
             {saving ? "Guardando…" : "Guardar"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ParadaPaqueteriaModal({ paqueterias, isAdmin, dark: D, onClose, onConfirm, onCatalogoChange }) {
+  const hoy = new Date();
+  const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+
+  const [paqueteriaId, setPaqueteriaId] = useState("");
+  const [fecha, setFecha] = useState(fechaHoy);
+  const [paquetes, setPaquetes] = useState(1);
+  const [notas, setNotas] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [verCatalogo, setVerCatalogo] = useState(false);
+  const [nueva, setNueva] = useState({ nombre: "", direccion: "", lat: "", lng: "" });
+  const [guardandoNueva, setGuardandoNueva] = useState(false);
+
+  const inputCls = `rounded-xl px-3 py-2.5 text-sm border w-full focus:outline-none transition-all ${
+    D ? "bg-slate-50 border-slate-200 text-slate-900 focus:border-emerald-500"
+      : "bg-white border-slate-300 text-slate-900 focus:border-emerald-500"
+  }`;
+
+  const guardar = async () => {
+    if (!paqueteriaId) return;
+    setGuardando(true);
+    const r = await onConfirm({ paqueteriaId, fecha, paquetes, notas });
+    setGuardando(false);
+    if (r) onClose();
+  };
+
+  const crearPaqueteria = async () => {
+    if (!nueva.nombre.trim() || !nueva.direccion.trim()) return;
+    setGuardandoNueva(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/paqueterias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify(nueva),
+      });
+      if (res.ok) {
+        setNueva({ nombre: "", direccion: "", lat: "", lng: "" });
+        await onCatalogoChange();
+      } else {
+        const d = await res.json();
+        alert(d.message || "No se pudo guardar la paquetería.");
+      }
+    } catch {}
+    setGuardandoNueva(false);
+  };
+
+  const eliminarPaqueteria = async (id, nombre) => {
+    if (!confirm(`¿Eliminar "${nombre}" del catálogo?`)) return;
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/paqueterias?id=${id}`, {
+        method: "DELETE",
+        headers: { "x-panel-token": token },
+      });
+      if (res.ok) await onCatalogoChange();
+    } catch {}
+  };
+
+  const seleccionada = paqueterias.find((p) => p.id === paqueteriaId);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white rounded-t-3xl">
+          <div>
+            <h3 className="font-black text-lg text-slate-900">Parada de paquetería</h3>
+            <p className="text-xs text-slate-500 mt-0.5">No ocupa lugar de las 15 entregas</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+        </div>
+
+        {!verCatalogo ? (
+          <div className="p-6 space-y-4">
+            {paqueterias.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-4xl mb-2">📦</p>
+                <p className="text-sm font-bold text-slate-700">Todavía no hay paqueterías</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {isAdmin
+                    ? "Agrega la primera para poder sumarla a la ruta."
+                    : "Pídele a un administrador que las dé de alta."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Paquetería</label>
+                  <select value={paqueteriaId} onChange={(e) => setPaqueteriaId(e.target.value)} className={inputCls}>
+                    <option value="">Selecciona…</option>
+                    {paqueterias.map((p) => (
+                      <option key={p.id} value={p.id}>{p.nombre}</option>
+                    ))}
+                  </select>
+                  {seleccionada && (
+                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                      📍 {seleccionada.direccion}
+                      {seleccionada.lat == null && (
+                        <span className="block text-amber-600 font-semibold mt-0.5">
+                          Sin coordenadas — la ruta la ubicará por dirección
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Fecha</label>
+                    <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Paquetes</label>
+                    <input type="number" min="1" value={paquetes}
+                      onChange={(e) => setPaquetes(e.target.value)} className={inputCls} />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nota (opcional)</label>
+                  <input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="ej. preguntar por Luis"
+                    className={inputCls} />
+                </div>
+
+                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                  Si ya hay una parada de esa paquetería ese día, los paquetes se suman a ella en vez de crear otra.
+                </p>
+
+                <button onClick={guardar} disabled={!paqueteriaId || guardando}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-black py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-50">
+                  {guardando ? "Agregando…" : "Agregar a la ruta"}
+                </button>
+              </>
+            )}
+
+            {isAdmin && (
+              <button onClick={() => setVerCatalogo(true)}
+                className="w-full text-xs font-bold text-slate-500 hover:text-slate-800 py-2 transition-colors">
+                ⚙️ Administrar paqueterías
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="p-6 space-y-4">
+            <div className="space-y-2">
+              {paqueterias.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-2">Catálogo vacío</p>
+              )}
+              {paqueterias.map((p) => (
+                <div key={p.id} className="flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm text-slate-900">{p.nombre}</p>
+                    <p className="text-xs text-slate-500 leading-snug">{p.direccion}</p>
+                    <p className="text-[11px] mt-0.5 font-semibold">
+                      {p.lat != null && p.lng != null
+                        ? <span className="text-emerald-600">✓ {p.lat}, {p.lng}</span>
+                        : <span className="text-amber-600">Sin coordenadas</span>}
+                    </p>
+                  </div>
+                  <button onClick={() => eliminarPaqueteria(p.id, p.nombre)}
+                    className="text-rose-500 hover:text-rose-700 text-sm shrink-0">🗑</button>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Agregar paquetería</p>
+              <input value={nueva.nombre} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
+                placeholder="Nombre (ej. Estafeta Centro)" className={inputCls} />
+              <input value={nueva.direccion} onChange={(e) => setNueva({ ...nueva, direccion: e.target.value })}
+                placeholder="Dirección completa" className={inputCls} />
+              <div className="grid grid-cols-2 gap-3">
+                <input value={nueva.lat} onChange={(e) => setNueva({ ...nueva, lat: e.target.value })}
+                  placeholder="Latitud" className={inputCls} />
+                <input value={nueva.lng} onChange={(e) => setNueva({ ...nueva, lng: e.target.value })}
+                  placeholder="Longitud" className={inputCls} />
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Para las coordenadas: abre Google Maps, haz clic derecho sobre la sucursal y el primer
+                renglón del menú son los dos números. Cópialos aquí y la ruta llevará al repartidor
+                al punto exacto, sin adivinar por dirección.
+              </p>
+              <button onClick={crearPaqueteria} disabled={guardandoNueva || !nueva.nombre.trim() || !nueva.direccion.trim()}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-sm transition-all active:scale-95 disabled:opacity-50">
+                {guardandoNueva ? "Guardando…" : "Guardar paquetería"}
+              </button>
+            </div>
+
+            <button onClick={() => setVerCatalogo(false)}
+              className="w-full text-xs font-bold text-slate-500 hover:text-slate-800 py-2 transition-colors">
+              ← Volver
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
