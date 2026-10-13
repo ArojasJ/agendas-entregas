@@ -393,6 +393,7 @@ export default function AgendarPage() {
           direccion: floreriaDireccion,
           mapsUrl: floreriaMapsUrl,
         });
+        setSuccessModal(true);
       }
     } catch {
       setError("Error de conexión. Intenta de nuevo.");
