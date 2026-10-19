@@ -115,12 +115,12 @@ export default function VentasPage() {
       const saleDate = new Date(s.created_at).toLocaleDateString("en-CA"); // YYYY-MM-DD
       if (saleDate !== dateFilter) return false;
     }
-    if (typeFilter === "catalog") {
-      if (s.status !== "catalog_pending" && s.status !== "catalog_viewed" && s.status !== "pending_payment") return false;
-    }
-    if (typeFilter === "manual") {
-      if (s.status === "catalog_pending" || s.status === "catalog_viewed" || s.status === "pending_payment") return false;
-    }
+    // El método de pago sobrevive al cobro; el estado no. Por eso el origen web se
+    // reconoce por ahí y un pedido pagado no se va a la pestaña de ventas manuales.
+    const vieneDeWeb = s.payment_method === "Pedido Web"
+      || s.status === "catalog_pending" || s.status === "catalog_viewed" || s.status === "pending_payment";
+    if (typeFilter === "catalog" && !vieneDeWeb) return false;
+    if (typeFilter === "manual" && vieneDeWeb) return false;
     return true;
   });
 
@@ -262,6 +262,7 @@ export default function VentasPage() {
               const isCredit = sale.status === 'credit';
               const isCatalogPending = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
               const isEsperandoPago = sale.status === 'pending_payment';
+              const vieneDeWeb = sale.payment_method === 'Pedido Web' || isCatalogPending || isEsperandoPago;
               const isCancelled = sale.status === 'cancelled';
               const isCut = sale.pos_cut_id !== null;
 
@@ -292,8 +293,13 @@ export default function VentasPage() {
                             isCredit ? 'bg-amber-100 text-amber-700' :
                             'bg-indigo-100 text-indigo-700'
                           }`}>
-                            {sale.status === 'paid' ? 'Pagado' : isCancelled ? 'PENALIZACIÓN' : isCredit ? 'Crédito' : 'Pedido Web'}
+                            {sale.status === 'paid' ? 'Pagado' : isCancelled ? 'PENALIZACIÓN' : isCredit ? 'Crédito' : isEsperandoPago ? 'Esperando pago' : 'Pedido Web'}
                           </span>
+                          {vieneDeWeb && !isCatalogPending && !isEsperandoPago && (
+                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700">
+                              Web
+                            </span>
+                          )}
                         </div>
                         {isCut && <span className="bg-slate-100 text-slate-500 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">Cortado</span>}
                       </div>
