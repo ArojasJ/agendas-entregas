@@ -87,14 +87,14 @@ export default function VentasPage() {
     }
   };
 
-  const pendingSales = sales.filter(s => s.pos_cut_id === null && s.status !== "catalog_pending" && s.status !== "cancelled");
+  const pendingSales = sales.filter(s => s.pos_cut_id === null && s.status !== "catalog_pending" && s.status !== "pending_payment" && s.status !== "cancelled");
 
   // Enganches de ventas sin corte
   const totalDownPayments = pendingSales.reduce((sum, sale) => sum + (Number(sale.down_payment) || 0), 0);
 
   // Abonos sin corte de TODAS las ventas (incluyendo ventas ya cortadas con abonos posteriores)
   const totalAbonos = sales.reduce((sum, sale) => {
-    if (sale.status === "catalog_pending" || sale.status === "cancelled") return sum;
+    if (sale.status === "catalog_pending" || sale.status === "pending_payment" || sale.status === "cancelled") return sum;
     const abonos = (sale.payments || [])
       .filter(p => p.pos_cut_id === null)
       .reduce((ps, p) => ps + Number(p.amount), 0);
@@ -116,10 +116,10 @@ export default function VentasPage() {
       if (saleDate !== dateFilter) return false;
     }
     if (typeFilter === "catalog") {
-      if (s.status !== "catalog_pending" && s.status !== "catalog_viewed") return false;
+      if (s.status !== "catalog_pending" && s.status !== "catalog_viewed" && s.status !== "pending_payment") return false;
     }
     if (typeFilter === "manual") {
-      if (s.status === "catalog_pending" || s.status === "catalog_viewed") return false;
+      if (s.status === "catalog_pending" || s.status === "catalog_viewed" || s.status === "pending_payment") return false;
     }
     return true;
   });
@@ -261,6 +261,7 @@ export default function VentasPage() {
               const nameDisplay = sale.clients?.instagram ? sale.clients.name : "";
               const isCredit = sale.status === 'credit';
               const isCatalogPending = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
+              const isEsperandoPago = sale.status === 'pending_payment';
               const isCancelled = sale.status === 'cancelled';
               const isCut = sale.pos_cut_id !== null;
 
@@ -271,8 +272,8 @@ export default function VentasPage() {
                     onClick={() => router.push(`/panel/ventas/${sale.id}`)}
                     className="flex-1 flex flex-col md:flex-row md:items-center gap-5 cursor-pointer"
                   >
-                    <div className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center text-xl border ${isCatalogPending ? 'bg-indigo-50 border-indigo-200' : isCredit ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                      {isCatalogPending ? '🛒' : isCredit ? '⏳' : '💰'}
+                    <div className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center text-xl border ${isEsperandoPago ? 'bg-amber-50 border-amber-200' : isCatalogPending ? 'bg-indigo-50 border-indigo-200' : isCredit ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                      {isEsperandoPago ? '⏱️' : isCatalogPending ? '🛒' : isCredit ? '⏳' : '💰'}
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -307,7 +308,12 @@ export default function VentasPage() {
                   {/* Acciones e Importe */}
                   <div className="flex items-center justify-between md:justify-end gap-6 md:w-auto w-full border-t md:border-t-0 border-slate-100 pt-3 md:pt-0">
                     <div className="text-left md:text-right">
-                      {isCatalogPending ? (
+                      {isEsperandoPago ? (
+                        <>
+                          <p className="text-xs font-bold text-amber-600 uppercase tracking-tighter">Esperando pago</p>
+                          <p className="text-xl font-black text-slate-400">${sale.total}</p>
+                        </>
+                      ) : isCatalogPending ? (
                         <p className="text-sm font-bold text-slate-500">Pendiente: ${sale.total}</p>
                       ) : isCancelled ? (
                         <>
