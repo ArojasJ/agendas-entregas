@@ -1,8 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect } from "react";
 import { CHECKOUT_APARTADO, CHECKOUT_TIENDA, parseCheckoutModo } from "@/lib/constants";
-import { decodePanelTokenUnsafe } from "@/lib/panelToken";
-import AdminCheckoutSwitch from "./AdminCheckoutSwitch";
 
 const CartContext = createContext(null);
 const CART_KEY = "noreste_cart_v2";
@@ -16,47 +14,24 @@ export function CartProvider({ children }) {
   const [errorMsg, setErrorMsg] = useState("");
   const [clientData, setClientData] = useState({ name: "", phone: "", instagram: "" });
   const [profile, setProfile] = useState(null);
-  const [esAdmin, setEsAdmin] = useState(false);
   const [modoGlobal, setModoGlobal] = useState(CHECKOUT_APARTADO);
   const [vistaPrevia, setVistaPrevia] = useState(null);
 
-  // La vista previa solo altera este navegador; el modo global es el que ven las clientas
+  // La vista previa la activa el admin desde el panel y solo altera este navegador;
+  // el modo global es el que ven las clientas.
   const checkoutModo = vistaPrevia || modoGlobal;
 
   useEffect(() => {
-    const sesion = decodePanelTokenUnsafe(localStorage.getItem("panelToken"));
-    if (sesion?.role === "admin") {
-      setEsAdmin(true);
-      try {
-        const prev = localStorage.getItem(PREVIEW_KEY);
-        if (prev === CHECKOUT_APARTADO || prev === CHECKOUT_TIENDA) setVistaPrevia(prev);
-      } catch {}
-    }
+    try {
+      const prev = localStorage.getItem(PREVIEW_KEY);
+      if (prev === CHECKOUT_APARTADO || prev === CHECKOUT_TIENDA) setVistaPrevia(prev);
+    } catch {}
 
-    fetch("/api/settings")
+    fetch("/api/public/catalog-settings")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setModoGlobal(parseCheckoutModo(d.settings?.checkout_modo)); })
       .catch(() => {});
   }, []);
-
-  const cambiarModoGlobal = async (modo) => {
-    const token = localStorage.getItem("panelToken") || "";
-    const res = await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", "x-panel-token": token },
-      body: JSON.stringify({ key: "checkout_modo", value: modo }),
-    });
-    if (res.ok) setModoGlobal(modo);
-    else alert("No se pudo cambiar el checkout.");
-  };
-
-  const cambiarVistaPrevia = (modo) => {
-    setVistaPrevia(modo);
-    try {
-      if (modo) localStorage.setItem(PREVIEW_KEY, modo);
-      else localStorage.removeItem(PREVIEW_KEY);
-    } catch {}
-  };
 
   useEffect(() => {
     try {
@@ -159,15 +134,6 @@ export function CartProvider({ children }) {
   return (
     <CartContext.Provider value={{ cart, cartItems, cartCount, cartTotal, addToCart, removeOne, clearCart, showCart, setShowCart, checkoutModo }}>
       {children}
-
-      {esAdmin && (
-        <AdminCheckoutSwitch
-          modoGlobal={modoGlobal}
-          vistaPrevia={vistaPrevia}
-          onCambiarGlobal={cambiarModoGlobal}
-          onCambiarVistaPrevia={cambiarVistaPrevia}
-        />
-      )}
 
       {/* ── Cart Sidebar ── */}
       {showCart && (

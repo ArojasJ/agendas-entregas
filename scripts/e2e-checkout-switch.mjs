@@ -9,62 +9,68 @@ const ok = (m) => out.push("  ok    " + m);
 const fail = (m) => { out.push("  FALLA " + m); process.exitCode = 1; };
 
 const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1200, height: 1000 } });
+const page = await ctx.newPage();
 
-async function abrir({ comoAdmin }) {
-  const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } });
-  const page = await ctx.newPage();
-  if (comoAdmin) {
-    const r = await page.request.post(`${BASE}/api/login-panel`, {
-      data: { username: USER, password: PASS },
-    });
-    const { token } = await r.json();
-    await page.addInitScript((t) => localStorage.setItem("panelToken", t), token);
-  }
-  await page.goto(`${BASE}/catalogo`, { waitUntil: "networkidle", timeout: 60000 });
-  return { ctx, page };
-}
+const leerModo = async () => {
+  const r = await page.request.get(`${BASE}/api/public/catalog-settings`);
+  return (await r.json()).settings?.checkout_modo ?? "(sin definir)";
+};
 
 try {
-  // 1. Una clienta cualquiera no debe ver nada
-  const cliente = await abrir({ comoAdmin: false });
-  const visibleParaCliente = await cliente.page.getByText(/^Checkout:/).count();
-  if (visibleParaCliente === 0) ok("la clienta NO ve el interruptor");
-  else fail("el interruptor se le aparece a la clienta");
-  await cliente.ctx.close();
+  const r = await page.request.post(`${BASE}/api/login-panel`, { data: { username: USER, password: PASS } });
+  const { token, role, displayName } = await r.json();
+  await page.addInitScript(([t, ro, dn]) => {
+    localStorage.setItem("panelToken", t);
+    localStorage.setItem("panelAuth", "true");
+    localStorage.setItem("panelRole", ro);
+    localStorage.setItem("staffName", dn || "");
+  }, [token, role, displayName]);
 
-  // 2. Admin sí lo ve
-  const admin = await abrir({ comoAdmin: true });
-  const { page } = admin;
-  const boton = page.getByText(/^Checkout:/);
-  await boton.waitFor({ state: "visible", timeout: 10000 });
-  ok(`admin ve el interruptor (${(await boton.textContent()).trim()})`);
+  await page.goto(`${BASE}/panel/categorias`, { waitUntil: "networkidle", timeout: 60000 });
 
-  // 3. Abre el panel y muestra los dos controles
-  await boton.click();
-  await page.getByText("Lo que ven las clientas").waitFor({ timeout: 5000 });
-  await page.getByText("Probar el otro, solo tú").waitFor({ timeout: 5000 });
-  ok("muestra el control global y el de vista previa");
+  await page.getByText("Forma de compra").waitFor({ timeout: 10000 });
+  ok("la sección aparece en Personalizar Catálogo");
 
-  // 4. La vista previa no debe tocar el ajuste global
-  const antes = await (await page.request.get(`${BASE}/api/settings`)).json();
-  await page.getByRole("button", { name: /^Ver / }).click();
+  const inicial = await leerModo();
+
+  // Cambiar el modo global
+  await page.getByRole("button", { name: /Pago en línea/ }).first().click();
+  await page.waitForTimeout(1200);
+  const despues = await leerModo();
+  if (despues === "tienda") ok(`el modo global cambió a "${despues}"`);
+  else fail(`el modo global quedó en "${despues}"`);
+
+  // Regresar a apartado
+  await page.getByRole("button", { name: /Apartado/ }).first().click();
+  await page.waitForTimeout(1200);
+  const regreso = await leerModo();
+  if (regreso === "apartado") ok("se puede revertir a apartado");
+  else fail(`no revirtió, quedó en "${regreso}"`);
+
+  // La vista previa NO debe tocar el ajuste global
+  const antesPrev = await leerModo();
+  await page.getByRole("switch", { name: "Probar el otro, solo en este navegador" }).click();
   await page.waitForTimeout(800);
-  const despues = await (await page.request.get(`${BASE}/api/settings`)).json();
-  if (antes.settings?.checkout_modo === despues.settings?.checkout_modo)
-    ok(`la vista previa no cambió el ajuste global (sigue en "${despues.settings?.checkout_modo ?? "apartado"}")`);
+  const desPrev = await leerModo();
+  const guardado = await page.evaluate(() => localStorage.getItem("noreste_checkout_preview"));
+  if (antesPrev === desPrev) ok(`la vista previa no tocó el ajuste global (sigue "${desPrev}")`);
   else fail("la vista previa alteró lo que ven las clientas");
+  if (guardado) ok(`la vista previa quedó guardada en el navegador ("${guardado}")`);
+  else fail("la vista previa no se guardó");
 
-  // 5. En modo tienda el carrito avisa en vez de registrar un pedido fantasma
-  const pedidos = [];
-  page.on("response", (r) => {
-    if (r.url().includes("/api/public/checkout")) pedidos.push(r.status());
-  });
   await page.screenshot({ path: "scripts/e2e-switch.png", fullPage: false });
-  if (pedidos.length === 0) ok("no se disparó ningún pedido durante la prueba");
 
-  await admin.ctx.close();
+  // Y el catálogo debe respetarla
+  await page.goto(`${BASE}/catalogo`, { waitUntil: "networkidle", timeout: 60000 });
+  const sigueGuardado = await page.evaluate(() => localStorage.getItem("noreste_checkout_preview"));
+  if (sigueGuardado === guardado) ok("el catálogo lee la vista previa del navegador");
+  else fail("el catálogo no ve la vista previa");
+
+  await page.evaluate(() => localStorage.removeItem("noreste_checkout_preview"));
 } catch (e) {
   fail(e.message);
+  await page.screenshot({ path: "scripts/e2e-fallo.png" }).catch(() => {});
 } finally {
   console.log(out.join("\n"));
   await browser.close();

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { CHECKOUT_APARTADO, CHECKOUT_TIENDA, parseCheckoutModo } from "@/lib/constants";
 
 // Isolated so its search state never re-renders the parent
 function getDisplayPrice(p) {
@@ -109,6 +110,9 @@ function Toggle({ value, onChange, label, description }) {
       </div>
       <button
         onClick={() => onChange(!value)}
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
         className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${value ? "bg-emerald-500" : "bg-slate-200"}`}
       >
         <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? "translate-x-6" : "translate-x-0"}`} />
@@ -139,6 +143,7 @@ const BANNER_COLORS = [
 
 export default function CatalogoPanel() {
   const [settings, setSettings]     = useState({});
+  const [previewModo, setPreviewModoState] = useState(null);
   const [categories, setCategories] = useState([]);
   const [products, setProducts]     = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -177,6 +182,22 @@ export default function CatalogoPanel() {
   }, []);
 
   // ── Save a setting immediately (toggles) ─────────────
+  // La vista previa vive en el navegador, no en la base: por eso el catálogo la toma
+  // sin que ninguna clienta se entere.
+  const PREVIEW_KEY = "noreste_checkout_preview";
+
+  useEffect(() => {
+    try { setPreviewModoState(localStorage.getItem(PREVIEW_KEY) || null); } catch {}
+  }, []);
+
+  const setPreviewModo = (modo) => {
+    setPreviewModoState(modo);
+    try {
+      if (modo) localStorage.setItem(PREVIEW_KEY, modo);
+      else localStorage.removeItem(PREVIEW_KEY);
+    } catch {}
+  };
+
   const saveSetting = async (key, value) => {
     setSettings(prev => ({ ...prev, [key]: String(value) }));
     const res = await fetch("/api/panel/catalog-settings", {
@@ -286,6 +307,7 @@ export default function CatalogoPanel() {
   }
 
   const catalogEnabled = settings.catalog_enabled === "true";
+  const checkoutModo = parseCheckoutModo(settings.checkout_modo);
   const bannerActive   = settings.banner_active   === "true";
 
   return (
@@ -315,6 +337,50 @@ export default function CatalogoPanel() {
             ⚠️ El catálogo está oculto. Los clientes ven una página de «Próximamente».
           </div>
         )}
+      </SectionCard>
+
+      {/* ── Forma de compra ── */}
+      <SectionCard title="Forma de compra" icon="🛒">
+        <div className="space-y-5">
+          <div>
+            <p className="font-bold text-slate-900 text-sm mb-1">Lo que ven tus clientes</p>
+            <p className="text-xs text-slate-400 mb-3">Cambia la tienda para todos, al instante.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { v: CHECKOUT_APARTADO, t: "Apartado", d: "Registra el pedido y el cobro se acuerda aparte" },
+                { v: CHECKOUT_TIENDA, t: "Pago en línea", d: "La clienta paga el total al comprar" },
+              ].map(({ v, t, d }) => (
+                <button
+                  key={v}
+                  onClick={() => saveSetting("checkout_modo", v)}
+                  className={`text-left px-3 py-2.5 rounded-xl border transition-all active:scale-[0.98] ${
+                    checkoutModo === v
+                      ? "bg-emerald-50 border-emerald-300"
+                      : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  <p className={`text-sm font-bold ${checkoutModo === v ? "text-emerald-700" : "text-slate-600"}`}>{t}</p>
+                  <p className="text-[11px] text-slate-400 leading-snug mt-0.5">{d}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4">
+            <Toggle
+              value={!!previewModo}
+              onChange={(v) => setPreviewModo(v ? (checkoutModo === CHECKOUT_APARTADO ? CHECKOUT_TIENDA : CHECKOUT_APARTADO) : null)}
+              label="Probar el otro, solo en este navegador"
+              description="Para recorrer el checkout nuevo sin que tus clientes lo vean."
+            />
+            {previewModo && (
+              <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-medium">
+                Al abrir el catálogo verás <b>{previewModo === CHECKOUT_TIENDA ? "Pago en línea" : "Apartado"}</b>.
+                Tus clientes siguen viendo <b>{checkoutModo === CHECKOUT_TIENDA ? "Pago en línea" : "Apartado"}</b>.
+              </div>
+            )}
+          </div>
+        </div>
       </SectionCard>
 
       {/* ── 2. Banner de anuncio ── */}
