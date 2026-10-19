@@ -1028,6 +1028,14 @@ export default function AgendarPage() {
               <b>2 días hábiles de anticipación</b> y recibimos de <b>lunes a viernes</b>.
             </p>
 
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
+              <p className="font-semibold mb-1">ELIGE BIEN TU DÍA</p>
+              <p className="leading-relaxed">
+                Tu pedido te espera únicamente el día que agendes. Pasada esa fecha no podemos
+                hacernos responsables de su resguardo.
+              </p>
+            </div>
+
             {floreriaDireccion && (
               <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-sm text-rose-900">
                 <p className="font-semibold mb-1">📍 DÓNDE RECOGER</p>
