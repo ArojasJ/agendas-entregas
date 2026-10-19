@@ -264,6 +264,9 @@ export default function VentasPage() {
               const isEsperandoPago = sale.status === 'pending_payment';
               const vieneDeWeb = sale.payment_method === 'Pedido Web' || isCatalogPending || isEsperandoPago;
               const isCancelled = sale.status === 'cancelled';
+              // Sin penalización registrada no fue un apartado incumplido, sino un pago
+              // en línea que nunca se completó: no hay dinero retenido que mostrar.
+              const isPagoAbandonado = isCancelled && sale.penalty_amount == null;
               const isCut = sale.pos_cut_id !== null;
 
               return (
@@ -289,11 +292,12 @@ export default function VentasPage() {
                         <div className="flex gap-2 items-center">
                           <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-md ${
                             sale.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                            isPagoAbandonado ? 'bg-slate-100 text-slate-500' :
                             isCancelled ? 'bg-red-100 text-red-700' :
                             isCredit ? 'bg-amber-100 text-amber-700' :
                             'bg-indigo-100 text-indigo-700'
                           }`}>
-                            {sale.status === 'paid' ? 'Pagado' : isCancelled ? 'PENALIZACIÓN' : isCredit ? 'Crédito' : isEsperandoPago ? 'Esperando pago' : 'Pedido Web'}
+                            {sale.status === 'paid' ? 'Pagado' : isPagoAbandonado ? 'Cancelada' : isCancelled ? 'PENALIZACIÓN' : isCredit ? 'Crédito' : isEsperandoPago ? 'Esperando pago' : 'Pedido Web'}
                           </span>
                           {vieneDeWeb && !isCatalogPending && !isEsperandoPago && (
                             <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700">
@@ -321,6 +325,11 @@ export default function VentasPage() {
                         </>
                       ) : isCatalogPending ? (
                         <p className="text-sm font-bold text-slate-500">Pendiente: ${sale.total}</p>
+                      ) : isPagoAbandonado ? (
+                        <>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-tighter">Pago no completado</p>
+                          <p className="text-xl font-black text-slate-400">${sale.total}</p>
+                        </>
                       ) : isCancelled ? (
                         <>
                           <p className="text-sm text-red-500 font-bold uppercase tracking-tighter">Penalización</p>

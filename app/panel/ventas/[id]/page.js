@@ -140,6 +140,9 @@ export default function SaleDetailPage() {
   const isEsperandoPago = sale.status === 'pending_payment';
   const isCredit = sale.status === 'credit';
   const isCancelled = sale.status === 'cancelled';
+  // Una venta cancelada sin penalización registrada no es un apartado incumplido: es un
+  // pago en línea que la clienta nunca completó. No hay dinero que retener ni devolver.
+  const isPagoAbandonado = isCancelled && sale.penalty_amount == null;
   const totalPagadoAbonos = (sale.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
   const totalPagado = isCatalog ? 0 : Number(sale.down_payment) + totalPagadoAbonos;
   const deuda = isCatalog ? Number(sale.total) : isCredit ? Math.max(0, Number(sale.total) - totalPagado) : 0;
@@ -365,11 +368,22 @@ export default function SaleDetailPage() {
           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
           <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.penalty_amount || 0).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
           <p className="text-xs text-slate-500 mt-2">
-            {isEsperandoPago ? "Esperando el pago en línea" : isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+            {isEsperandoPago ? "Esperando el pago en línea" : isPagoAbandonado ? "El pago nunca se completó" : isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
           </p>
         </div>
 
-        {isCancelled ? (
+        {isPagoAbandonado ? (
+          <div className="border border-slate-200 rounded-2xl p-6 shadow-sm bg-white">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">
+              Estado
+            </span>
+            <span className="text-2xl font-black text-slate-900">Cancelada</span>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              La clienta no completó el pago en línea dentro de los 30 minutos. No hubo cobro ni
+              penalización, y los productos ya volvieron al inventario.
+            </p>
+          </div>
+        ) : isCancelled ? (
           <div className="border border-red-100 rounded-2xl overflow-hidden shadow-sm">
             <div className="bg-red-50 p-4 border-b border-red-100">
               <span className="text-[10px] font-black uppercase tracking-widest text-red-500 block mb-1">Penalización por impago</span>
@@ -601,7 +615,7 @@ export default function SaleDetailPage() {
                   ⚠️ Cancelar y Penalizar
                 </button>
               )}
-              {sale.status === 'cancelled' && (
+              {isCancelled && !isPagoAbandonado && (
                 <button
                   onClick={() => setShowRevertModal(true)}
                   className="w-full py-2.5 bg-white border border-amber-300 text-amber-700 font-bold rounded-xl hover:bg-amber-50 transition-colors"
