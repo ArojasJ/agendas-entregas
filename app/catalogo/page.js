@@ -289,6 +289,21 @@ export default function CatalogoPage() {
         </section>
       )}
 
+      {/* ── Pie legal ── */}
+      <footer className="mt-16 pt-8 pb-28 border-t border-slate-200">
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs font-semibold text-slate-400">
+          <a href="/terminos-y-condiciones" className="hover:text-slate-700 transition-colors">
+            Términos y Condiciones
+          </a>
+          <a href="/aviso-de-privacidad" className="hover:text-slate-700 transition-colors">
+            Aviso de Privacidad
+          </a>
+        </div>
+        <p className="text-center text-[11px] text-slate-300 mt-3">
+          Noreste Clothes &amp; More
+        </p>
+      </footer>
+
       {/* ── Floating Cart ── */}
       {cartCount > 0 && (
         <div className="fixed bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">

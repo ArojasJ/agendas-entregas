@@ -261,6 +261,17 @@ export function CartProvider({ children }) {
                         ? (processing ? "Llevándote a pagar..." : `Pagar $${cartTotal.toFixed(2)} →`)
                         : (processing ? "Enviando pedido..." : "Confirmar Pedido →")}
                     </button>
+
+                    <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                      Al continuar aceptas nuestros{" "}
+                      <a href="/terminos-y-condiciones" target="_blank" className="underline font-semibold text-slate-500">
+                        Términos y Condiciones
+                      </a>{" "}
+                      y el{" "}
+                      <a href="/aviso-de-privacidad" target="_blank" className="underline font-semibold text-slate-500">
+                        Aviso de Privacidad
+                      </a>.
+                    </p>
                   </form>
                 )}
               </>
