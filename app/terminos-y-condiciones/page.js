@@ -50,7 +50,7 @@ export default function Terminos() {
           "Hay un cupo limitado de entregas por día; al llenarse, el día deja de aparecer disponible.",
         ]} />
         <p className="pt-1"><strong>Recolección en bodega</strong>, en el horario y los días publicados en la página de agendar. La dirección se comparte al confirmar tu cita.</p>
-        <p className="pt-1"><strong>Recolección en nuestra florería</strong> de Gómez Palacio, de lunes a viernes de 9:00 am a 5:00 pm, agendando con al menos dos días hábiles de anticipación.</p>
+        <p className="pt-1"><strong>Recolección en nuestra florería</strong> de Gómez Palacio, de lunes a viernes de 9:00 am a 5:00 pm, agendando con al menos dos días hábiles de anticipación. Tu pedido te espera el día que agendaste; pasada esa fecha no podemos hacernos responsables de su resguardo, por lo que te pedimos considerarlo al elegir tu día.</p>
         <p className="pt-1"><strong>Paquetería</strong> a todo México. Los tiempos dependen de la empresa transportista y no están bajo nuestro control. Una vez entregado el paquete a la paquetería, los retrasos, extravíos o daños en tránsito se gestionan directamente con ella.</p>
       </Seccion>
 
