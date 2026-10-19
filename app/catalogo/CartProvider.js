@@ -91,9 +91,34 @@ export function CartProvider({ children }) {
     if (cartItems.length === 0) return;
 
     if (checkoutModo === CHECKOUT_TIENDA) {
-      // Aquí entra el cobro con MercadoPago. Hasta que exista, decirlo en vez de
-      // registrar un pedido que nadie va a cobrar.
-      setErrorMsg("El pago en línea todavía no está listo.");
+      setProcessing(true);
+      setErrorMsg("");
+      try {
+        const res = await fetch("/api/public/checkout-pago", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cart: cartItems.map((i) => ({ id: i.id, variant_id: i.variant_id || null, quantity: i.quantity })),
+            clientData: profile
+              ? { name: profile.name, phone: profile.phone, instagram: profile.instagram }
+              : clientData,
+          }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.checkoutUrl) {
+          setErrorMsg(data.message || "No se pudo iniciar el pago.");
+          setProcessing(false);
+          return;
+        }
+
+        // El carrito se vacía hasta volver: si abandona el pago, lo encuentra como
+        // estaba en vez de tener que armarlo otra vez.
+        window.location.href = data.checkoutUrl;
+      } catch {
+        setErrorMsg("Error de conexión. Intenta de nuevo.");
+        setProcessing(false);
+      }
       return;
     }
 
@@ -204,8 +229,9 @@ export function CartProvider({ children }) {
                           className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-slate-400 focus:outline-none"
                         />
                         <input
+                          required
                           type="tel"
-                          placeholder="WhatsApp"
+                          placeholder="WhatsApp *"
                           value={clientData.phone}
                           onChange={e => setClientData(p => ({ ...p, phone: e.target.value }))}
                           className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-slate-400 focus:outline-none"
@@ -213,8 +239,9 @@ export function CartProvider({ children }) {
                         <div className="relative">
                           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">@</span>
                           <input
+                            required
                             type="text"
-                            placeholder="instagram (opcional)"
+                            placeholder="instagram *"
                             value={clientData.instagram}
                             onChange={e => setClientData(p => ({ ...p, instagram: e.target.value.replace(/^@/, "") }))}
                             className="w-full pl-8 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-slate-400 focus:outline-none"
@@ -230,7 +257,9 @@ export function CartProvider({ children }) {
                       disabled={processing}
                       className="w-full py-4 rounded-2xl bg-slate-900 text-white font-black text-base hover:bg-slate-800 disabled:opacity-60 transition-all active:scale-95 shadow-lg shadow-slate-900/20"
                     >
-                      {processing ? "Enviando pedido..." : "Confirmar Pedido →"}
+                      {checkoutModo === CHECKOUT_TIENDA
+                        ? (processing ? "Llevándote a pagar..." : `Pagar $${cartTotal.toFixed(2)} →`)
+                        : (processing ? "Enviando pedido..." : "Confirmar Pedido →")}
                     </button>
                   </form>
                 )}

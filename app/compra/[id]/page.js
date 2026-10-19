@@ -22,6 +22,19 @@ export default function CompraPage() {
   const [sale, setSale] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [resultadoPago, setResultadoPago] = useState(null);
+
+  useEffect(() => {
+    // Se lee de window y no con useSearchParams para no envolver la página en Suspense
+    const pago = new URLSearchParams(window.location.search).get("pago");
+    if (pago) {
+      setResultadoPago(pago);
+      // El pago salió bien: el carrito ya no sirve
+      if (pago === "ok") {
+        try { localStorage.removeItem("noreste_cart_v2"); } catch {}
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -89,6 +102,38 @@ export default function CompraPage() {
           <h1 className="text-2xl font-black text-slate-900">Resumen de tu Compra</h1>
           <p className="text-sm text-slate-400 mt-1">{formatDate(sale.created_at)}</p>
         </div>
+
+        {resultadoPago && (
+          <div className={`rounded-2xl border p-4 mb-5 text-center ${
+            resultadoPago === "ok"
+              ? "bg-emerald-50 border-emerald-200"
+              : resultadoPago === "pendiente"
+              ? "bg-amber-50 border-amber-200"
+              : "bg-red-50 border-red-200"
+          }`}>
+            <p className="text-3xl mb-1">
+              {resultadoPago === "ok" ? "✅" : resultadoPago === "pendiente" ? "⏳" : "❌"}
+            </p>
+            <p className={`font-black text-sm ${
+              resultadoPago === "ok" ? "text-emerald-800"
+                : resultadoPago === "pendiente" ? "text-amber-800" : "text-red-800"
+            }`}>
+              {resultadoPago === "ok" ? "¡Pago recibido!"
+                : resultadoPago === "pendiente" ? "Tu pago se está procesando"
+                : "El pago no se completó"}
+            </p>
+            <p className={`text-xs mt-1 leading-relaxed ${
+              resultadoPago === "ok" ? "text-emerald-700"
+                : resultadoPago === "pendiente" ? "text-amber-700" : "text-red-700"
+            }`}>
+              {resultadoPago === "ok"
+                ? "Ya puedes agendar la entrega de tus productos."
+                : resultadoPago === "pendiente"
+                ? "En cuanto se confirme te avisamos. Puede tardar unos minutos."
+                : "Tus productos volvieron a estar disponibles. Si quieres, inténtalo otra vez desde el catálogo."}
+            </p>
+          </div>
+        )}
 
         {/* Estado */}
         <div className={`flex items-center justify-center mb-5`}>
