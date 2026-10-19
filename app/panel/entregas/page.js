@@ -103,7 +103,7 @@ function getAvatarGradient(name) {
   return g[name.charCodeAt(0) % g.length];
 }
 
-function buildConfirmationMessage(bk) {
+function buildConfirmationMessage(bk, floreria) {
   const products = (bk.products && bk.products.trim()) || "— (sin productos capturados)";
   const adeudo = bk.amount_due !== undefined && bk.amount_due !== null ? bk.amount_due : 0;
 
@@ -129,6 +129,37 @@ ${products}
 Aún queda pendiente $${adeudo}, puedes realizar transferencia (antes de tu entrega) o pagar en efectivo al recibir tu paquete 🖤
 
 Puedes pasar a recoger tus productos de 4 a 6pm✨
+
+Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones 🖤
+
+Es correcto?✨`;
+  }
+
+  if (bk.type === "floreria") {
+    const horario = floreria?.horario ? `de ${floreria.horario}` : "en nuestro horario de atención";
+    const donde = floreria?.direccion ? `\n\n📍 ${floreria.direccion}` : "";
+    return `Hola, sólo para confirmar lo que se te entregará:
+
+${products}
+
+Aún queda pendiente $${adeudo}, puedes realizar transferencia (antes de pasar) o pagar en efectivo al recoger 🖤
+
+Puedes pasar a recoger tus productos a nuestra florería en Gómez Palacio ${horario}✨${donde}
+
+Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones 🖤
+
+Es correcto?✨`;
+  }
+
+  if (bk.type === "paqueteria") {
+    const destino = [bk.address, bk.city].filter(Boolean).join(", ");
+    return `Hola, sólo para confirmar lo que se te enviará:
+
+${products}
+
+Aún queda pendiente $${adeudo}, puedes realizar transferencia antes de que salga tu paquete 🖤
+${destino ? `\n📦 Se envía a: ${destino}\n` : ""}
+En cuanto salga tu paquete te compartimos el número de rastreo✨
 
 Recuerda revisar tus productos al recibirlos ya que una vez entregados no hay cambios ni devoluciones 🖤
 
@@ -763,7 +794,7 @@ export default function PanelPage() {
   };
 
   const handleCopyMessage = async (bk) => {
-    const text = buildConfirmationMessage(bk);
+    const text = buildConfirmationMessage(bk, floreriaCfg);
     if (!text) { alert("No se pudo generar el mensaje para copiar."); return; }
     try {
       await navigator.clipboard.writeText(text);
