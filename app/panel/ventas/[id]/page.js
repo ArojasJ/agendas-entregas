@@ -134,7 +134,10 @@ export default function SaleDetailPage() {
     }
   };
 
-  const isCatalog = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed';
+  // Una venta que espera el pago en línea tampoco tiene dinero recibido: si no se
+  // agrupa aquí, el detalle la daba por liquidada y cobrada de contado.
+  const isCatalog = sale.status === 'catalog_pending' || sale.status === 'catalog_viewed' || sale.status === 'pending_payment';
+  const isEsperandoPago = sale.status === 'pending_payment';
   const isCredit = sale.status === 'credit';
   const isCancelled = sale.status === 'cancelled';
   const totalPagadoAbonos = (sale.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
@@ -362,7 +365,7 @@ export default function SaleDetailPage() {
           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
           <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.penalty_amount || 0).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
           <p className="text-xs text-slate-500 mt-2">
-            {isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+            {isEsperandoPago ? "Esperando el pago en línea" : isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
           </p>
         </div>
 
@@ -390,7 +393,7 @@ export default function SaleDetailPage() {
               {deuda > 0 ? `$${deuda.toFixed(2)}` : "Liquidada"}
             </span>
             <p className={`text-xs mt-2 ${deuda > 0 ? 'text-amber-600/70' : 'text-slate-500'}`}>
-              {isCatalog ? "Pedido Web sin confirmar" : deuda > 0 ? "Pendiente de pago" : "Sin adeudo restante"}
+              {isEsperandoPago ? "La clienta aún no completa el pago" : isCatalog ? "Pedido Web sin confirmar" : deuda > 0 ? "Pendiente de pago" : "Sin adeudo restante"}
             </p>
           </div>
         )}

@@ -21,12 +21,14 @@ export default function AdminCatalogoPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem("panelToken") || "";
-      // Filtramos por catalog_pending en la API para traer lo más pesado ya filtrado
-      const res = await fetch("/api/sales?status=catalog_pending", { headers: { "x-panel-token": token } });
+      // Los pedidos que esperan pago en línea viven en otro estado, así que ya no
+      // alcanza con pedirle a la API solo los catalog_pending.
+      const res = await fetch("/api/sales", { headers: { "x-panel-token": token } });
       if (res.ok) {
         const data = await res.json();
-        // Mostrar pendientes y los que ya se vieron pero no se han cobrado
-        const pending = (data.sales || []).filter(s => s.status === "catalog_pending" || s.status === "catalog_viewed");
+        const pending = (data.sales || []).filter(
+          (s) => s.status === "catalog_pending" || s.status === "catalog_viewed" || s.status === "pending_payment"
+        );
         setOrders(pending);
       }
     } catch (e) {
@@ -95,8 +97,14 @@ export default function AdminCatalogoPage() {
               
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className={`px-2 py-1 text-[10px] font-black uppercase rounded-md tracking-wider ${order.status === 'catalog_viewed' ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>
-                    {order.status === 'catalog_viewed' ? 'Visto, falta cobro' : 'Nuevo Pedido'}
+                  <span className={`px-2 py-1 text-[10px] font-black uppercase rounded-md tracking-wider ${
+                    order.status === 'pending_payment' ? 'bg-indigo-100 text-indigo-700'
+                      : order.status === 'catalog_viewed' ? 'bg-slate-100 text-slate-500'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {order.status === 'pending_payment' ? '⏱️ Pagando en línea'
+                      : order.status === 'catalog_viewed' ? 'Visto, falta cobro'
+                      : 'Nuevo Pedido'}
                   </span>
                   <span className="text-xs text-slate-400 font-medium">
                     {new Date(order.created_at).toLocaleString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
