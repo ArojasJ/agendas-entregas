@@ -24,6 +24,9 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
 
   const [saving, setSaving] = useState(false);
+  const [ubicacion, setUbicacion] = useState(null);      // propuesta del servidor
+  const [ubicacionElegida, setUbicacionElegida] = useState(null);
+  const [cargandoUbicacion, setCargandoUbicacion] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   // Modal tarjeta de cliente
@@ -224,6 +227,33 @@ export default function PosPage() {
     setPaymentType("paid");
     setDownPayment(total);
     setShowCheckoutModal(true);
+    pedirUbicacion();
+  };
+
+  const pedirUbicacion = async () => {
+    setUbicacion(null);
+    setUbicacionElegida(null);
+    if (!selectedClient) return;   // sin cliente no hay nada que guardar
+    setCargandoUbicacion(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const piezas = cart.reduce((n, i) => n + i.quantity, 0);
+      const res = await fetch(
+        `/api/panel/ubicacion?clientId=${selectedClient.id}&productos=${piezas}`,
+        { headers: { "x-panel-token": token } }
+      );
+      if (res.ok) {
+        const p = await res.json();
+        setUbicacion(p);
+        setUbicacionElegida(
+          p.tipo === "juntar"  ? { tipo: "caja", caja: p.caja, aMover: p.aMover || [] }
+          : p.tipo === "caja"  ? { tipo: "caja", caja: p.caja, aMover: p.aMover || [] }
+          : p.tipo === "estante" ? { tipo: "estante" }
+          : null
+        );
+      }
+    } catch {}
+    setCargandoUbicacion(false);
   };
 
   const executeCheckout = async () => {
@@ -248,7 +278,8 @@ export default function PosPage() {
         down_payment: effectiveDownPayment,
         credit_days: paymentType === 'credit' ? creditDays : null,
         saldo_applied: saldoAplicado,
-        items: cart.map(i => ({ product_id: i.product_id, variant_id: i.variant_id || null, quantity: i.quantity, unit_price: i.unit_price }))
+        items: cart.map(i => ({ product_id: i.product_id, variant_id: i.variant_id || null, quantity: i.quantity, unit_price: i.unit_price })),
+        ubicacion: ubicacionElegida
       };
 
       const res = await fetch("/api/sales", {
@@ -266,6 +297,8 @@ export default function PosPage() {
         setSearch("");
         setShowCheckoutModal(false);
         setApplySaldo(false);
+        setUbicacion(null);
+        setUbicacionElegida(null);
         fetchData(); // Actualizar stock
       } else {
         const data = await res.json();
@@ -609,6 +642,102 @@ export default function PosPage() {
                 </div>
               )}
 
+              {selectedClient && (cargandoUbicacion || ubicacion) && (
+                <div className="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Dónde se guarda
+                    </p>
+                    {ubicacion && (
+                      <span className="text-[10px] font-bold text-slate-400 tabular-nums">
+                        {ubicacion.ocupadas}/{ubicacion.total} cajas ocupadas
+                      </span>
+                    )}
+                  </div>
+
+                  {cargandoUbicacion ? (
+                    <div className="px-5 py-6 text-center">
+                      <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto" />
+                    </div>
+                  ) : (
+                    <div className="p-5 space-y-3">
+                      {ubicacion.guardado?.length > 0 && (
+                        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5">
+                          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">
+                            Ya tiene guardado
+                          </p>
+                          {ubicacion.guardado.map((g) => (
+                            <div key={g.saleId} className="flex items-baseline gap-2 text-sm">
+                              <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded tabular-nums ${
+                                g.ubicacion === "caja"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-rose-100 text-rose-700"
+                              }`}>
+                                {g.ubicacion === "caja" ? `Caja ${g.caja}` : "Estante"}
+                              </span>
+                              <span className="text-slate-500 text-xs leading-snug">
+                                {g.productos.map((p) => p.nombre).join(", ")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {ubicacion.tipo === "juntar" && (
+                        <Opcion
+                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.aMover?.length > 0}
+                          onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
+                          titulo={`Juntar todo en la caja ${ubicacion.caja}`}
+                          detalle={ubicacion.aMover?.length > 0 ? "Mueve también lo que está en estante" : "Donde ya tiene sus cosas"}
+                          recomendada
+                        />
+                      )}
+
+                      {ubicacion.tipo !== "juntar" && ubicacion.tipo === "caja" && (
+                        <Opcion
+                          elegida={ubicacionElegida?.tipo === "caja"}
+                          onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
+                          titulo={`Caja ${ubicacion.caja}`}
+                          detalle={ubicacion.motivo}
+                          recomendada
+                        />
+                      )}
+
+                      <Opcion
+                        elegida={ubicacionElegida?.tipo === "estante"}
+                        onClick={() => setUbicacionElegida({ tipo: "estante" })}
+                        titulo="Poner en estante"
+                        detalle="Sticker con su usuario de Instagram"
+                        recomendada={ubicacion.tipo === "estante"}
+                      />
+
+                      {ubicacion.libres?.length > 0 && (
+                        <div className="pt-1">
+                          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                            O elige otra caja
+                          </p>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {ubicacion.libres.slice(0, 8).map((n) => (
+                              <button
+                                key={n}
+                                onClick={() => setUbicacionElegida({ tipo: "caja", caja: n, aMover: ubicacion.aMover || [] })}
+                                className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border transition-all active:scale-95 tabular-nums ${
+                                  ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === n
+                                    ? "bg-slate-900 border-slate-900 text-white"
+                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                                }`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {paymentType === 'credit' && selectedClient && (
                 <div className="mb-6 p-5 rounded-2xl bg-white border border-slate-100 space-y-4">
                   <div>
@@ -915,5 +1044,31 @@ export default function PosPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function Opcion({ elegida, onClick, titulo, detalle, recomendada }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all active:scale-[0.99] flex items-start gap-3 ${
+        elegida ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-200 hover:bg-slate-50"
+      }`}
+    >
+      <span className={`text-base leading-none mt-0.5 ${elegida ? "text-emerald-600" : "text-slate-300"}`}>
+        {elegida ? "◉" : "○"}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2 flex-wrap">
+          <span className={`text-sm font-bold ${elegida ? "text-emerald-800" : "text-slate-700"}`}>{titulo}</span>
+          {recomendada && (
+            <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">
+              Sugerido
+            </span>
+          )}
+        </span>
+        {detalle && <span className="block text-[11px] text-slate-400 leading-snug mt-0.5">{detalle}</span>}
+      </span>
+    </button>
   );
 }
