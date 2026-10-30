@@ -110,21 +110,10 @@ export async function PATCH(req) {
 
     if (finalStatus === "entregado" && igNorm) {
       try {
-        // 4a. Vaciar cajas si no hay más pendientes
-        const { data: pCount } = await supabase
-          .from("bookings")
-          .select("id", { count: "exact", head: true })
-          .eq("instagram", existing.instagram)
-          .neq("id", id)
-          .or("delivery_status.eq.pendiente,delivery_status.is.null");
-
-        if (!pCount || pCount.length === 0) {
-          await supabase
-            .from("clients")
-            .update({ box_1: null, box_2: null })
-            .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`);
-          syncLog.push("Cajas vaciadas");
-        }
+        // El vaciado de cajas ocurre hasta el final (4e), cuando ya se marcó qué se entregó.
+        // Antes corría aquí y vaciaba siempre, porque preguntaba por el conteo con head:true
+        // —que no devuelve filas— y luego revisaba el arreglo vacío. La condición se cumplía
+        // aunque a la clienta le quedaran cosas guardadas.
 
         // 4b-direct. Ruta directa: si se pasa saleId, marcar todos los items pendientes de esa venta
         if (saleId) {
@@ -254,6 +243,55 @@ export async function PATCH(req) {
               syncLog.push(`Venta ${s.id} liquidada`);
             }
           }
+        }
+
+        // 4e. Liberar el lugar solo si ya no le queda NADA guardado.
+        // Dos preguntas, no una: entregas todavía agendadas, y productos comprados que
+        // aún no se entregan —tenga o no cita para ellos—. Lo segundo faltaba, y por eso
+        // se vaciaba la caja de quien había comprado algo que todavía no agendaba.
+        const { count: entregasPendientes } = await supabase
+          .from("bookings")
+          .select("id", { count: "exact", head: true })
+          .eq("instagram", existing.instagram)
+          .neq("id", id)
+          .or("delivery_status.eq.pendiente,delivery_status.is.null");
+
+        let productosPendientes = 0;
+        if (cDebt) {
+          const { data: ventasCliente } = await supabase
+            .from("sales")
+            .select("id")
+            .eq("client_id", cDebt.id)
+            .not("status", "in", '("cancelled","pending_payment")');
+
+          const ids = (ventasCliente || []).map((v) => v.id);
+          if (ids.length > 0) {
+            const { count } = await supabase
+              .from("sale_items")
+              .select("id", { count: "exact", head: true })
+              .in("sale_id", ids)
+              .or("delivery_status.neq.delivered,delivery_status.is.null");
+            productosPendientes = count || 0;
+          }
+        }
+
+        if ((entregasPendientes || 0) === 0 && productosPendientes === 0) {
+          await supabase
+            .from("clients")
+            .update({ box_1: null, box_2: null })
+            .or(`instagram.ilike.${igToSearch},instagram.ilike.@${igToSearch}`);
+          if (cDebt) {
+            await supabase
+              .from("sales")
+              .update({ ubicacion: null, caja: null })
+              .eq("client_id", cDebt.id)
+              .not("ubicacion", "is", null);
+          }
+          syncLog.push("Cajas liberadas: ya no queda nada guardado");
+        } else {
+          syncLog.push(
+            `Cajas conservadas: ${entregasPendientes || 0} entrega(s) y ${productosPendientes} producto(s) pendientes`
+          );
         }
       } catch (err) {
         syncLog.push("Error en post-entrega: " + err.message);
