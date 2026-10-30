@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
+import { guardarUbicacion } from "@/lib/ubicaciones";
 
 
 export async function GET(req) {
@@ -62,7 +63,7 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
-    const { client_id, total, discount, payment_method, status, down_payment, credit_days, items, saldo_applied } = body;
+    const { client_id, total, discount, payment_method, status, down_payment, credit_days, items, saldo_applied, ubicacion } = body;
 
     if (!items || items.length === 0) {
       return Response.json({ message: "La venta no tiene productos." }, { status: 400 });
@@ -150,6 +151,21 @@ export async function POST(req) {
       if (client) {
         const nuevoSaldo = Math.max(0, Math.round((Number(client.saldo_favor || 0) - saldoAplicado) * 100) / 100);
         await supabase.from("clients").update({ saldo_favor: nuevoSaldo }).eq("id", client_id);
+      }
+    }
+
+    // Dónde quedó guardada físicamente. Si se eligió juntar, arrastra lo anterior.
+    if (ubicacion?.tipo === "caja" || ubicacion?.tipo === "estante") {
+      try {
+        await guardarUbicacion({
+          saleId,
+          tipo: ubicacion.tipo,
+          caja: ubicacion.caja,
+          aMover: ubicacion.aMover || [],
+        });
+      } catch (e) {
+        // La venta ya está hecha; perder la ubicación no debe tumbarla
+        console.error("No se pudo guardar la ubicación de la venta " + saleId + ":", e);
       }
     }
 
