@@ -28,7 +28,8 @@ export default function ChequeoPage() {
 
   useEffect(() => {
     const sesion = decodePanelTokenUnsafe(localStorage.getItem("panelToken"));
-    if (sesion?.role !== "admin") { router.push("/panel"); return; }
+    // El repartidor no: esta limpieza se hace desde la bodega, no en ruta
+    if (!["admin", "worker"].includes(sesion?.role)) { router.push("/panel"); return; }
     cargar(periodo);
   }, []);
 

@@ -11,7 +11,10 @@ const DIAS = { "90": 90, "180": 180, todo: null };
 // el rezago esté resuelto.
 export async function GET(req) {
   const session = getPanelSession(req);
-  if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
+  // El repartidor queda fuera: esta limpieza se hace desde la bodega
+  if (!session || !["admin", "worker"].includes(session.role)) {
+    return Response.json({ message: "No autorizado" }, { status: 403 });
+  }
 
   const periodo = new URL(req.url).searchParams.get("periodo") || "90";
   const dias = DIAS[periodo] ?? 90;
@@ -93,7 +96,10 @@ export async function GET(req) {
 
 export async function PATCH(req) {
   const session = getPanelSession(req);
-  if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
+  // El repartidor queda fuera: esta limpieza se hace desde la bodega
+  if (!session || !["admin", "worker"].includes(session.role)) {
+    return Response.json({ message: "No autorizado" }, { status: 403 });
+  }
 
   const { accion, itemIds = [], saleIds = [], clientId } = await req.json();
 
