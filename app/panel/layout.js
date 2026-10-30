@@ -196,6 +196,8 @@ export default function PanelLayout({ children }) {
     { name: "Historial",       href: "/panel/historial",        icon: "📋", roles: ["admin"] },
     { name: "Registros",       href: "/panel/registros",        icon: "🆕", roles: ["admin", "worker"] },
     { name: "Catálogo",        href: "/panel/categorias",       icon: "🛍️", roles: ["admin"] },
+    // Provisional: se quita cuando el rezago de productos sin ubicación esté resuelto
+    { name: "Chequeo",         href: "/panel/chequeo",          icon: "🧹", roles: ["admin"] },
   ].filter(link => link.roles.includes(panelRole));
 
   // ── Layout móvil para admin/worker en celular o iPad ──
