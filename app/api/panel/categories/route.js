@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { traerTodo } from "@/lib/paginar";
 import { getPanelSession } from "@/lib/panelAuth";
 
 const supabase = createClient(
@@ -13,8 +14,10 @@ export async function GET(req) {
     return Response.json({ message: "No autorizado" }, { status: 403 });
   }
 
-  const [{ data: products }, { data: catRows }] = await Promise.all([
-    supabase.from("products").select("category"),
+  // Paginado: con más de 1000 productos, sin esto se perdían categorías enteras
+  // del panel. MASCOTAS no aparecía por estar entre los últimos.
+  const [products, { data: catRows }] = await Promise.all([
+    traerTodo(() => supabase.from("products").select("category")),
     supabase.from("catalog_categories").select("*").order("sort_order", { ascending: true }),
   ]);
 

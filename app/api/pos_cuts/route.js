@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
+import { traerTodo } from "@/lib/paginar";
 
 
 export async function GET(req) {
@@ -30,22 +31,20 @@ export async function POST(req) {
 
   try {
     // 1. Obtener todas las ventas nuevas sin corte
-    const { data: pendingSales, error: fetchSalesError } = await supabase
+    // Paginado: si se pasa mucho tiempo sin cortar, pasar de 1000 registros
+    // dejaría el corte incompleto y eso es dinero que no cuadra.
+    const pendingSales = await traerTodo(() => supabase
       .from("sales")
       .select("id, down_payment, status, penalty_amount, created_at")
       .is("pos_cut_id", null)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true }));
 
     // 2. Obtener todos los abonos nuevos sin corte
-    const { data: pendingPayments, error: fetchPaymentsError } = await supabase
+    const pendingPayments = await traerTodo(() => supabase
       .from("payments")
       .select("id, amount, created_at")
       .is("pos_cut_id", null)
-      .order("created_at", { ascending: true });
-
-    if (fetchSalesError || fetchPaymentsError) {
-      return Response.json({ message: "Error al buscar registros pendientes." }, { status: 500 });
-    }
+      .order("created_at", { ascending: true }));
 
     if ((!pendingSales || pendingSales.length === 0) && (!pendingPayments || pendingPayments.length === 0)) {
       return Response.json({ message: "No hay movimientos nuevos para hacer corte." }, { status: 400 });

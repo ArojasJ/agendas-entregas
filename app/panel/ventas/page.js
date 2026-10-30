@@ -9,6 +9,8 @@ export default function VentasPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState(""); // "" | "catalog" | "manual"
+  const [totalCajaServidor, setTotalCajaServidor] = useState(null);
+  const [acotado, setAcotado] = useState(false);
   const [panelRole, setPanelRole] = useState(null);
 
   // Modales y alertas
@@ -22,21 +24,40 @@ export default function VentasPage() {
   };
 
   useEffect(() => {
-    fetchSales();
     const savedRole = localStorage.getItem("panelRole");
     if (savedRole) setPanelRole(savedRole);
   }, []);
+
+  useEffect(() => {
+    const t = setTimeout(fetchSales, searchQuery ? 400 : 0);
+    return () => clearTimeout(t);
+  }, [dateFilter, searchQuery]);
 
   const fetchSales = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem("panelToken") || "";
-      const res = await fetch("/api/sales", {
+      // Fecha y búsqueda van al servidor: sin filtro solo llegan las más recientes,
+      // así que buscar sobre lo cargado dejaba fuera las ventas viejas.
+      const p = new URLSearchParams();
+      if (dateFilter) {
+        // El servidor compara en UTC y aquí se compara en hora local: una venta de
+        // la noche cae en días distintos. Se pide un día de más por lado y el filtro
+        // de abajo afina al día exacto.
+        const d = new Date(dateFilter + "T12:00:00");
+        const aISO = (x) => x.toISOString().slice(0, 10);
+        p.set("desde", aISO(new Date(d.getTime() - 86400000)));
+        p.set("hasta", aISO(new Date(d.getTime() + 86400000)));
+      }
+      if (searchQuery.trim()) p.set("q", searchQuery.trim());
+      const res = await fetch("/api/sales" + (p.toString() ? "?" + p : ""), {
         headers: { "x-panel-token": token },
       });
       if (res.ok) {
         const data = await res.json();
         setSales(data.sales || []);
+        setTotalCajaServidor(data.totalCaja ?? null);
+        setAcotado(!!data.acotado);
       }
     } catch (e) {
       console.error(e);
@@ -101,7 +122,9 @@ export default function VentasPage() {
     return sum + abonos;
   }, 0);
 
-  const totalCaja = totalDownPayments + totalAbonos;
+  // El servidor lo calcula sobre todas las ventas sin corte; el cálculo local queda
+  // de respaldo por si la respuesta no lo trae.
+  const totalCaja = totalCajaServidor ?? (totalDownPayments + totalAbonos);
 
   const filteredSales = sales.filter((s) => {
     if (searchQuery) {
@@ -241,6 +264,13 @@ export default function VentasPage() {
           ))}
         </div>
       </div>
+
+      {acotado && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium">
+          Se muestran las ventas más recientes. Para encontrar algo más viejo, usa el
+          filtro de fecha o busca por cliente — esas búsquedas sí recorren todo el historial.
+        </div>
+      )}
 
       {/* Lista de Ventas */}
       <div className="rounded-2xl border bg-white border-slate-200 shadow-sm overflow-hidden">

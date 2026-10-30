@@ -1,6 +1,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { guardarUbicacion } from "@/lib/ubicaciones";
+import { traerTodo } from "@/lib/paginar";
 
 
 export async function GET(req) {
@@ -27,6 +28,16 @@ export async function GET(req) {
     return Response.json({ count: count || 0 });
   }
 
+  // Traer las 2734 ventas con todo lo anidado son ~2 MB y 6 segundos, así que por
+  // omisión se entregan las más recientes. Lo que antes se cortaba en silencio
+  // —1734 ventas invisibles y los filtros buscando solo sobre lo cargado— ahora se
+  // alcanza filtrando por fecha o cliente, que van al servidor.
+  const desde = searchParams.get("desde");
+  const hasta = searchParams.get("hasta");
+  const busca = (searchParams.get("q") || "").trim();
+  const hayFiltro = !!(desde || hasta || busca);
+  const TOPE_SIN_FILTRO = 600;
+
   let query = supabase
     .from("sales")
     .select(`
@@ -41,18 +52,52 @@ export async function GET(req) {
       payments ( amount, pos_cut_id )
     `);
 
-  if (statusFilter) {
-    query = query.eq("status", statusFilter);
-  }
+  if (statusFilter) query = query.eq("status", statusFilter);
+  if (desde) query = query.gte("created_at", desde);
+  if (hasta) query = query.lte("created_at", hasta + "T23:59:59.999Z");
 
-  const { data: sales, error } = await query.order("created_at", { ascending: false });
+  query = query.order("created_at", { ascending: false });
+  if (!hayFiltro) query = query.limit(TOPE_SIN_FILTRO);
 
+  const { data, error } = await query;
   if (error) {
     console.error(error);
     return Response.json({ message: "Error al leer ventas." }, { status: 500 });
   }
 
-  return Response.json({ sales: sales || [] });
+  let sales = data || [];
+
+  // Por cliente se filtra aquí: PostgREST no busca sobre una tabla relacionada
+  // sin volver obligatoria la relación, y hay ventas de mostrador sin cliente.
+  if (busca) {
+    const q = busca.toLowerCase().replace(/^@/, "");
+    sales = sales.filter((s) =>
+      (s.clients?.instagram || "").toLowerCase().replace(/^@/, "").includes(q) ||
+      (s.clients?.name || "").toLowerCase().includes(q)
+    );
+  }
+
+  // El ingreso se calcula sobre TODAS las ventas sin corte, no sobre las que se
+  // alcanzaron a cargar: antes dependía de que las pendientes cupieran en la página.
+  const sinCorte = await traerTodo(() => supabase
+    .from("sales")
+    .select("down_payment, status, payments(amount, pos_cut_id)")
+    .is("pos_cut_id", null));
+
+  let totalCaja = 0;
+  for (const v of sinCorte) {
+    if (v.status === "catalog_pending" || v.status === "pending_payment" || v.status === "cancelled") continue;
+    totalCaja += Number(v.down_payment) || 0;
+  }
+  const abonos = await traerTodo(() => supabase
+    .from("payments").select("amount").is("pos_cut_id", null));
+  for (const a of abonos) totalCaja += Number(a.amount) || 0;
+
+  return Response.json({
+    sales,
+    totalCaja: Math.round(totalCaja * 100) / 100,
+    acotado: !hayFiltro && sales.length >= TOPE_SIN_FILTRO,
+  });
 }
 
 export async function POST(req) {
