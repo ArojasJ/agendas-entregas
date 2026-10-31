@@ -21,6 +21,9 @@ function ClientesContent() {
   const [boxFilter, setBoxFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState(""); // "" | "registered" | "no_account"
   const [boxErrors, setBoxErrors] = useState({ box_1: "", box_2: "" });
+  const [guardado, setGuardado] = useState(null);
+  const [cajasLibres, setCajasLibres] = useState([]);
+  const [moviendo, setMoviendo] = useState(null);   // lugar que se está moviendo
   
   // Expediente del cliente
   const [showExpediente, setShowExpediente] = useState(false);
@@ -158,9 +161,57 @@ function ClientesContent() {
     }
   };
 
+  const cargarGuardado = async (clientId) => {
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const [resG, resL] = await Promise.all([
+        fetch("/api/panel/ubicacion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-panel-token": token },
+          body: JSON.stringify({ clientId }),
+        }),
+        fetch(`/api/panel/ubicacion?clientId=${clientId}&productos=1`, {
+          headers: { "x-panel-token": token },
+        }),
+      ]);
+      if (resG.ok) setGuardado((await resG.json()).guardado || []);
+      if (resL.ok) setCajasLibres((await resL.json()).libres || []);
+    } catch {
+      setGuardado([]);
+    }
+  };
+
+  const mover = async (lugar, destino) => {
+    if (!lugar.saleId) {
+      showToast("Esta caja es de antes del registro por compra; cámbiala en el campo de abajo", "error");
+      return;
+    }
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/panel/ubicacion", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ saleIds: [lugar.saleId], ...destino }),
+      });
+      if (res.ok) {
+        setMoviendo(null);
+        await cargarGuardado(form.id);
+        fetchClients();
+        showToast("Movido");
+      } else {
+        showToast((await res.json()).message || "No se pudo mover", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    }
+  };
+
   const openModal = (client = null) => {
     setForm(client || { id: null, name: "", instagram: "", phone: "", box_1: "", box_2: "" });
     setBoxErrors({ box_1: "", box_2: "" });
+    setGuardado(null);
+    setMoviendo(null);
+    if (client?.id) cargarGuardado(client.id);
     setShowModal(true);
   };
 
@@ -330,6 +381,74 @@ function ClientesContent() {
                 />
               </div>
               <input type="tel" placeholder="Teléfono" value={form.phone || ""} onChange={e => setForm({...form, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
+              {form.id && guardado && guardado.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+                  <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200">
+                    Guardado
+                  </p>
+                  <div className="divide-y divide-slate-200">
+                    {guardado.map((g, i) => (
+                      <div key={g.saleId || `caja-${g.caja}-${i}`} className="px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 flex items-baseline gap-2 flex-wrap">
+                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded tabular-nums ${
+                              g.ubicacion === "caja" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                            }`}>
+                              {g.ubicacion === "caja" ? `Caja ${g.caja}` : "Estante"}
+                            </span>
+                            <span className="text-xs text-slate-500 leading-snug">
+                              {g.sinDetalle
+                                ? "sin detalle de contenido"
+                                : g.productos.map((p) => p.nombre).join(", ")}
+                            </span>
+                          </div>
+                          {!g.sinDetalle && (
+                            <button
+                              type="button"
+                              onClick={() => setMoviendo(moviendo === g.saleId ? null : g.saleId)}
+                              className="text-[11px] font-bold text-slate-500 hover:text-slate-900 shrink-0 px-2 py-1 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                              Mover
+                            </button>
+                          )}
+                        </div>
+
+                        {moviendo === g.saleId && (
+                          <div className="mt-2 pt-2 border-t border-slate-200 space-y-2">
+                            {g.ubicacion !== "estante" && (
+                              <button
+                                type="button"
+                                onClick={() => mover(g, { tipo: "estante" })}
+                                className="w-full text-left text-xs font-bold px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-rose-50 hover:border-rose-200 transition-colors"
+                              >
+                                🏷️ Pasar al estante
+                              </button>
+                            )}
+                            {cajasLibres.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">A otra caja</p>
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {cajasLibres.slice(0, 8).map((n) => (
+                                    <button
+                                      key={n}
+                                      type="button"
+                                      onClick={() => mover(g, { tipo: "caja", caja: n })}
+                                      className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-amber-50 hover:border-amber-300 transition-colors tabular-nums"
+                                    >
+                                      {n}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Caja 1</label>
