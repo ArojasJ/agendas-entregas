@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import EditarVenta from "./EditarVenta";
 
 export default function SaleDetailPage() {
   const router = useRouter();
@@ -9,6 +10,8 @@ export default function SaleDetailPage() {
   const [sale, setSale] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showEdit, setShowEdit] = useState(false);
+  const [panelRole, setPanelRole] = useState(null);
 
   // Estados del modal de pago (Catálogo)
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -41,6 +44,7 @@ export default function SaleDetailPage() {
   };
 
   useEffect(() => {
+    setPanelRole(localStorage.getItem("panelRole"));
     if (id) fetchSaleDetail();
   }, [id]);
 
@@ -322,6 +326,13 @@ export default function SaleDetailPage() {
 
   const igDisplay = sale.clients?.instagram ? sale.clients.instagram : (sale.clients?.name || "Público General");
 
+  // Venta cortada, venta cerrada: ese dinero ya se contó y no se vuelve a tocar.
+  const yaCortada = !!sale.pos_cut_id;
+  const puedeEditar =
+    ["admin", "worker"].includes(panelRole) &&
+    !yaCortada &&
+    (sale.status === "paid" || sale.status === "credit");
+
   return (
     <main className="max-w-4xl mx-auto px-4 md:px-8 py-8 relative">
       {/* TOAST */}
@@ -337,6 +348,15 @@ export default function SaleDetailPage() {
       >
         <span>←</span> Volver atrás
       </button>
+
+      {showEdit && (
+        <EditarVenta
+          sale={sale}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); fetchSaleDetail(); }}
+          showToast={showToast}
+        />
+      )}
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
         <div>
@@ -434,9 +454,26 @@ export default function SaleDetailPage() {
         <div className="lg:col-span-2 space-y-6">
           {/* PRODUCTOS */}
           <section>
-            <h2 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
-              <span className="text-xl">📦</span> Productos
-            </h2>
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <span className="text-xl">📦</span> Productos
+              </h2>
+              {puedeEditar ? (
+                <button
+                  onClick={() => setShowEdit(true)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-700 text-white text-xs font-black rounded-xl transition-all active:scale-95 whitespace-nowrap"
+                >
+                  ✏️ Editar venta
+                </button>
+              ) : yaCortada ? (
+                <span
+                  className="text-[11px] font-bold text-slate-400 flex items-center gap-1"
+                  title="Esta venta ya entró a un corte de caja"
+                >
+                  🔒 Cerrada por corte
+                </span>
+              ) : null}
+            </div>
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-100">
               {sale.sale_items && sale.sale_items.map((item) => (
                 <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">

@@ -236,6 +236,10 @@ export async function DELETE(req) {
   if (!session) {
     return Response.json({ message: "No autorizado" }, { status: 401 });
   }
+  // Borrar una venta se lleva sus abonos por delante: no es para el repartidor.
+  if (!["admin", "worker"].includes(session.role)) {
+    return Response.json({ message: "No autorizado para borrar ventas" }, { status: 403 });
+  }
 
   try {
     const { searchParams } = new URL(req.url);

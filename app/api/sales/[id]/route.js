@@ -1,5 +1,9 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
+import { editarVenta, ErrorDeEdicion } from "@/lib/editarVenta";
+
+// Corregir una venta mueve inventario y dinero: la repartidora no entra.
+const PUEDEN_EDITAR = ["admin", "worker"];
 
 
 export async function GET(req, { params }) {
@@ -66,6 +70,28 @@ export async function PATCH(req, { params }) {
   try {
     const body = await req.json();
     const { status, payment_method, down_payment, due_date, action } = body;
+
+    if (action === 'edit') {
+      if (!PUEDEN_EDITAR.includes(session.role)) {
+        return Response.json({ message: "No autorizado para editar ventas" }, { status: 403 });
+      }
+      try {
+        const r = await editarVenta({
+          saleId: id,
+          items: body.items,
+          discount: body.discount,
+          resolucion: body.resolucion || {},
+          session,
+        });
+        return Response.json(r);
+      } catch (e) {
+        if (e instanceof ErrorDeEdicion) {
+          return Response.json({ message: e.message }, { status: e.status });
+        }
+        console.error("Error al editar la venta " + id + ":", e);
+        return Response.json({ message: "No se pudo editar la venta." }, { status: 500 });
+      }
+    }
 
     if (action === 'cancel_forfeit') {
       const { data: sale, error: saleErr } = await supabase
