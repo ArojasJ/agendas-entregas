@@ -265,6 +265,22 @@ export default function PanelLayout({ children }) {
                 {pendingOrders} pedidos
               </Link>
             )}
+            {/* El mismo interruptor de la barra lateral: en celular es donde de
+                verdad se usa, porque es desde donde se cobra estando fuera. */}
+            {panelRole === "admin" && enBodega !== null && (
+              <button
+                onClick={cambiarBodega}
+                disabled={cambiandoBodega}
+                className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl border transition-all active:scale-95 disabled:opacity-50 ${
+                  enBodega
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    : "bg-amber-100 border-amber-300 text-amber-800"
+                }`}
+              >
+                <span className="text-sm leading-none">{enBodega ? "🏠" : "🚪"}</span>
+                {enBodega ? "Bodega" : "Fuera"}
+              </button>
+            )}
             <button onClick={handleLogout} className="text-xs font-semibold text-slate-400 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
               Salir
             </button>
