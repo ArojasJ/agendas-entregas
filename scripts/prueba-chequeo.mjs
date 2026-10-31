@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import { tokenDePrueba } from "./tokenDePrueba.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -35,10 +36,7 @@ async function crearVenta({ estado, items, viejaDias }) {
 
 try {
   await c.connect();
-  token = (await (await fetch(`${BASE}/api/login-panel`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: process.env.ADMIN_USER, password: process.env.ADMIN_PASS }),
-  })).json()).token;
+  token = tokenDePrueba();
 
   const p = await c.query(
     `INSERT INTO products (name,category,price,stock,cost) VALUES ($1,'PRUEBA',100,50,40) RETURNING id`, [ETIQUETA]);

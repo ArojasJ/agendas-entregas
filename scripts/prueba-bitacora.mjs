@@ -110,6 +110,35 @@ try {
   if (enHist?.hecha) ok(`queda en el historial del día, marcada como hecha${enHist.hechaPor ? " por " + enHist.hechaPor : ""}`);
   else fail("no quedó en el historial");
 
+  // ── Mostrador: se la lleva quien la compró, no hay nada que guardar ──
+  const mostrador = await api("/api/sales", {
+    method: "POST",
+    body: JSON.stringify({
+      client_id: null, total: 100, discount: 0, payment_method: "efectivo",
+      status: "paid", down_payment: 100,
+      items: [{ product_id: productoId, variant_id: null, quantity: 1, unit_price: 100 }],
+    }),
+  });
+  const ventaMostrador = mostrador.sale?.id;
+  const tareasMostrador = (await c.query(
+    "SELECT id FROM bitacora_tareas WHERE sale_id=$1", [ventaMostrador])).rows;
+  if (tareasMostrador.length === 0) ok("una venta de mostrador no ensucia la bitácora");
+  else fail("la venta de mostrador anotó una tarea que nadie puede hacer");
+
+  // ── Una venta cancelada no deja la tarea colgada ──
+  await ponerBodega(false);
+  const saleCancel = await vender(2);
+  const antesDeCancelar = (await api("/api/panel/bitacora")).total;
+  await c.query("UPDATE sales SET status='cancelled' WHERE id=$1", [saleCancel]);
+  const despues = await api("/api/panel/bitacora");
+  if (despues.total === antesDeCancelar - 1) ok("al cancelar la venta su tarea deja de pedirse");
+  else fail(`la tarea de la venta cancelada sigue pendiente (${antesDeCancelar} → ${despues.total})`);
+
+  const siguenEnBase = (await c.query(
+    "SELECT count(*) n FROM bitacora_tareas WHERE sale_id=$1", [saleCancel])).rows[0].n;
+  if (Number(siguenEnBase) === 1) ok("pero el registro no se borra: si se revive la venta, vuelve");
+  else fail("se perdió el registro de la tarea cancelada");
+
   // ── Quién la puede abrir ──
   const deTrabajadora = await fetch(`${BASE}/api/panel/bitacora`, {
     headers: { "x-panel-token": tokenTrabajadora },
@@ -156,6 +185,8 @@ try {
     if (estadoOriginal) await ponerBodega(estadoOriginal === "true");
     if (clienteId) {
       await c.query(`DELETE FROM bitacora_tareas WHERE sale_id IN (SELECT id FROM sales WHERE client_id=$1)`, [clienteId]);
+      await c.query(`DELETE FROM bitacora_tareas WHERE sale_id IN (SELECT sale_id FROM sale_items WHERE product_id=$1)`, [productoId]);
+      await c.query(`DELETE FROM sales WHERE client_id IS NULL AND id IN (SELECT sale_id FROM sale_items WHERE product_id=$1)`, [productoId]);
       await c.query(`DELETE FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE client_id=$1)`, [clienteId]);
       await c.query("DELETE FROM sales WHERE client_id=$1", [clienteId]);
       await c.query("DELETE FROM clients WHERE id=$1", [clienteId]);

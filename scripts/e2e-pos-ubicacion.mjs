@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import { Client } from "pg";
+import { tokenDePrueba } from "./tokenDePrueba.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const out = [];
@@ -25,10 +26,8 @@ try {
     [ETIQUETA, "@prueba_pos_ubic"]);
   clienteId = cl.rows[0].id;
 
-  const r = await page.request.post(`${BASE}/api/login-panel`, {
-    data: { username: process.env.ADMIN_USER, password: process.env.ADMIN_PASS },
-  });
-  const { token, role, displayName } = await r.json();
+  const token = tokenDePrueba();
+  const role = "admin", displayName = "Prueba Admin";
   await page.addInitScript(([t, ro, dn]) => {
     localStorage.setItem("panelToken", t);
     localStorage.setItem("panelAuth", "true");

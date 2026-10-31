@@ -172,7 +172,7 @@ export default function BitacoraPage() {
                               </span>
                             )}
                             <span className="text-sm font-bold text-slate-900">
-                              {t.cliente?.startsWith("@") ? t.cliente : `@${t.cliente}`}
+                              {t.cliente}
                             </span>
                           </div>
 

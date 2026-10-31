@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import { Client } from "pg";
+import { tokenDePrueba } from "./tokenDePrueba.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const out = [];
@@ -34,10 +35,8 @@ try {
     `INSERT INTO sale_items (sale_id,product_id,quantity,unit_price,delivery_status)
      VALUES ($1,$2,1,200,'pending')`, [ventaId, productoId]);
 
-  const r = await page.request.post(`${BASE}/api/login-panel`, {
-    data: { username: process.env.ADMIN_USER, password: process.env.ADMIN_PASS },
-  });
-  const { token, role, displayName } = await r.json();
+  const token = tokenDePrueba();
+  const role = "admin", displayName = "Prueba Admin";
   await page.addInitScript(([t, ro, dn]) => {
     localStorage.setItem("panelToken", t);
     localStorage.setItem("panelAuth", "true");

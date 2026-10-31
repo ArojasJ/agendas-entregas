@@ -25,8 +25,11 @@ export async function GET(req) {
       .select(`
         id, productos, hecha, hecha_at, hecha_por, created_at,
         clients ( name, instagram ),
-        sales ( id, ubicacion, caja )
+        sales!inner ( id, ubicacion, caja, status )
       `)
+      // Una de cada diez ventas se cancela. Sin esto, su tarea se quedaba pendiente
+      // para siempre pidiendo guardar algo que ya no se vendió.
+      .not("sales.status", "in", '("cancelled","pending_payment")')
       .order("created_at", { ascending: true });
 
     if (dia) {
@@ -51,7 +54,11 @@ export async function GET(req) {
       hechaAt: t.hecha_at,
       hechaPor: t.hecha_por,
       creadaEl: t.created_at,
-      cliente: t.clients?.instagram || t.clients?.name || "sin cliente",
+      // Ya viene listo para mostrar: con arroba si es usuario de Instagram, y si la
+      // clienta se borró no se inventa una arroba sobre la palabra "sin cliente".
+      cliente: t.clients?.instagram
+        ? "@" + t.clients.instagram.replace(/^@/, "")
+        : t.clients?.name || "sin cliente",
       nombre: t.clients?.name || null,
       // Se lee de la venta, no de una copia: si se movió de caja, aquí sale la actual
       ubicacion: t.sales?.ubicacion || null,
