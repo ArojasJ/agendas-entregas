@@ -16,7 +16,7 @@ const ok = (m) => out.push("  ok    " + m);
 const fail = (m) => { out.push("  FALLA " + m); process.exitCode = 1; };
 
 const ETIQUETA = "PRUEBA_BITACORA";
-let token, tokenTrabajadora, productoId, clienteId, estadoOriginal;
+let token, tokenTrabajadora, tokenRepartidor, productoId, clienteId, estadoOriginal;
 
 const api = (url, opts) =>
   fetch(`${BASE}${url}`, { ...opts, headers: { "Content-Type": "application/json", "x-panel-token": token, ...(opts?.headers || {}) } })
@@ -51,6 +51,7 @@ try {
   await c.connect();
   token = signPanelToken({ role: "admin", username: "prueba_admin", displayName: "Prueba Admin" });
   tokenTrabajadora = signPanelToken({ role: "worker", username: "prueba_gaby", displayName: "Prueba Gaby" });
+  tokenRepartidor = signPanelToken({ role: "driver", username: "prueba_repartidor", displayName: "Prueba Repartidor" });
 
   estadoOriginal = (await (await fetch(`${BASE}/api/settings`)).json()).settings?.en_bodega ?? "true";
 
@@ -109,16 +110,45 @@ try {
   if (enHist?.hecha) ok(`queda en el historial del día, marcada como hecha${enHist.hechaPor ? " por " + enHist.hechaPor : ""}`);
   else fail("no quedó en el historial");
 
-  // ── Solo el admin la ve ──
-  const ajena = await fetch(`${BASE}/api/panel/bitacora`, {
+  // ── Quién la puede abrir ──
+  const deTrabajadora = await fetch(`${BASE}/api/panel/bitacora`, {
     headers: { "x-panel-token": tokenTrabajadora },
   });
-  if (ajena.status === 403) ok("una trabajadora no puede abrir la bitácora (403)");
-  else fail(`una trabajadora recibió ${ajena.status} en vez de 403`);
+  if (deTrabajadora.status === 200) ok("una trabajadora sí puede abrir la bitácora");
+  else fail(`una trabajadora recibió ${deTrabajadora.status} en vez de 200`);
+
+  // Y palomear, que es a lo que llega temprano
+  const marcada = await fetch(`${BASE}/api/panel/bitacora`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tokenTrabajadora },
+    body: JSON.stringify({ ids: [tareas[0].id], hecha: false }),
+  });
+  if (marcada.status === 200) ok("y puede palomear y despalomear");
+  else fail(`una trabajadora recibió ${marcada.status} al palomear`);
+
+  const quienLaHizo = (await c.query(
+    "SELECT hecha, hecha_por FROM bitacora_tareas WHERE id=$1", [tareas[0].id])).rows[0];
+  if (quienLaHizo.hecha === false) ok("al despalomear vuelve a quedar pendiente");
+  else fail("no se despalomeó");
+
+  const delRepartidor = await fetch(`${BASE}/api/panel/bitacora`, {
+    headers: { "x-panel-token": tokenRepartidor },
+  });
+  if (delRepartidor.status === 403) ok("el repartidor no (403)");
+  else fail(`el repartidor recibió ${delRepartidor.status} en vez de 403`);
 
   const sinToken = await fetch(`${BASE}/api/panel/bitacora`);
   if (sinToken.status === 403) ok("sin sesión tampoco (403)");
   else fail(`sin sesión recibió ${sinToken.status}`);
+
+  // El interruptor se queda solo para el admin
+  const interruptor = await fetch(`${BASE}/api/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tokenTrabajadora },
+    body: JSON.stringify({ key: "en_bodega", value: "false" }),
+  });
+  if (interruptor.status === 403) ok("una trabajadora no puede mover el interruptor de bodega (403)");
+  else fail(`una trabajadora movió el interruptor: ${interruptor.status}`);
 } catch (e) {
   fail(e.message);
 } finally {

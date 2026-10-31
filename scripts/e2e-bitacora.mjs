@@ -123,26 +123,37 @@ try {
 
   await page.screenshot({ path: "scripts/bitacora-hecha.png", fullPage: true });
 
-  // ── Una trabajadora no la ve ──
+  // ── La trabajadora sí la trabaja, pero no mueve el interruptor ──
   const ctx2 = await browser.newContext({ viewport: { width: 1250, height: 1000 } });
   const page2 = await ctx2.newPage();
   await sesion(page2, tokenGaby, "worker", "Prueba Gaby");
   await page2.goto(`${BASE}/panel`, { waitUntil: "networkidle" });
 
   const lateral = await page2.locator("aside").innerText();
-  if (!/Bitácora/i.test(lateral)) ok("a la trabajadora no le aparece Bitácora en el menú");
-  else fail("la trabajadora ve Bitácora en el menú");
+  if (/Bitácora/i.test(lateral)) ok("a la trabajadora sí le aparece Bitácora en el menú");
+  else fail("la trabajadora no ve Bitácora en el menú");
 
-  if (!/En bodega|Fuera de bodega/.test(lateral)) ok("ni el interruptor de bodega");
+  if (!/En bodega|Fuera de bodega/.test(lateral)) ok("pero no el interruptor de bodega, que es solo tuyo");
   else fail("la trabajadora ve el interruptor de bodega");
 
-  if (/Chequeo/i.test(lateral)) ok("pero sí ve Chequeo, que es suya");
-  else fail("la trabajadora no ve Chequeo");
-
   await page2.goto(`${BASE}/panel/bitacora`, { waitUntil: "networkidle" });
-  await page2.waitForTimeout(1200);
-  if (!page2.url().includes("/bitacora")) ok("si entra a la liga a mano, la pantalla la saca");
-  else fail(`la trabajadora se quedó en ${page2.url()}`);
+  await page2.waitForTimeout(900);
+  if (page2.url().includes("/bitacora")) ok("entra a la bitácora sin que la saque");
+  else fail(`a la trabajadora la sacaron a ${page2.url()}`);
+
+  const loQueVe = await page2.locator("body").innerText();
+  if (/Bitácora/i.test(loQueVe)) ok("y ve la lista para hacerla temprano");
+  else fail("la trabajadora no ve la lista");
+
+  // ── El repartidor no ──
+  const ctx3 = await browser.newContext({ viewport: { width: 1250, height: 1000 } });
+  const page3 = await ctx3.newPage();
+  const tokenRepa = firmar({ role: "driver", username: "prueba_repa", displayName: "Prueba Repartidor" });
+  await sesion(page3, tokenRepa, "driver", "Prueba Repartidor");
+  await page3.goto(`${BASE}/panel/bitacora`, { waitUntil: "networkidle" });
+  await page3.waitForTimeout(1200);
+  if (!page3.url().includes("/bitacora")) ok("al repartidor lo saca si entra a la liga a mano");
+  else fail(`el repartidor se quedó en ${page3.url()}`);
 } catch (e) {
   fail(e.message);
 } finally {

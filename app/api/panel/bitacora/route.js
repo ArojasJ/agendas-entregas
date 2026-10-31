@@ -5,15 +5,16 @@ import { diaLocal, rangoDelDia } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-function soloAdmin(req) {
+// Las trabajadoras llegan temprano y resuelven la lista; el repartidor no entra.
+function quienPuede(req) {
   const session = getPanelSession(req);
-  return session?.role === "admin" ? session : null;
+  return ["admin", "worker"].includes(session?.role) ? session : null;
 }
 
 // Lo que hay que hacer al llegar a la bodega. Por omisión solo lo pendiente;
 // con ?dia=YYYY-MM-DD se consulta lo ya hecho de ese día.
 export async function GET(req) {
-  const session = soloAdmin(req);
+  const session = quienPuede(req);
   if (!session) return Response.json({ message: "No autorizado" }, { status: 403 });
 
   const dia = new URL(req.url).searchParams.get("dia");
@@ -66,7 +67,7 @@ export async function GET(req) {
 }
 
 export async function PATCH(req) {
-  const session = soloAdmin(req);
+  const session = quienPuede(req);
   if (!session) return Response.json({ message: "No autorizado" }, { status: 403 });
 
   const { ids = [], hecha = true } = await req.json();

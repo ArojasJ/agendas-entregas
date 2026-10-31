@@ -222,7 +222,7 @@ export default function PanelLayout({ children }) {
     { name: "Catálogo",        href: "/panel/categorias",       icon: "🛍️", roles: ["admin"] },
     // Provisional: se quita cuando el rezago de productos sin ubicación esté resuelto
     { name: "Chequeo",         href: "/panel/chequeo",          icon: "🧹", roles: ["admin", "worker"] },
-    { name: "Bitácora",        href: "/panel/bitacora",         icon: "📓", roles: ["admin"] },
+    { name: "Bitácora",        href: "/panel/bitacora",         icon: "📓", roles: ["admin", "worker"] },
   ].filter(link => link.roles.includes(panelRole));
 
   // ── Layout móvil para admin/worker en celular o iPad ──

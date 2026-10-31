@@ -22,7 +22,7 @@ export default function BitacoraPage() {
 
   useEffect(() => {
     const sesion = decodePanelTokenUnsafe(localStorage.getItem("panelToken"));
-    if (sesion?.role !== "admin") { router.push("/panel"); return; }
+    if (!["admin", "worker"].includes(sesion?.role)) { router.push("/panel"); return; }
     cargar("");
   }, []);
 

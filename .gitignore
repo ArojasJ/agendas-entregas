@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 scripts/e2e-*.png
+
+# Capturas que dejan las pruebas de navegador
+scripts/*.png
