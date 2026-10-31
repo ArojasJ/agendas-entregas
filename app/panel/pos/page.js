@@ -44,6 +44,7 @@ export default function PosPage() {
   const [variantPicker, setVariantPicker] = useState(null); // product con variantes
 
   const searchInputRef = useRef(null);
+  const clientBoxRef = useRef(null);
 
   const showToast = (message, type = "success") => {
     setToast({ show: true, message, type });
@@ -52,7 +53,9 @@ export default function PosPage() {
 
   useEffect(() => {
     fetchData();
-    if (searchInputRef.current) {
+    // El foco automático es para el escáner de la computadora; en el celular
+    // solo abre el teclado encima de media pantalla sin que nadie lo pida.
+    if (searchInputRef.current && window.matchMedia("(pointer: fine)").matches) {
       searchInputRef.current.focus();
     }
   }, []);
@@ -203,6 +206,25 @@ export default function PosPage() {
     }).filter(item => !item.remove));
   };
 
+  // Sin esto el listado de clientas se queda abierto tapando el celular: no hay
+  // forma de cerrarlo más que escogiendo a alguien.
+  useEffect(() => {
+    if (!showClientDropdown) return;
+    // El listado se abre hacia arriba. Si el campo quedó pegado al encabezado no
+    // cabe y los primeros renglones se esconden detrás de él, así que primero se
+    // acomoda el campo hasta abajo de lo que se alcanza a ver.
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      clientBoxRef.current?.scrollIntoView({ block: "end" });
+    }
+    const picaronAfuera = (e) => {
+      if (clientBoxRef.current && !clientBoxRef.current.contains(e.target)) {
+        setShowClientDropdown(false);
+      }
+    };
+    document.addEventListener("pointerdown", picaronAfuera);
+    return () => document.removeEventListener("pointerdown", picaronAfuera);
+  }, [showClientDropdown]);
+
   const filteredProducts = useMemo(() => {
     if (!search || search.trim().length < 2) return [];
     const q = search.toLowerCase();
@@ -212,6 +234,20 @@ export default function PosPage() {
       (p.product_variants || []).some(v => v.name?.toLowerCase().includes(q) || v.barcode?.includes(search))
     );
   }, [products, search]);
+
+  // Son más de mil clientas: pintarlas todas deja el celular pegado varios
+  // segundos cada vez que se abre el listado. Se muestran las primeras y se
+  // avisa cuántas coinciden para que acaben de escribir.
+  const clientesFiltrados = useMemo(() => {
+    const q = clientSearchQuery.toLowerCase().replace("@", "").trim();
+    const coinciden = q
+      ? clients.filter(c =>
+          (c.instagram && c.instagram.toLowerCase().includes(q)) ||
+          (c.name && c.name.toLowerCase().includes(q))
+        )
+      : clients;
+    return { lista: coinciden.slice(0, 30), total: coinciden.length };
+  }, [clients, clientSearchQuery]);
 
   const subtotal = cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
   const discountAmount = discountType === "%" ? subtotal * (Math.min(discount, 100) / 100) : discount;
@@ -312,7 +348,7 @@ export default function PosPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-full overflow-hidden bg-slate-50 text-slate-900">
+    <div className="flex flex-col lg:flex-row lg:h-full lg:overflow-hidden bg-slate-50 text-slate-900">
       
       {/* TOAST */}
       <div className={`fixed top-6 right-6 z-[60] transition-all duration-500 transform ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-10 opacity-0 pointer-events-none"}`}>
@@ -323,7 +359,7 @@ export default function PosPage() {
       </div>
 
       {/* LADO IZQUIERDO: PRODUCTOS */}
-      <div className="flex-1 flex flex-col h-full border-r border-slate-200 relative">
+      <div className="flex-1 flex flex-col lg:h-full border-r border-slate-200 relative">
         <div className="p-4 border-b border-slate-200 bg-slate-50/80 backdrop-blur-md z-10 sticky top-0">
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 opacity-50 text-lg">🔍</span>
@@ -339,17 +375,17 @@ export default function PosPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 max-h-[60vh] lg:max-h-none overflow-y-auto p-4">
           {loading ? (
             <p className="text-center opacity-50 mt-10">Cargando catálogo...</p>
           ) : search.trim().length < 2 ? (
-            <div className="flex flex-col items-center justify-center h-64 opacity-30">
+            <div className="flex flex-col items-center justify-center h-36 lg:h-64 opacity-30">
               <span className="text-6xl mb-4">🔍</span>
               <p className="text-lg font-bold">Busca un producto</p>
               <p className="text-sm">Escribe el nombre o escanea el código</p>
             </div>
           ) : filteredProducts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 opacity-30">
+            <div className="flex flex-col items-center justify-center h-36 lg:h-64 opacity-30">
               <span className="text-6xl mb-4">❓</span>
               <p className="text-lg font-bold">Sin coincidencias</p>
               <p className="text-sm">Intenta con otro nombre o código</p>
@@ -401,7 +437,7 @@ export default function PosPage() {
       </div>
 
       {/* LADO DERECHO: CARRITO */}
-      <div className="w-full lg:w-[400px] flex flex-col bg-white border-l border-slate-100 h-full">
+      <div className="w-full lg:w-[400px] flex flex-col bg-white border-l border-slate-100 lg:h-full">
         <div className="p-5 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between">
           <h2 className="text-xl font-bold flex items-center gap-2">🛒 Nueva Venta</h2>
           {cart.length > 0 && (
@@ -426,7 +462,7 @@ export default function PosPage() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+        <div className="flex-1 lg:overflow-y-auto p-4 flex flex-col gap-2">
           {cart.length === 0 ? (
             <div className="m-auto text-center opacity-40 flex flex-col items-center">
               <span className="text-6xl mb-4">🛒</span>
@@ -452,7 +488,7 @@ export default function PosPage() {
 
         <div className="p-5 bg-slate-50/40 border-t border-slate-200 mt-auto">
           {/* Cliente */}
-          <div className="mb-4 relative">
+          <div ref={clientBoxRef} className="mb-4 relative">
             <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Asignar Cliente</label>
             <div className="relative">
               {selectedClient ? (
@@ -483,7 +519,7 @@ export default function PosPage() {
               ) : (
                 <input
                   type="text"
-                  placeholder="Buscar cliente por @instagram..."
+                  placeholder="Buscar por @instagram o por nombre..."
                   value={clientSearchQuery}
                   onFocus={() => setShowClientDropdown(true)}
                   onChange={e => {
@@ -497,25 +533,20 @@ export default function PosPage() {
             </div>
             
             {showClientDropdown && (
-              <div className="absolute z-50 mt-2 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl">
+              <div className="absolute z-50 bottom-full mb-2 lg:bottom-auto lg:mb-0 lg:mt-2 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl">
                 <button
                   onClick={() => { setShowClientDropdown(false); setShowNewClientModal(true); }}
                   className="w-full px-4 py-3 text-sm font-bold text-emerald-600 hover:bg-emerald-50 border-b border-slate-100 text-left transition-colors flex items-center gap-2"
                 >
                   <span className="text-base">➕</span> Crear nuevo cliente
                 </button>
-                {clients.filter(c => {
-                  const q = clientSearchQuery.toLowerCase().replace('@', '');
-                  return (c.instagram && c.instagram.toLowerCase().includes(q)) || (c.name && c.name.toLowerCase().includes(q));
-                }).length === 0 ? (
+                {loading ? (
+                  <div className="p-3 text-sm text-slate-400 text-center">Cargando clientas…</div>
+                ) : clientesFiltrados.total === 0 ? (
                   <div className="p-3 text-sm text-slate-500 text-center">Sin coincidencias</div>
                 ) : (
-                  clients
-                    .filter(c => {
-                      const q = clientSearchQuery.toLowerCase().replace('@', '');
-                      return (c.instagram && c.instagram.toLowerCase().includes(q)) || (c.name && c.name.toLowerCase().includes(q));
-                    })
-                    .map(c => (
+                  <>
+                    {clientesFiltrados.lista.map(c => (
                       <button
                         key={c.id}
                         onClick={() => {
@@ -528,7 +559,13 @@ export default function PosPage() {
                         <span className="font-semibold text-emerald-400">{c.instagram ? '@' + c.instagram.replace(/^@/, '') : c.name}</span>
                         <span className="text-xs opacity-50">{c.instagram ? c.name : ""}</span>
                       </button>
-                    ))
+                    ))}
+                    {clientesFiltrados.total > clientesFiltrados.lista.length && (
+                      <div className="p-3 text-xs text-slate-400 text-center border-t border-slate-100">
+                        Coinciden {clientesFiltrados.total} · escribe un poco más
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

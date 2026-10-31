@@ -49,7 +49,7 @@ try {
   await page.waitForTimeout(600);
 
   // Asignar la clienta
-  const buscaCliente = page.getByPlaceholder(/Buscar cliente/i);
+  const buscaCliente = page.getByPlaceholder(/@instagram/i);
   await buscaCliente.fill("prueba_pos_ubic");
   await page.waitForTimeout(1400);
   await page.getByText("@prueba_pos_ubic", { exact: false }).first().click();
