@@ -12,6 +12,8 @@ export default function PanelLayout({ children }) {
   const [panelRole, setPanelRole] = useState(null);
   const [staffName, setStaffName] = useState("");
   const [pendingOrders, setPendingOrders] = useState(0);
+  const [enBodega, setEnBodega] = useState(null);
+  const [cambiandoBodega, setCambiandoBodega] = useState(false);
   const [pendingRegistros, setPendingRegistros] = useState(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
@@ -39,6 +41,12 @@ export default function PanelLayout({ children }) {
         }
       }
       if (savedName) setStaffName(savedName);
+      if (savedRole === "admin") {
+        fetch("/api/settings")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d) setEnBodega(d.settings?.en_bodega !== "false"); })
+          .catch(() => {});
+      }
     }
     setIsMobileMenuOpen(false); // Cerrar menú al cambiar de ruta
   }, [pathname]); // Re-validar al cambiar de ruta
@@ -63,6 +71,22 @@ export default function PanelLayout({ children }) {
       if (ordersRes.ok) { const d = await ordersRes.json(); setPendingOrders(d.count || 0); }
       if (registrosRes.ok) { const d = await registrosRes.json(); setPendingRegistros(d.count || 0); }
     } catch (e) {}
+  };
+
+  // El estado es del negocio, no del navegador: si uno lo apaga, el otro lo ve apagado.
+  const cambiarBodega = async () => {
+    setCambiandoBodega(true);
+    const nuevo = !enBodega;
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ key: "en_bodega", value: String(nuevo) }),
+      });
+      if (res.ok) setEnBodega(nuevo);
+    } catch {}
+    setCambiandoBodega(false);
   };
 
   const handleLogout = () => {
@@ -198,6 +222,7 @@ export default function PanelLayout({ children }) {
     { name: "Catálogo",        href: "/panel/categorias",       icon: "🛍️", roles: ["admin"] },
     // Provisional: se quita cuando el rezago de productos sin ubicación esté resuelto
     { name: "Chequeo",         href: "/panel/chequeo",          icon: "🧹", roles: ["admin", "worker"] },
+    { name: "Bitácora",        href: "/panel/bitacora",         icon: "📓", roles: ["admin"] },
   ].filter(link => link.roles.includes(panelRole));
 
   // ── Layout móvil para admin/worker en celular o iPad ──
@@ -406,7 +431,7 @@ export default function PanelLayout({ children }) {
             );
           })}
         </div>
-        <div className="p-4 border-t border-inherit">
+        <div className="p-4 border-t border-inherit space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-lg shadow-inner">
               {panelRole === "admin" ? "👑" : "👤"}
@@ -416,6 +441,21 @@ export default function PanelLayout({ children }) {
               <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">{panelRole}</span>
             </div>
           </div>
+
+          {panelRole === "admin" && enBodega !== null && (
+            <button
+              onClick={cambiarBodega}
+              disabled={cambiandoBodega}
+              className={`w-full flex items-center justify-center gap-2 text-xs font-bold px-3 py-2.5 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 ${
+                enBodega
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                  : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+              }`}
+            >
+              <span className="text-sm leading-none">{enBodega ? "🏠" : "🚪"}</span>
+              {enBodega ? "En bodega" : "Fuera de bodega"}
+            </button>
+          )}
         </div>
       </aside>
 

@@ -1,6 +1,6 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
-import { guardarUbicacion } from "@/lib/ubicaciones";
+import { guardarUbicacion, estanEnBodega, anotarEnBitacora } from "@/lib/ubicaciones";
 import { traerTodo } from "@/lib/paginar";
 
 
@@ -212,6 +212,16 @@ export async function POST(req) {
         // La venta ya está hecha; perder la ubicación no debe tumbarla
         console.error("No se pudo guardar la ubicación de la venta " + saleId + ":", e);
       }
+    }
+
+    // Vendiendo fuera de la bodega nadie puede tomar el producto y guardarlo en ese
+    // momento, así que el movimiento queda anotado para hacerlo al llegar.
+    try {
+      if (!(await estanEnBodega())) {
+        await anotarEnBitacora({ saleId, clientId: client_id });
+      }
+    } catch (e) {
+      console.error("No se pudo anotar en la bitácora la venta " + saleId + ":", e);
     }
 
     return Response.json({ message: "Venta registrada con éxito.", sale: newSale });
