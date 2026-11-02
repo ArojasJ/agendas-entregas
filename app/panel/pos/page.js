@@ -627,13 +627,13 @@ export default function PosPage() {
       {/* MODAL DE CHECKOUT */}
       {showCheckoutModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white z-10">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[92vh]">
+            <div className="shrink-0 p-5 border-b border-slate-200 flex justify-between items-center bg-white z-10">
               <h2 className="text-lg font-bold text-slate-900">Método de Pago</h2>
               <button onClick={() => { setShowCheckoutModal(false); setApplySaldo(false); }} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center transition-colors">✕</button>
             </div>
             
-            <div className="p-6">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6">
               <div className="flex items-center justify-center gap-4 mb-6">
                 <button 
                   onClick={() => { setPaymentType("paid"); setDownPayment(total); }}
@@ -851,7 +851,12 @@ export default function PosPage() {
                 </div>
               )}
 
-              <button 
+            </div>
+
+            {/* Pegado abajo: cuando la pantalla no da para todo el cuerpo, lo que
+                se desliza es el contenido, pero cobrar siempre se alcanza. */}
+            <div className="shrink-0 p-5 border-t border-slate-200 bg-white">
+              <button
                 onClick={executeCheckout}
                 disabled={saving || (paymentType === 'credit' && !selectedClient)}
                 className={`w-full py-4 rounded-2xl text-slate-900 font-bold text-lg shadow-lg transition-all active:scale-95 ${paymentType === 'paid' ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-400 shadow-amber-500/20 disabled:bg-amber-500/20 disabled:text-amber-500/50'}`}
@@ -866,7 +871,7 @@ export default function PosPage() {
       {/* Modal: Tarjeta del cliente seleccionado */}
       {showClientCard && selectedClient && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => { setShowClientCard(false); setEditingBox(false); }}>
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-slate-100 flex justify-between items-center">
               <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Perfil del cliente</h2>
               <button onClick={() => { setShowClientCard(false); setEditingBox(false); }} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400">✕</button>
@@ -972,7 +977,7 @@ export default function PosPage() {
       {/* Modal: Nuevo Cliente desde POS */}
       {showNewClientModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="p-5 border-b border-slate-200 flex justify-between items-center">
               <h2 className="text-lg font-bold">Nuevo Cliente</h2>
               <button
