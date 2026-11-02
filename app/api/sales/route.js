@@ -216,8 +216,12 @@ export async function POST(req) {
 
     // Vendiendo fuera de la bodega nadie puede tomar el producto y guardarlo en ese
     // momento, así que el movimiento queda anotado para hacerlo al llegar.
+    //
+    // El interruptor dice que la administradora anda fuera, no el negocio entero: las
+    // trabajadoras siguen en la tienda, junto a las cajas, y guardan el producto al
+    // momento de cobrarlo. Anotarles tarea les pedía hacer algo que ya estaba hecho.
     try {
-      if (!(await estanEnBodega())) {
+      if (session.role === "admin" && !(await estanEnBodega())) {
         await anotarEnBitacora({ saleId, clientId: client_id });
       }
     } catch (e) {

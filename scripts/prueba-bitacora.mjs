@@ -69,11 +69,26 @@ try {
   if ((await tareasDe()).length === 0) ok("en bodega NO anota tarea: se guarda en el momento");
   else fail("anotó tarea estando en bodega");
 
-  // ── Fuera de bodega sí ──
+  // ── Fuera de bodega, pero vendiendo una trabajadora: ella está en la tienda ──
+  // El interruptor dice que la administradora anda fuera, no el negocio entero.
   await ponerBodega(false);
+  const ventaDeGaby = await api("/api/sales", {
+    method: "POST",
+    headers: { "x-panel-token": tokenTrabajadora },
+    body: JSON.stringify({
+      client_id: clienteId, total: 100, discount: 0, payment_method: "efectivo",
+      status: "paid", down_payment: 100,
+      items: [{ product_id: productoId, variant_id: null, quantity: 1, unit_price: 100 }],
+    }),
+  });
+  if (ventaDeGaby.sale?.id && (await tareasDe()).length === 0)
+    ok("fuera de bodega, la venta de una trabajadora NO anota tarea: ella sí puede guardar");
+  else fail(`la venta de la trabajadora anotó ${(await tareasDe()).length} tarea(s)`);
+
+  // ── Fuera de bodega y vendiendo la administradora: ahí sí ──
   await vender(3);
   const tareas = await tareasDe();
-  if (tareas.length === 1) ok("fuera de bodega anota una tarea");
+  if (tareas.length === 1) ok("fuera de bodega, la venta de la administradora sí anota una tarea");
   else fail(`esperaba 1 tarea, hay ${tareas.length}`);
 
   if (tareas[0]?.productos?.includes(ETIQUETA)) ok(`la tarea dice qué guardar: "${tareas[0].productos.slice(0, 40)}…"`);
