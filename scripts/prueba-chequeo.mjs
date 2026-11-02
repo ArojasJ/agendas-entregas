@@ -111,6 +111,91 @@ try {
   const lista2 = await api("GET");
   if (!(lista2.clientes || []).some((x) => x.id === clienteId)) ok("desaparece de la lista al resolverse");
   else fail("sigue apareciendo en el chequeo");
+
+  // 7. Los tres periodos tienen que cuadrar con la base, no entre ellos nomás.
+  // "Todo" llegó a mostrar lo mismo que 3 meses y escondía casi mil productos.
+  const cuenta = async (dias) => {
+    const r = await c.query(`
+      select count(*) productos, count(distinct cl.id) clientas
+      from sale_items si
+      join sales s on s.id = si.sale_id
+      join clients cl on cl.id = s.client_id
+      where (si.delivery_status is distinct from 'delivered')
+        and s.status not in ('cancelled','pending_payment')
+        and s.created_at < now() - interval '10 days'
+        and cl.box_1 is null and cl.box_2 is null
+        and s.ubicacion is null
+        ${dias ? `and s.created_at > now() - interval '${dias} days'` : ""}`);
+    return { productos: Number(r.rows[0].productos), clientas: Number(r.rows[0].clientas) };
+  };
+
+  const periodos = [
+    { nombre: "Últimos 3 meses", param: "90", dias: 90 },
+    { nombre: "Últimos 6 meses", param: "180", dias: 180 },
+    { nombre: "Todo", param: "todo", dias: null },
+  ];
+  const vistos = {};
+  for (const p of periodos) {
+    const esperado = await cuenta(p.dias);
+    const r = await fetch(`${BASE}/api/panel/chequeo?periodo=${p.param}`, {
+      headers: { "x-panel-token": token },
+    }).then((x) => x.json());
+    vistos[p.param] = r.totalProductos;
+    if (r.totalProductos === esperado.productos && r.totalClientes === esperado.clientas)
+      ok(`${p.nombre}: ${r.totalProductos} productos · ${r.totalClientes} clientas, igual que la base`);
+    else
+      fail(`${p.nombre}: la pantalla dice ${r.totalProductos}/${r.totalClientes} y la base ${esperado.productos}/${esperado.clientas}`);
+  }
+
+  if (vistos["todo"] >= vistos["180"] && vistos["180"] >= vistos["90"])
+    ok(`y van de menos a más: ${vistos["90"]} ≤ ${vistos["180"]} ≤ ${vistos["todo"]}`);
+  else
+    fail(`los periodos no van de menos a más: 90=${vistos["90"]}, 180=${vistos["180"]}, todo=${vistos["todo"]}`);
+
+  if (vistos["todo"] > vistos["90"])
+    ok("\"Todo\" ya no es un disfraz de \"Últimos 3 meses\"");
+  else
+    fail("\"Todo\" sigue mostrando lo mismo que 3 meses");
+
+  // El orden ya no lo da la consulta sino el agrupado: lo más viejo primero,
+  // que es lo que la pantalla promete con "el más viejo de hace N días".
+  const todo = await fetch(`${BASE}/api/panel/chequeo?periodo=todo`, {
+    headers: { "x-panel-token": token },
+  }).then((x) => x.json());
+
+  const clientesFuera = (todo.clientes || []).findIndex((cl, i, a) =>
+    i > 0 && new Date(a[i - 1].productos[0].compradoEl) > new Date(cl.productos[0].compradoEl)
+  );
+  if (clientesFuera === -1) ok("las clientas salen de la más vieja a la más reciente");
+  else fail(`la clienta en posición ${clientesFuera} rompe el orden`);
+
+  const dentroFuera = (todo.clientes || []).find((cl) =>
+    cl.productos.some((p, i, a) => i > 0 && new Date(a[i - 1].compradoEl) > new Date(p.compradoEl))
+  );
+  if (!dentroFuera) ok("y dentro de cada clienta, sus productos del más viejo al más nuevo");
+  else fail(`los productos de ${dentroFuera.instagram} salen desordenados`);
+
+  const masViejo = await c.query(`
+    select min(s.created_at) fecha
+    from sale_items si
+    join sales s on s.id = si.sale_id
+    join clients cl on cl.id = s.client_id
+    where (si.delivery_status is distinct from 'delivered')
+      and s.status not in ('cancelled','pending_payment')
+      and s.created_at < now() - interval '10 days'
+      and cl.box_1 is null and cl.box_2 is null
+      and s.ubicacion is null`);
+  const primeroEnPantalla = todo.clientes?.[0]?.productos?.[0]?.compradoEl;
+  if (primeroEnPantalla && Math.abs(new Date(primeroEnPantalla) - new Date(masViejo.rows[0].fecha)) < 1000)
+    ok("la primera de la lista es de verdad la compra más vieja del rezago");
+  else fail(`arriba sale ${primeroEnPantalla} y lo más viejo es ${masViejo.rows[0].fecha}`);
+
+  // Un periodo que no existe cae en 3 meses, no en todo
+  const raro = await fetch(`${BASE}/api/panel/chequeo?periodo=xyz`, {
+    headers: { "x-panel-token": token },
+  }).then((x) => x.json());
+  if (raro.totalProductos === vistos["90"]) ok("un periodo desconocido cae en 3 meses, que es lo prudente");
+  else fail(`un periodo desconocido devolvió ${raro.totalProductos}`);
 } catch (e) {
   fail(e.message);
 } finally {

@@ -17,7 +17,10 @@ export async function GET(req) {
   }
 
   const periodo = new URL(req.url).searchParams.get("periodo") || "90";
-  const dias = DIAS[periodo] ?? 90;
+  // "todo" vale null a propósito: sin tope de fecha. Con ?? ese null se volvía 90 y
+  // "Todo" mostraba exactamente lo mismo que "Últimos 3 meses", escondiendo casi mil
+  // productos. El valor desconocido sí cae en 90.
+  const dias = periodo in DIAS ? DIAS[periodo] : 90;
 
   // Supabase corta en 1000 filas por petición, y el rezago es mayor: hay que paginar
   // o la pantalla mostraría una parte sin avisar.
@@ -39,7 +42,11 @@ export async function GET(req) {
       .is("sales.clients.box_1", null)
       .is("sales.clients.box_2", null)
       .is("sales.ubicacion", null)
-      .order("created_at", { referencedTable: "sales", ascending: true })
+      // El orden tiene que ser de sale_items, no de la tabla anidada: PostgREST no
+      // ordena las filas de arriba por una columna de la relación, y sin un orden
+      // estable el paginado puede repetir y saltarse renglones. Lo viejo primero se
+      // arma más abajo, ya con todo junto.
+      .order("id", { ascending: true })
       .range(desde, desde + PAGINA - 1);
 
     if (dias) {
@@ -81,6 +88,10 @@ export async function GET(req) {
       ubicacion: venta.ubicacion,
       cajaVenta: venta.caja,
     });
+  }
+
+  for (const cliente of porCliente.values()) {
+    cliente.productos.sort((a, b) => new Date(a.compradoEl) - new Date(b.compradoEl));
   }
 
   const clientes = [...porCliente.values()].sort(
