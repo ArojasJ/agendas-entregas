@@ -27,6 +27,21 @@ function formatShortMX(dateStr) {
   });
 }
 
+// "jueves 6 de noviembre". En el mensaje de confirmación la clienta necesita el día
+// completo: "puedes pasar a recoger" sin fecha se lee como "pasa cuando quieras", y
+// solo el nombre del día se confunde con el jueves de la semana que entra.
+// Los nombres van escritos aquí y no por toLocaleDateString porque el mensaje se copia
+// desde el celular de quien atiende, y el idioma de ese navegador no lo controlamos.
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+               "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function formatDiaLargoMX(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return `${DIAS_SEMANA[d.getDay()]} ${d.getDate()} de ${MESES[d.getMonth()]}`;
+}
+
 function formatBlockedMX(dateStr) {
   const d = parseLocalDate(dateStr);
   if (!d) return "â€”";
@@ -138,13 +153,21 @@ Es correcto?✨`;
   if (bk.type === "floreria") {
     const horario = floreria?.horario ? `de ${floreria.horario}` : "en nuestro horario de atención";
     const donde = floreria?.direccion ? `\n\n📍 ${floreria.direccion}` : "";
+    // El día no se calcula: es el que la clienta eligió al agendar. La primera opción
+    // que le ofrece el calendario ya son 2 días hábiles después (primeraFechaFloreria),
+    // pero puede escoger uno más lejano y el mensaje tiene que decir ese, no el mínimo.
+    const dia = formatDiaLargoMX(bk.date);
+    // El día entra entre "Gómez Palacio" y el horario, que es su lugar natural y no
+    // obliga a mover ninguna otra palabra del mensaje. Sin fecha, la frase queda
+    // exactamente como era antes.
+    const cuando = dia ? `el ${dia} ` : "";
     return `Hola, sólo para confirmar lo que se te entregará:
 
 ${products}
 
 Aún queda pendiente $${adeudo}, puedes realizar transferencia (antes de pasar) o pagar en efectivo al recoger 🖤
 
-Puedes pasar a recoger tus productos a nuestra florería en Gómez Palacio ${horario}✨${donde}
+Puedes pasar a recoger tus productos a nuestra florería en Gómez Palacio ${cuando}${horario}✨${donde}
 
 Tu paquete te espera únicamente el día que agendaste. Pasada esa fecha no podemos hacernos responsables de su resguardo, así que te pedimos considerarlo al elegir tu día 🖤
 
@@ -1406,7 +1429,7 @@ export default function PanelPage() {
                     const initials = getInitials(bk.fullName);
                     const grad = getAvatarGradient(bk.fullName);
                     const rawPhone = (bk.phone || "").replace(/\D/g, "").replace(/^52/, "");
-                    const waUrl = `https://wa.me/52${rawPhone}?text=${encodeURIComponent(buildConfirmationMessage(bk))}`;
+                    const waUrl = `https://wa.me/52${rawPhone}?text=${encodeURIComponent(buildConfirmationMessage(bk, floreriaCfg))}`;
 
                     if (bk.type === "paqueteria") {
                       const pkg = parsePkgAddress(bk.address);
