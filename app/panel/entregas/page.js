@@ -483,9 +483,11 @@ export default function PanelPage() {
   const handleToggleFloreria = async () => {
     setTogglingFloreria(true);
     const nuevo = !floreriaActiva;
+    // Apagar la florería cierra el agendado para la clienta, no el trabajo de adentro:
+    // las reservas que ya se hicieron se siguen entregando, así que no se saca de la
+    // pestaña a quien la esté viendo.
     if (await guardarAjuste("floreria_activa", nuevo)) {
       setFloreriaActiva(nuevo);
-      if (!nuevo && activeTab === "floreria") setActiveTab("domicilio");
     }
     setTogglingFloreria(false);
   };
@@ -1052,7 +1054,9 @@ export default function PanelPage() {
                   <span>Nueva entrega manual</span>
                 </button>
               </div>
-              {floreriaActiva && activeTab === "floreria" && (
+              {/* También con la florería apagada: el horario y la dirección se
+                  arreglan justamente cuando no está recibiendo pedidos. */}
+              {activeTab === "floreria" && (
                 <button
                   onClick={() => setShowFloreriaModal(true)}
                   className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition-colors"
@@ -1106,7 +1110,9 @@ export default function PanelPage() {
           {isAdmin && (
             <TabBtn label="Paquetería" icon="📦" id="paqueteria" active={activeTab} onClick={setActiveTab} dark={D} />
           )}
-          {isAdmin && floreriaActiva && (
+          {/* La pestaña no depende del interruptor: ese solo decide si la clienta
+              puede agendar. Lo ya agendado se tiene que poder entregar igual. */}
+          {isAdmin && (
             <TabBtn label="Florería" icon="🌷" id="floreria" active={activeTab} onClick={setActiveTab} dark={D} />
           )}
         </div>
