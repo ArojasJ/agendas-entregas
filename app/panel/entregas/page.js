@@ -209,6 +209,9 @@ export default function PanelPage() {
   const [filterEnd, setFilterEnd] = useState("");
   const [activeTab, setActiveTab] = useState("domicilio");
   const [filterInstagram, setFilterInstagram] = useState("");
+  // Solo para la pestaña de florería: sin esto la lista corta en el día de hoy y las
+  // entregas que ya pasaron no se pueden consultar sin adivinar un rango de fechas.
+  const [verTodaFloreria, setVerTodaFloreria] = useState(false);
 
   const [blockDate, setBlockDate] = useState("");
   const [blockType, setBlockType] = useState("domicilio");
@@ -862,6 +865,10 @@ export default function PanelPage() {
     (filterEnd && filterEnd !== "") ||
     (filterInstagram && filterInstagram.trim() !== "");
 
+  // El botón de "Todas" es de la florería y solo manda estando en su pestaña: así no
+  // se lleva por delante lo que se esté viendo en domicilio, bodega o paquetería.
+  const viendoTodaFloreria = activeTab === "floreria" && verTodaFloreria;
+
   const bookingsByTab = bookings.filter((bk) => {
     const t = String(bk.type || "").trim().toLowerCase();
     if (activeTab === "bodega") return t.includes("bod");
@@ -881,9 +888,10 @@ export default function PanelPage() {
     if (start && date < start) return false;
     if (end && date > end) return false;
     
-    // Si no hay filtros, ocultamos las pasadas pero dejamos las de hoy y futuro
-    if (!hasAnyFilter && date < today) return false;
-    
+    // Si no hay filtros, ocultamos las pasadas pero dejamos las de hoy y futuro.
+    // Con "Todas" en florería no se corta por hoy: ese es justamente el punto.
+    if (!hasAnyFilter && !viendoTodaFloreria && date < today) return false;
+
     return true;
   });
 
@@ -1177,6 +1185,20 @@ export default function PanelPage() {
                 Hoy
               </button>
             )}
+            {activeTab === "floreria" && (
+              <button
+                onClick={() => setVerTodaFloreria((v) => !v)}
+                className={`px-4 py-2 text-sm rounded-xl font-bold transition-all border flex items-center gap-1.5 ${
+                  verTodaFloreria
+                    ? "bg-rose-600 text-white border-rose-600 hover:bg-rose-700"
+                    : D
+                      ? "bg-rose-500/15 text-rose-400 border-rose-500/25 hover:bg-rose-500/25"
+                      : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                }`}
+              >
+                🌷 {verTodaFloreria ? "Viendo todas" : "Todas las entregas"}
+              </button>
+            )}
             {activeTab === "domicilio" && (
               <Link
                 href="/panel/entregas/ruta"
@@ -1202,6 +1224,7 @@ export default function PanelPage() {
                 setFilterStart("");
                 setFilterEnd("");
                 setFilterInstagram("");
+                setVerTodaFloreria(false);
               }}
               className={`px-4 py-2 text-sm rounded-xl font-medium transition-all border ${
                 D ? "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100" : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
@@ -1217,8 +1240,11 @@ export default function PanelPage() {
             )}
           </div>
 
-          {hasAnyFilter && (
+          {(hasAnyFilter || viendoTodaFloreria) && (
             <div className={`flex flex-wrap gap-2 mt-3 pt-3 border-t ${D ? "border-white/[0.06]" : "border-slate-100"}`}>
+              {viendoTodaFloreria && (
+                <FilterChip label="Todo el historial de florería" onRemove={() => setVerTodaFloreria(false)} dark={D} />
+              )}
               {filterStart && (
                 <FilterChip label={`Desde: ${filterStart}`} onRemove={() => setFilterStart("")} dark={D} />
               )}
@@ -1401,7 +1427,10 @@ export default function PanelPage() {
         <div className={`${cardCls} overflow-hidden`}>
           <div className={`px-5 py-4 border-b flex items-center justify-between ${D ? "border-white/[0.07]" : "border-slate-100"}`}>
             <h2 className={`font-semibold ${D ? "text-slate-900" : "text-slate-900"}`}>
-              {activeTab === "bodega" ? "Entregas en bodega" : activeTab === "domicilio" ? "Entregas a domicilio" : "Paquetería"}
+              {activeTab === "bodega" ? "Entregas en bodega"
+                : activeTab === "domicilio" ? "Entregas a domicilio"
+                : activeTab === "floreria" ? (viendoTodaFloreria ? "Florería · todo el historial" : "Entregas en florería")
+                : "Paquetería"}
             </h2>
             <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
               D ? "bg-slate-50 border-slate-200 text-slate-500" : "bg-slate-100 border-slate-200 text-slate-500"
@@ -1422,9 +1451,10 @@ export default function PanelPage() {
               </div>
             ) : (
               <div className={`grid gap-5 ${activeTab === "paqueteria" ? "grid-cols-1 xl:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3"}`}>
-                {finalFilteredBookings
-                  .slice()
-                  .reverse()
+                {/* De costumbre la lista va de la más próxima en adelante, que es lo
+                    que toca entregar. Viendo todo el historial se invierte: lo que
+                    interesa es lo último que pasó, no una entrega de hace meses. */}
+                {(viendoTodaFloreria ? finalFilteredBookings : finalFilteredBookings.slice().reverse())
                   .map((bk) => {
                     const isSelected = selectedBooking && selectedBooking.id === bk.id;
                     const statusLabel =
@@ -2196,7 +2226,8 @@ function TrendChart({ bookings, activeTab, todayStr, dark: D }) {
 
   const typeLabel =
     activeTab === "domicilio" ? "Domicilio" :
-    activeTab === "bodega" ? "Bodega" : "Paquetería";
+    activeTab === "bodega" ? "Bodega" :
+    activeTab === "floreria" ? "Florería" : "Paquetería";
 
   const firstDate = days[0]
     ? new Date(days[0].str + "T12:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short" })
