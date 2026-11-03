@@ -722,7 +722,10 @@ export default function PosPage() {
 
                       {ubicacion.tipo === "juntar" && (
                         <Opcion
-                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.aMover?.length > 0}
+                          // Se pinta por la caja elegida, no por aMover: cuando la
+                          // clienta ya tiene caja y nada en estante, aMover viene vacío
+                          // y la opción nunca se veía elegida aunque sí lo estuviera.
+                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === ubicacion.caja}
                           onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
                           titulo={`Juntar todo en la caja ${ubicacion.caja}`}
                           detalle={ubicacion.aMover?.length > 0 ? "Mueve también lo que está en estante" : "Donde ya tiene sus cosas"}
@@ -732,7 +735,9 @@ export default function PosPage() {
 
                       {ubicacion.tipo !== "juntar" && ubicacion.tipo === "caja" && (
                         <Opcion
-                          elegida={ubicacionElegida?.tipo === "caja"}
+                          // Con solo mirar el tipo, esta opción se quedaba verde aunque
+                          // abajo se hubiera elegido otra caja, y se veían dos elegidas.
+                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === ubicacion.caja}
                           onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
                           titulo={`Caja ${ubicacion.caja}`}
                           detalle={ubicacion.motivo}
