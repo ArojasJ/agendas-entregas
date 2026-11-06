@@ -1,5 +1,18 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
+import { cajasDeTexto, cajasATexto } from "@/lib/constants";
+import { duenosDeCajas } from "@/lib/ubicaciones";
+
+// Las cajas llegan escritas a mano y pueden venir varias juntas ("19, 42"). Se leen
+// todas, se avisa de las que ya son de alguien, y se guardan juntas en un solo campo.
+async function revisarCajas({ box_1, box_2, exceptoClientId = null }) {
+  const cajas = cajasDeTexto(box_1, box_2);
+  const duenos = await duenosDeCajas(cajas, exceptoClientId);
+  const choques = [...duenos.entries()].map(
+    ([n, c]) => `La caja ${n} ya la usa ${c.instagram || c.name || "otra clienta"}`
+  );
+  return { cajas, choques };
+}
 
 
 export async function GET(req) {
@@ -15,14 +28,12 @@ export async function GET(req) {
   const excludeId = searchParams.get("excludeId");
 
   if (checkBox) {
-    let q = supabase
-      .from("clients")
-      .select("id, name, instagram, box_1, box_2")
-      .or(`box_1.eq.${checkBox},box_2.eq.${checkBox}`);
-    if (excludeId) q = q.neq("id", excludeId);
-    const { data, error } = await q;
-    if (error) return Response.json({ message: error.message }, { status: 500 });
-    return Response.json({ conflicts: data || [] });
+    const duenos = await duenosDeCajas(cajasDeTexto(checkBox), excludeId || null);
+    return Response.json({
+      conflicts: [...duenos.entries()].map(([caja, c]) => ({
+        caja, id: c.id, name: c.name, instagram: c.instagram,
+      })),
+    });
   }
 
   if (id) {
@@ -91,21 +102,9 @@ export async function POST(req) {
     const cleanIg = finalInstagram ? finalInstagram.replace(/^@/, '') : null;
     
     // Validar conflictos de caja
-    const boxConflicts = [];
-    for (const [label, val] of [["1", box_1], ["2", box_2]]) {
-      if (!val || !val.trim()) continue;
-      const { data: bData } = await supabase
-        .from("clients")
-        .select("name, instagram, box_1, box_2")
-        .or(`box_1.eq.${val.trim()},box_2.eq.${val.trim()}`);
-      if (bData && bData.length > 0) {
-        const c = bData[0];
-        const who = c.instagram || c.name || "un cliente";
-        boxConflicts.push(`Caja ${val.trim()} (campo Caja ${label}) ya la usa ${who}`);
-      }
-    }
-    if (boxConflicts.length > 0) {
-      return Response.json({ message: boxConflicts.join(" · ") }, { status: 409 });
+    const { cajas: cajasNuevas, choques } = await revisarCajas({ box_1, box_2 });
+    if (choques.length > 0) {
+      return Response.json({ message: choques.join(" · ") }, { status: 409 });
     }
 
     // 1. Buscar si ya existe un cliente con este instagram (con o sin @)
@@ -147,8 +146,8 @@ export async function POST(req) {
         name, 
         instagram: finalInstagram, 
         phone: phone || null,
-        box_1: box_1 || null,
-        box_2: box_2 || null,
+        box_1: cajasATexto(cajasNuevas),
+        box_2: null,
         created_by_staff_id: session.staffId || null
       }])
       .select()
@@ -178,22 +177,10 @@ export async function PATCH(req) {
     if (!id) return Response.json({ message: "Falta id" }, { status: 400 });
 
     // Validar conflictos de caja
-    const boxConflictsP = [];
-    for (const [label, val] of [["1", box_1], ["2", box_2]]) {
-      if (!val || !val.trim()) continue;
-      const { data: bData } = await supabase
-        .from("clients")
-        .select("name, instagram, box_1, box_2")
-        .or(`box_1.eq.${val.trim()},box_2.eq.${val.trim()}`)
-        .neq("id", id);
-      if (bData && bData.length > 0) {
-        const c = bData[0];
-        const who = c.instagram || c.name || "un cliente";
-        boxConflictsP.push(`Caja ${val.trim()} (campo Caja ${label}) ya la usa ${who}`);
-      }
-    }
-    if (boxConflictsP.length > 0) {
-      return Response.json({ message: boxConflictsP.join(" · ") }, { status: 409 });
+    const { cajas: cajasEditadas, choques: choquesP } =
+      await revisarCajas({ box_1, box_2, exceptoClientId: id });
+    if (choquesP.length > 0) {
+      return Response.json({ message: choquesP.join(" · ") }, { status: 409 });
     }
 
     const updateData = {};
@@ -206,8 +193,11 @@ export async function PATCH(req) {
       updateData.instagram = finalInstagram;
     }
     if (phone !== undefined) updateData.phone = phone || null;
-    if (box_1 !== undefined) updateData.box_1 = box_1 || null;
-    if (box_2 !== undefined) updateData.box_2 = box_2 || null;
+    // Las cajas se normalizan juntas en el primer campo, vengan como vengan escritas
+    if (box_1 !== undefined || box_2 !== undefined) {
+      updateData.box_1 = cajasATexto(cajasEditadas);
+      updateData.box_2 = null;
+    }
 
     const { data, error } = await supabase
       .from("clients")

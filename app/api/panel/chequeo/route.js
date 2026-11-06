@@ -1,6 +1,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { liberarSiYaNoQuedaNada, liquidarSiYaSalioTodo } from "@/lib/ubicaciones";
+import { cajasDeTexto } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,8 @@ export async function GET(req) {
         id: cliente.id,
         nombre: cliente.name,
         instagram: cliente.instagram,
-        caja: cliente.box_1 || cliente.box_2 || null,
+        // Todas las que tenga, no solo la primera: una ficha puede traer varias
+        caja: cajasDeTexto(cliente.box_1, cliente.box_2).join(", ") || null,
         productos: [],
       });
     }

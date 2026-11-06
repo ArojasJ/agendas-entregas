@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { cajasDeTexto } from "@/lib/constants";
 
 export default function ClientesPage() {
   return (
@@ -105,10 +106,11 @@ function ClientesContent() {
       if (res.ok) {
         const data = await res.json();
         if (data.conflicts && data.conflicts.length > 0) {
-          const c = data.conflicts[0];
-          const who = c.instagram || c.name || "otro cliente";
-          const inField = c.box_1 === value.trim() ? "Caja 1" : "Caja 2";
-          setBoxErrors(prev => ({ ...prev, [field]: `En uso por ${who} (${inField})` }));
+          // Puede chocar más de una cuando se escriben varias juntas
+          const detalle = data.conflicts
+            .map(c => `la ${c.caja} es de ${c.instagram || c.name || "otra clienta"}`)
+            .join(" · ");
+          setBoxErrors(prev => ({ ...prev, [field]: `Ya en uso: ${detalle}` }));
         } else {
           setBoxErrors(prev => ({ ...prev, [field]: "" }));
         }
@@ -207,7 +209,13 @@ function ClientesContent() {
   };
 
   const openModal = (client = null) => {
-    setForm(client || { id: null, name: "", instagram: "", phone: "", box_1: "", box_2: "" });
+    // El campo de cajas es uno solo: hay que traerle las de los dos campos viejos
+    // juntas, o al guardar se perderían las que viven en el segundo.
+    setForm(
+      client
+        ? { ...client, box_1: cajasDeTexto(client.box_1, client.box_2).join(", "), box_2: "" }
+        : { id: null, name: "", instagram: "", phone: "", box_1: "", box_2: "" }
+    );
     setBoxErrors({ box_1: "", box_2: "" });
     setGuardado(null);
     setMoviendo(null);
@@ -228,9 +236,9 @@ function ClientesContent() {
         const matchSearch = !searchStr ||
           (c.instagram && c.instagram.toLowerCase().includes(searchStr)) ||
           (c.name && c.name.toLowerCase().includes(searchStr));
-        const matchBox = !boxStr ||
-          (c.box_1 && c.box_1 === boxStr) ||
-          (c.box_2 && c.box_2 === boxStr);
+        // Buscar por caja compara números, no texto: con "19, 42" en el campo, buscar
+        // "19" no encontraba a nadie.
+        const matchBox = !boxStr || cajasDeTexto(c.box_1, c.box_2).includes(Number(boxStr));
         const matchAccount =
           accountFilter === "registered" ? !!c.auth_user_id :
           accountFilter === "no_account" ? !c.auth_user_id :
@@ -339,8 +347,9 @@ function ClientesContent() {
                   {c.instagram ? c.name : ""} {c.phone && `📱 ${c.phone}`}
                 </p>
                 <div className="flex gap-2 mt-2 flex-wrap">
-                  {c.box_1 && <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-md">Caja 1: {c.box_1}</span>}
-                  {c.box_2 && <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold rounded-md">Caja 2: {c.box_2}</span>}
+                  {cajasDeTexto(c.box_1, c.box_2).map((n) => (
+                    <span key={n} className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-md">Caja {n}</span>
+                  ))}
                   {c.auth_user_id
                     ? <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-bold rounded-md">✓ Registrado</span>
                     : <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-400 text-[10px] font-bold rounded-md">Sin cuenta</span>
@@ -449,31 +458,21 @@ function ClientesContent() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Caja 1</label>
-                  <input
-                    type="text"
-                    placeholder="Núm. Caja"
-                    value={form.box_1 || ""}
-                    onChange={e => { setForm({...form, box_1: e.target.value}); setBoxErrors(prev => ({ ...prev, box_1: "" })); }}
-                    onBlur={e => checkBoxConflict("box_1", e.target.value)}
-                    className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm focus:outline-none ${boxErrors.box_1 ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-indigo-500"}`}
-                  />
-                  {boxErrors.box_1 && <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_1}</p>}
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Caja 2</label>
-                  <input
-                    type="text"
-                    placeholder="Núm. Caja"
-                    value={form.box_2 || ""}
-                    onChange={e => { setForm({...form, box_2: e.target.value}); setBoxErrors(prev => ({ ...prev, box_2: "" })); }}
-                    onBlur={e => checkBoxConflict("box_2", e.target.value)}
-                    className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm focus:outline-none ${boxErrors.box_2 ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-blue-500"}`}
-                  />
-                  {boxErrors.box_2 && <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_2}</p>}
-                </div>
+              {/* Un solo campo: eran dos casillas de un número cada una, y al anotar
+                  varias en la misma ("19, 42") esa caja se volvía invisible. */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Cajas</label>
+                <input
+                  type="text"
+                  placeholder="Ej. 5, 19, 42"
+                  value={form.box_1 || ""}
+                  onChange={e => { setForm({ ...form, box_1: e.target.value, box_2: "" }); setBoxErrors(prev => ({ ...prev, box_1: "" })); }}
+                  onBlur={e => checkBoxConflict("box_1", e.target.value)}
+                  className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-sm focus:outline-none ${boxErrors.box_1 ? "border-red-400 focus:border-red-400" : "border-slate-200 focus:border-indigo-500"}`}
+                />
+                {boxErrors.box_1
+                  ? <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_1}</p>
+                  : <p className="text-[10px] text-slate-400 mt-1 ml-1">Si tiene varias, sepáralas con comas.</p>}
               </div>
               <button type="submit" disabled={saving} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg mt-2">{saving ? "Guardando..." : "Guardar"}</button>
             </form>

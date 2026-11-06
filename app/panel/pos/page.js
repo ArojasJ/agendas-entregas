@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo, useRef } from "react";
+import { cajasDeTexto } from "@/lib/constants";
 
 export default function PosPage() {
   const [products, setProducts] = useState([]);
@@ -127,7 +128,9 @@ export default function PosPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        const updated = { ...selectedClient, box_1: boxForm.box_1, box_2: boxForm.box_2 };
+        // Se toma lo que devolvió el servidor, ya normalizado, y no lo que se escribió:
+        // así la pantalla muestra las cajas tal como quedaron guardadas.
+        const updated = { ...selectedClient, ...(data.client || {}) };
         setSelectedClient(updated);
         setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
         setEditingBox(false);
@@ -913,7 +916,15 @@ export default function PosPage() {
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cajas asignadas</p>
                   {!editingBox && (
                     <button
-                      onClick={() => { setEditingBox(true); setBoxForm({ box_1: selectedClient.box_1 || "", box_2: selectedClient.box_2 || "" }); }}
+                      onClick={() => {
+                        setEditingBox(true);
+                        // Las dos columnas viejas se juntan en el campo único: si solo
+                        // se cargara la primera, al guardar se borrarían las otras.
+                        setBoxForm({
+                          box_1: cajasDeTexto(selectedClient.box_1, selectedClient.box_2).join(", "),
+                          box_2: "",
+                        });
+                      }}
                       className="text-[10px] font-black text-indigo-500 hover:text-indigo-700 underline underline-offset-2"
                     >
                       Editar
@@ -922,27 +933,17 @@ export default function PosPage() {
                 </div>
                 {editingBox ? (
                   <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] text-slate-400 mb-1">Caja 1</label>
-                        <input
-                          type="text"
-                          placeholder="Núm."
-                          value={boxForm.box_1}
-                          onChange={e => setBoxForm(f => ({ ...f, box_1: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-400 mb-1">Caja 2</label>
-                        <input
-                          type="text"
-                          placeholder="Núm."
-                          value={boxForm.box_2}
-                          onChange={e => setBoxForm(f => ({ ...f, box_2: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none"
-                        />
-                      </div>
+                    {/* Un solo campo: separadas por comas si son varias. En dos casillas
+                        de un número, anotar "19, 42" dejaba esa caja invisible. */}
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">Cajas</label>
+                      <input
+                        type="text"
+                        placeholder="Ej. 5, 19, 42"
+                        value={boxForm.box_1}
+                        onChange={e => setBoxForm(f => ({ ...f, box_1: e.target.value, box_2: "" }))}
+                        className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm focus:border-indigo-500 focus:outline-none"
+                      />
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => setEditingBox(false)} className="flex-1 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-100 transition-colors">Cancelar</button>
@@ -953,8 +954,9 @@ export default function PosPage() {
                   </div>
                 ) : (selectedClient.box_1 || selectedClient.box_2) ? (
                   <div className="flex gap-2 flex-wrap">
-                    {selectedClient.box_1 && <span className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs font-bold rounded-lg">📦 Caja 1: {selectedClient.box_1}</span>}
-                    {selectedClient.box_2 && <span className="px-2 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-500 text-xs font-bold rounded-lg">📦 Caja 2: {selectedClient.box_2}</span>}
+                    {cajasDeTexto(selectedClient.box_1, selectedClient.box_2).map((n) => (
+                      <span key={n} className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs font-bold rounded-lg">📦 Caja {n}</span>
+                    ))}
                   </div>
                 ) : (
                   <p className="text-xs text-slate-400">Sin caja asignada</p>
@@ -1016,27 +1018,15 @@ export default function PosPage() {
                 onChange={e => setNewClientForm(f => ({ ...f, phone: e.target.value }))}
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
               />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Caja 1</label>
-                  <input
-                    type="text"
-                    placeholder="Núm. Caja"
-                    value={newClientForm.box_1}
-                    onChange={e => setNewClientForm(f => ({ ...f, box_1: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Caja 2</label>
-                  <input
-                    type="text"
-                    placeholder="Núm. Caja"
-                    value={newClientForm.box_2}
-                    onChange={e => setNewClientForm(f => ({ ...f, box_2: e.target.value }))}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Cajas</label>
+                <input
+                  type="text"
+                  placeholder="Ej. 5, 19, 42"
+                  value={newClientForm.box_1}
+                  onChange={e => setNewClientForm(f => ({ ...f, box_1: e.target.value, box_2: "" }))}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none"
+                />
               </div>
               <button
                 type="submit"
