@@ -372,12 +372,16 @@ function ClientesContent() {
       {/* MODAL NUEVO/EDITAR */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in">
-            <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white">
+          {/* Con varias cajas o varias compras guardadas el cuadro crecía más que la
+              pantalla y el botón de Guardar quedaba fuera de alcance. Ahora lo que se
+              desliza es el contenido, y Guardar siempre se ve. */}
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in flex flex-col max-h-[92vh]">
+            <div className="shrink-0 p-5 border-b border-slate-200 flex justify-between items-center bg-white">
               <h2 className="text-lg font-bold">{form.id ? "Editar Cliente" : "Nuevo Cliente"}</h2>
               <button onClick={closeModal} className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center">✕</button>
             </div>
-            <form onSubmit={handleSave} className="p-6 space-y-4">
+            <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
               <input type="text" placeholder="Nombre completo (opcional)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:border-emerald-500 focus:outline-none" />
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">@</span>
@@ -433,9 +437,38 @@ function ClientesContent() {
                                 🏷️ Pasar al estante
                               </button>
                             )}
+                            {/* Sus propias cajas primero: la lista solo traía cajas
+                                libres, así que juntar dos compras en la caja que ya
+                                tenía era imposible — esa caja ya no figuraba como
+                                libre, justo por ser suya. */}
+                            {(() => {
+                              const suyas = [...new Set(
+                                (guardado || [])
+                                  .filter((x) => x.ubicacion === "caja")
+                                  .map((x) => Number(x.caja))
+                              )].filter((n) => !(g.ubicacion === "caja" && Number(g.caja) === n));
+                              if (suyas.length === 0) return null;
+                              return (
+                                <div>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">A una caja suya</p>
+                                  <div className="flex gap-1.5 flex-wrap">
+                                    {suyas.map((n) => (
+                                      <button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => mover(g, { tipo: "caja", caja: n })}
+                                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100 transition-colors tabular-nums"
+                                      >
+                                        {n}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {cajasLibres.length > 0 && (
                               <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">A otra caja</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">A una caja nueva</p>
                                 <div className="flex gap-1.5 flex-wrap">
                                   {cajasLibres.slice(0, 8).map((n) => (
                                     <button
@@ -474,7 +507,11 @@ function ClientesContent() {
                   ? <p className="text-[10px] text-red-500 mt-1 ml-1">{boxErrors.box_1}</p>
                   : <p className="text-[10px] text-slate-400 mt-1 ml-1">Si tiene varias, sepáralas con comas.</p>}
               </div>
-              <button type="submit" disabled={saving} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg mt-2">{saving ? "Guardando..." : "Guardar"}</button>
+              </div>
+              {/* Pegado abajo: pase lo que pase, Guardar se alcanza */}
+              <div className="shrink-0 p-5 border-t border-slate-200 bg-white">
+                <button type="submit" disabled={saving} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-lg">{saving ? "Guardando..." : "Guardar"}</button>
+              </div>
             </form>
           </div>
         </div>

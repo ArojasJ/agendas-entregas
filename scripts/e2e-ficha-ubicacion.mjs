@@ -74,7 +74,8 @@ try {
   await page.waitForTimeout(800);
 
   const texto2 = await page.locator("body").innerText();
-  if (texto2.toUpperCase().includes("A OTRA CAJA")) ok("ofrece cajas libres para mover");
+  // El grupo se renombró a "A una caja nueva" al agregarse el de "A una caja suya"
+  if (/A UNA CAJA NUEVA|A OTRA CAJA/.test(texto2.toUpperCase())) ok("ofrece cajas libres para mover");
   else fail("no ofrece cajas");
 
   // Elegir la primera caja libre
