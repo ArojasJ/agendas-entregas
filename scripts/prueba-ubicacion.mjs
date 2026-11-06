@@ -98,11 +98,16 @@ try {
   // y hay más clientas que eso: sin paginar, las últimas parecían no tener caja.
   const g = await nuevaClienta("G");
   const propG = await proponer(g, 2);
+  // Una caja está ocupada si la trae una ficha O si hay una venta metida en ella, y
+  // las fichas pueden traer varias juntas ("19, 42"). Antes esto solo miraba fichas de
+  // un número y daba de menos, así que el contador parecía inflado sin estarlo.
   const ocupadasReales = await c.query(
-    `SELECT DISTINCT b::int AS n FROM (
-       SELECT box_1 AS b FROM clients WHERE box_1 ~ '^[0-9]+$'
-       UNION ALL SELECT box_2 FROM clients WHERE box_2 ~ '^[0-9]+$'
-     ) t`);
+    `SELECT DISTINCT n FROM (
+       SELECT (regexp_matches(coalesce(box_1,'') || ',' || coalesce(box_2,''), '\\d+', 'g'))[1]::int AS n
+         FROM clients
+       UNION
+       SELECT caja::int FROM sales WHERE ubicacion = 'caja' AND caja IS NOT NULL
+     ) t WHERE n > 0`);
   const tomadas = new Set(ocupadasReales.rows.map((r) => r.n));
   const invadidas = (propG.libres || []).filter((n) => tomadas.has(n));
   if (invadidas.length === 0) ok(`las ${propG.libres.length} cajas ofrecidas están libres de verdad`);
