@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias, textoDiasBodega, fechasFloreria } from "@/lib/constants";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
@@ -163,6 +163,11 @@ export default function AgendarPage() {
   const [successText, setSuccessText] = useState("");
   const [successBooking, setSuccessBooking] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // El estado no alcanza para frenar un doble toque: entre el primer clic y que React
+  // vuelva a pintar con el botón apagado hay un hueco, y en el celular se toca dos
+  // veces sin querer. Con la referencia el candado se cierra en el mismo instante,
+  // antes de que el segundo toque pueda entrar, y la clienta no acaba con dos reservas.
+  const enviandoRef = useRef(false);
 
   // Perfil Inteligente
   const [clientProfile, setClientProfile] = useState(null);
@@ -339,6 +344,8 @@ export default function AgendarPage() {
   }, [selectedItems, clientSales]);
 
   const handleFloreriaBooking = async (date) => {
+    // Era el único que no tenía candado: dos toques seguidos creaban dos reservas
+    if (enviandoRef.current || isSubmitting || successModal) return;
     setError("");
     if (!insta.trim() || !fullName.trim() || !phone.trim()) {
       setError("Completa Instagram, nombre y teléfono.");
@@ -359,6 +366,7 @@ export default function AgendarPage() {
     if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;
 
     try {
+      enviandoRef.current = true;
       setIsSubmitting(true);
       const productsString = selectedItems.length > 0
         ? selectedItems.map((i) => `${i.quantity}x ${i.product_name}`).join(", ")
@@ -398,13 +406,14 @@ export default function AgendarPage() {
     } catch {
       setError("Error de conexión. Intenta de nuevo.");
     } finally {
+      enviandoRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleBodegaBooking = async (day, date, extraInfo = {}) => {
     if (!bodegaActiva) return; // Protección extra
-    if (isSubmitting) return;
+    if (enviandoRef.current || isSubmitting || successModal) return;
     setMsg("");
     setError("");
 
@@ -444,6 +453,7 @@ export default function AgendarPage() {
     if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;
 
     try {
+      enviandoRef.current = true;
       setIsSubmitting(true);
       const isExtraDay = !!extraInfo?.isExtra;
       const dayToSend = isExtraDay ? null : (day || null);
@@ -496,13 +506,14 @@ export default function AgendarPage() {
     } catch (err) {
       setError("Error de conexión.");
     } finally {
+      enviandoRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleDomicilioBooking = async (e) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (enviandoRef.current || isSubmitting || successModal) return;
     setMsg("");
     setError("");
 
@@ -564,6 +575,7 @@ export default function AgendarPage() {
     if (!instaValue.startsWith("@")) instaValue = "@" + instaValue;
 
     try {
+      enviandoRef.current = true;
       setIsSubmitting(true);
       
       let productsString = "";
@@ -643,13 +655,14 @@ export default function AgendarPage() {
     } catch (err) {
       setError("Error de conexión.");
     } finally {
+      enviandoRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handlePaqueteriaBooking = async (e) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (enviandoRef.current || isSubmitting || successModal) return;
     setMsg("");
     setError("");
 
@@ -675,6 +688,7 @@ export default function AgendarPage() {
     const todayStr = new Date().toISOString().split("T")[0];
 
     try {
+      enviandoRef.current = true;
       setIsSubmitting(true);
       const res = await fetch("/api/bookings", {
         method: "POST",
@@ -725,6 +739,7 @@ export default function AgendarPage() {
     } catch (err) {
       setError("Error de conexión.");
     } finally {
+      enviandoRef.current = false;
       setIsSubmitting(false);
     }
   };
