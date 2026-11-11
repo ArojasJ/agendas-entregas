@@ -530,11 +530,19 @@ function ClientesContent() {
                 <div>
                   <h2 className="text-xl font-black text-slate-900 leading-tight">{activeClient.name}</h2>
                   <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">{activeClient.instagram || "Sin Instagram"}</p>
-                  {Number(activeClient.saldo_favor) > 0 && (
-                    <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-100 border border-emerald-200 text-emerald-700 text-[10px] font-black rounded-full">
-                      💚 ${Number(activeClient.saldo_favor).toFixed(2)} a favor
-                    </span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                    {Number(activeClient.saldo_favor) > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 border border-emerald-200 text-emerald-700 text-[10px] font-black rounded-full">
+                        💚 ${Number(activeClient.saldo_favor).toFixed(2)} a favor
+                      </span>
+                    )}
+                    {/* El expediente tampoco decía dónde tiene guardadas sus cosas */}
+                    {cajasDeTexto(activeClient.box_1, activeClient.box_2).map((n) => (
+                      <span key={n} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-black rounded-full tabular-nums">
+                        📦 Caja {n}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
               <button onClick={() => setShowExpediente(false)} className="w-10 h-10 rounded-2xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors">✕</button>

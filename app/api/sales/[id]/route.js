@@ -23,7 +23,7 @@ export async function GET(req, { params }) {
       .from("sales")
       .select(`
         *,
-        clients ( id, name, instagram, phone ),
+        clients ( id, name, instagram, phone, box_1, box_2 ),
         staff ( display_name ),
         sale_items (
           id,

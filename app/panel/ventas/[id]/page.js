@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import EditarVenta from "./EditarVenta";
+import { cajasDeTexto } from "@/lib/constants";
 
 export default function SaleDetailPage() {
   const router = useRouter();
@@ -474,6 +475,39 @@ export default function SaleDetailPage() {
                 </span>
               ) : null}
             </div>
+            {/* Dónde ir a buscarlos. Son dos datos distintos: el lugar de ESTA compra,
+                que es la respuesta exacta, y las cajas de la clienta, que son la pista
+                cuando la compra no trae lugar anotado — que es lo más común. */}
+            {(() => {
+              if (!sale.client_id) return null;
+              const enCaja = sale.ubicacion === "caja" && sale.caja != null;
+              const enEstante = sale.ubicacion === "estante";
+              // Las demás cajas de la clienta. Si esta compra ya está en la única que
+              // tiene, repetirla no aporta: se omite.
+              const susCajas = cajasDeTexto(sale.clients?.box_1, sale.clients?.box_2)
+                .filter((n) => !(enCaja && n === Number(sale.caja)));
+              if (!enCaja && !enEstante && susCajas.length === 0) return null;
+              return (
+                <div className="mb-3 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dónde está</span>
+                  {enCaja ? (
+                    <span className="text-sm font-black text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg tabular-nums">📦 Caja {sale.caja}</span>
+                  ) : enEstante ? (
+                    <span className="text-sm font-black text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg">🏷️ Estante</span>
+                  ) : (
+                    <span className="text-sm font-bold text-slate-500">Sin lugar anotado</span>
+                  )}
+                  {susCajas.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                      {enCaja ? "También tiene" : enEstante ? "La clienta tiene" : "Búscalo en sus cajas"}{" "}
+                      <span className="font-bold text-slate-700 tabular-nums">
+                        {susCajas.map((n) => `caja ${n}`).join(", ")}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-100">
               {sale.sale_items && sale.sale_items.map((item) => (
                 <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
