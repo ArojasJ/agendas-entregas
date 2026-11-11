@@ -177,6 +177,27 @@ function InventarioContent() {
     return (((p - c) / p) * 100).toFixed(1);
   };
 
+  // Margen de un precio y un costo sueltos. Devuelve null mientras falte alguno,
+  // para no enseñar un 100% falso cuando todavía no se escribe el costo.
+  const margenDe = (costo, precio) => {
+    if (String(costo ?? "").trim() === "" || String(precio ?? "").trim() === "") return null;
+    const c = Number(costo);
+    const p = Number(precio);
+    if (!Number.isFinite(c) || !Number.isFinite(p) || p <= 0) return null;
+    return ((p - c) / p) * 100;
+  };
+
+  // Con variantes, el precio y el costo viven en cada variante, no arriba: por eso
+  // el recuadro de margen salía en blanco. Aquí se resume el de todas, y si no
+  // coinciden se enseña el rango en vez de un número que no sería de nadie.
+  const margenDeVariantes = () => {
+    const todos = variants.map(v => margenDe(v.cost, v.price)).filter(m => m !== null);
+    if (todos.length === 0) return null;
+    const min = Math.min(...todos);
+    const max = Math.max(...todos);
+    return { min, max, igual: Math.abs(max - min) < 0.05 };
+  };
+
   // ── Variant handlers ──
   const addVariantRow = () => {
     setVariants(prev => [...prev, newVarRow(variantOptionType, form.cost, form.price)]);
@@ -658,7 +679,8 @@ function InventarioContent() {
                   className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 transition-all min-h-[70px] resize-y" />
               </div>
 
-              {/* Margen (solo sin variantes) */}
+              {/* Margen del producto simple. Con variantes el margen se enseña abajo,
+                  junto a cada variante, que es donde se escribe su precio y su costo. */}
               {!hasVariants && (
                 <div className="bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.15),transparent)] border border-emerald-500/20 rounded-2xl p-4 flex items-center justify-between">
                   <span className="text-xs font-medium text-emerald-400 uppercase tracking-widest">Margen estimado</span>
@@ -761,6 +783,22 @@ function InventarioContent() {
                                 </div>
                               </div>
                             </div>
+                            {/* Margen de esta variante, al lado de donde se escribe */}
+                            {(() => {
+                              const m = margenDe(v.cost, v.price);
+                              if (m === null) return null;
+                              const perdida = m < 0;
+                              return (
+                                <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg ${perdida ? "bg-red-50 border border-red-200" : "bg-emerald-50 border border-emerald-200"}`}>
+                                  <span className={`text-[10px] font-black uppercase tracking-wider ${perdida ? "text-red-500" : "text-emerald-600"}`}>
+                                    {perdida ? "Pérdida" : "Margen"}
+                                  </span>
+                                  <span className={`text-sm font-black tabular-nums ${perdida ? "text-red-600" : "text-emerald-700"}`}>
+                                    {m.toFixed(1)}%
+                                  </span>
+                                </div>
+                              );
+                            })()}
                             {/* Código de barras */}
                             <div>
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Código de barras (opcional)</p>
@@ -773,6 +811,23 @@ function InventarioContent() {
                         ))}
                       </div>
                     )}
+
+                    {/* Margen de todo el producto, sumando lo que gana cada variante */}
+                    {(() => {
+                      const r = margenDeVariantes();
+                      if (!r) return null;
+                      const perdida = r.min < 0;
+                      return (
+                        <div className={`rounded-2xl p-4 flex items-center justify-between border ${perdida ? "bg-red-50 border-red-200" : "bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.15),transparent)] border-emerald-500/20"}`}>
+                          <span className={`text-xs font-medium uppercase tracking-widest ${perdida ? "text-red-500" : "text-emerald-500"}`}>
+                            Margen estimado
+                          </span>
+                          <span className={`text-xl font-black tabular-nums ${perdida ? "text-red-600" : "text-emerald-500"}`}>
+                            {r.igual ? `${r.min.toFixed(1)}%` : `${r.min.toFixed(1)}% – ${r.max.toFixed(1)}%`}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     <button type="button" onClick={addVariantRow}
                       className="w-full py-2.5 rounded-xl border-2 border-dashed border-slate-300 text-sm font-bold text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors">
