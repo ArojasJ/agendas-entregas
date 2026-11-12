@@ -1,6 +1,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { liberarSiYaNoQuedaNada, liquidarSiYaSalioTodo } from "@/lib/ubicaciones";
+import { marcarEntregados } from "@/lib/entregadoPor";
 import { cajasDeTexto } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -126,24 +127,24 @@ export async function PATCH(req) {
       .select("sale_id")
       .in("id", itemIds);
 
-    const { error } = await supabase
-      .from("sale_items")
-      .update({ delivery_status: "delivered" })
-      .in("id", itemIds);
-
-    if (error) {
+    try {
+      await marcarEntregados(supabase, itemIds, session);
+    } catch (error) {
       console.error("Error al marcar entregado:", error);
       return Response.json({ message: "No se pudo marcar como entregado" }, { status: 500 });
     }
 
     // Lo mismo que ocurre al marcar una entrega desde el panel: la venta a crédito
-    // se liquida y el lugar se libera si ya no queda nada.
+    // se cierra sola solo si el dinero ya estaba; si sigue debiendo, se avisa para
+    // preguntarlo en pantalla en vez de darla por pagada.
+    const porCobrar = [];
     for (const ventaId of [...new Set((afectados || []).map((a) => a.sale_id))]) {
-      await liquidarSiYaSalioTodo(ventaId);
+      const r = await liquidarSiYaSalioTodo(ventaId);
+      if (r.porCobrar) porCobrar.push(r.porCobrar);
     }
     if (clientId) await liberarSiYaNoQuedaNada(clientId);
 
-    return Response.json({ ok: true, marcados: itemIds.length });
+    return Response.json({ ok: true, marcados: itemIds.length, porCobrar });
   }
 
   if (accion === "estante") {

@@ -1,6 +1,7 @@
 // app/api/bookings/route.js — CACHE BUST v2 (23-04-2026 11:35)
 import { supabase as supabaseAnon } from "@/lib/supabaseClient";
 import { getPanelSession } from "@/lib/panelAuth";
+import { selloDeEntrega } from "@/lib/entregadoPor";
 import { createClient } from "@supabase/supabase-js";
 
 // Creamos un cliente con Service Role para saltar RLS si la llave existe
@@ -382,7 +383,7 @@ export async function POST(req) {
           if (igNorm) {
             // 1. Marcar items por ID
             if (Array.isArray(sItemIds) && sItemIds.length > 0) {
-              await supabase.from("sale_items").update({ delivery_status: "delivered" }).in("id", sItemIds);
+              await supabase.from("sale_items").update({ delivery_status: "delivered", ...selloDeEntrega(session) }).in("id", sItemIds).or("delivery_status.neq.delivered,delivery_status.is.null");
             } 
             
             // 2. Respaldo por nombre
@@ -400,7 +401,7 @@ export async function POST(req) {
                       const sIds = sales.map(s => s.id);
                       const { data: items } = await supabase.from("sale_items").select("id, products(name)").in("sale_id", sIds).or("delivery_status.neq.delivered,delivery_status.is.null");
                       const matched = items?.find(it => it.products?.name?.toLowerCase().trim() === pName);
-                      if (matched) await supabase.from("sale_items").update({ delivery_status: "delivered" }).eq("id", matched.id);
+                      if (matched) await supabase.from("sale_items").update({ delivery_status: "delivered", ...selloDeEntrega(session) }).eq("id", matched.id);
                     }
                   }
                 }
@@ -854,7 +855,7 @@ export async function PATCH(req) {
             // 2. Marcar items como 'delivered' (Por ID + Respaldo por nombre)
             let itemsUpdatedCount = 0;
             if (Array.isArray(sItemIds) && sItemIds.length > 0) {
-              const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered" }).in("id", sItemIds);
+              const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered", ...selloDeEntrega(session) }).in("id", sItemIds).or("delivery_status.neq.delivered,delivery_status.is.null");
               if (!updErr) itemsUpdatedCount += sItemIds.length;
             } 
             
@@ -875,7 +876,7 @@ export async function PATCH(req) {
                       // Buscamos coincidencia exacta de nombre
                       const matchedItems = items?.filter(it => it.products?.name?.toLowerCase().trim() === pName) || [];
                       for (const m of matchedItems) {
-                        const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered" }).eq("id", m.id);
+                        const { error: updErr } = await supabase.from("sale_items").update({ delivery_status: "delivered", ...selloDeEntrega(session) }).eq("id", m.id);
                         if (!updErr) itemsUpdatedCount++;
                       }
                     }

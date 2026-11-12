@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { decodePanelTokenUnsafe } from "@/lib/panelToken";
+import CobroPendiente from "../CobroPendiente";
 
 const PERIODOS = [
   { v: "90", t: "Últimos 3 meses" },
@@ -50,6 +51,9 @@ export default function ChequeoPage() {
 
   const cambiarPeriodo = (p) => { setPeriodo(p); cargar(p); };
 
+  // Ventas que quedaron entregadas completas pero con saldo: se pregunta si ya pagó.
+  const [cobrosPendientes, setCobrosPendientes] = useState([]);
+
   const accionar = async (cliente, accion, productos) => {
     const clave = `${cliente.id}-${productos.map((p) => p.itemId).join(",")}`;
     setTrabajando(clave);
@@ -64,12 +68,15 @@ export default function ChequeoPage() {
         body: JSON.stringify(cuerpo),
       });
 
+      const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const d = await res.json();
         alert(d.message || "No se pudo guardar.");
         setTrabajando(null);
         return;
       }
+
+      // Se llevó todo pero sigue debiendo: se pregunta, no se da por pagada.
+      if (d.porCobrar?.length > 0) setCobrosPendientes(d.porCobrar);
 
       const ids = new Set(productos.map((p) => p.itemId));
       setResueltos((n) => n + productos.length);
@@ -252,6 +259,10 @@ export default function ChequeoPage() {
           </div>
         )}
       </div>
+
+      {cobrosPendientes.length > 0 && (
+        <CobroPendiente pendientes={cobrosPendientes} onCerrar={() => setCobrosPendientes([])} />
+      )}
     </div>
   );
 }

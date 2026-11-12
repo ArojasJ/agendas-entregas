@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { getPanelSession } from "@/lib/panelAuth";
 import { supabase as supabaseAnon } from "@/lib/supabaseClient";
+import { liquidarSiYaSalioTodo } from "@/lib/ubicaciones";
+import { selloDeEntrega } from "@/lib/entregadoPor";
 
 const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -63,45 +65,33 @@ export async function POST(req) {
     const pendingItemIds = pendingItems.map(i => i.id);
     const affectedSaleIds = [...new Set(pendingItems.map(i => i.sale_id))];
 
-    // 4. Marcar como entregados en lote
+    // 4. Marcar como entregados en lote. Queda firmado con quien corrió la
+    // sincronización, que es lo más cercano a la verdad que se puede saber aquí.
     const { error: updateErr } = await supabase
       .from("sale_items")
-      .update({ delivery_status: "delivered" })
+      .update({ delivery_status: "delivered", ...selloDeEntrega(session) })
       .in("id", pendingItemIds);
 
     if (updateErr) {
       return Response.json({ message: "Error al actualizar items: " + updateErr.message }, { status: 500 });
     }
 
-    // 5. Revisar qué ventas quedan totalmente entregadas y liquidarlas
+    // 5. Revisar qué ventas quedan totalmente entregadas. Las que ya estaban pagadas
+    // se cierran; las que siguen debiendo se quedan a crédito y se reportan, porque
+    // esto corre en bloque y aquí no hay a quién preguntarle.
     let salesLiquidated = 0;
+    const porCobrar = [];
     for (const saleId of affectedSaleIds) {
-      const { data: stillPending } = await supabase
-        .from("sale_items")
-        .select("id")
-        .eq("sale_id", saleId)
-        .or("delivery_status.neq.delivered,delivery_status.is.null");
-
-      if (!stillPending || stillPending.length === 0) {
-        const { data: saleRow } = await supabase
-          .from("sales")
-          .select("id, total, status")
-          .eq("id", saleId)
-          .single();
-        if (saleRow && saleRow.status === "credit") {
-          await supabase
-            .from("sales")
-            .update({ status: "paid", down_payment: saleRow.total })
-            .eq("id", saleId);
-          salesLiquidated++;
-        }
-      }
+      const r = await liquidarSiYaSalioTodo(saleId);
+      if (r.liquidada) salesLiquidated++;
+      if (r.porCobrar) porCobrar.push(r.porCobrar);
     }
 
     return Response.json({
       message: `Sincronización completa: ${pendingItemIds.length} producto${pendingItemIds.length !== 1 ? "s" : ""} actualizado${pendingItemIds.length !== 1 ? "s" : ""}${salesLiquidated > 0 ? `, ${salesLiquidated} venta${salesLiquidated !== 1 ? "s" : ""} liquidada${salesLiquidated !== 1 ? "s" : ""}` : ""}.`,
       fixed: pendingItemIds.length,
       salesLiquidated,
+      porCobrar,
     });
   } catch (err) {
     console.error("sync-deliveries error:", err);

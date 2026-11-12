@@ -2,6 +2,8 @@
 import { supabase as supabaseAnon } from "@/lib/supabaseClient";
 import { getPanelSession } from "@/lib/panelAuth";
 import { createClient } from "@supabase/supabase-js";
+import { liquidarSiYaSalioTodo } from "@/lib/ubicaciones";
+import { selloDeEntrega } from "@/lib/entregadoPor";
 
 const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
   ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -107,8 +109,14 @@ export async function PATCH(req) {
 
     let itemsUpdatedCount = 0;
     let syncLog = [];
+    // Ventas cuya mercancía ya salió completa pero que siguen debiendo: se devuelven
+    // para que la pantalla pregunte si ya pagó, en vez de darlas por pagadas.
+    const porCobrar = [];
 
-    if (finalStatus === "entregado" && igNorm) {
+    // Antes esto exigía usuario de Instagram, y sin él no se marcaba nada: ni los
+    // productos, ni la venta, ni las cajas. Ahora que el paquete viene armado con sus
+    // productos dentro, el usuario ya no hace falta para saber qué se entregó.
+    if (finalStatus === "entregado" && (igNorm || sItemIds.length > 0)) {
       try {
         // El vaciado de cajas ocurre hasta el final (4e), cuando ya se marcó qué se entregó.
         // Antes corría aquí y vaciaba siempre, porque preguntaba por el conteo con head:true
@@ -119,24 +127,18 @@ export async function PATCH(req) {
         if (saleId) {
           const { error: directErr, count: directCount } = await supabase
             .from("sale_items")
-            .update({ delivery_status: "delivered" })
+            .update({ delivery_status: "delivered", ...selloDeEntrega(session) }, { count: "exact" })
             .eq("sale_id", saleId)
             .or("delivery_status.neq.delivered,delivery_status.is.null");
           if (!directErr) {
             itemsUpdatedCount += (directCount || 1);
             syncLog.push(`Items marcados por sale_id ${saleId}`);
-            // Verificar si la venta queda liquidada
-            const { data: stillPending } = await supabase
-              .from("sale_items")
-              .select("id")
-              .eq("sale_id", saleId)
-              .or("delivery_status.neq.delivered,delivery_status.is.null");
-            if (!stillPending || stillPending.length === 0) {
-              const { data: saleRow } = await supabase.from("sales").select("id, total, status").eq("id", saleId).single();
-              if (saleRow && saleRow.status === "credit") {
-                await supabase.from("sales").update({ status: "paid", down_payment: saleRow.total }).eq("id", saleId);
-                syncLog.push("Venta liquidada");
-              }
+            // Por la misma regla de siempre, ahora en un solo lugar: entregar no cobra.
+            const r = await liquidarSiYaSalioTodo(saleId);
+            if (r.liquidada) syncLog.push("Venta liquidada (ya estaba pagada)");
+            if (r.porCobrar) {
+              porCobrar.push(r.porCobrar);
+              syncLog.push(`Se llevó todo y debe $${r.porCobrar.debe}: se deja a crédito`);
             }
           } else {
             syncLog.push("Error en ruta directa: " + directErr.message);
@@ -147,8 +149,9 @@ export async function PATCH(req) {
         if (Array.isArray(sItemIds) && sItemIds.length > 0) {
           const { error: idErr } = await supabase
             .from("sale_items")
-            .update({ delivery_status: "delivered" })
-            .in("id", sItemIds);
+            .update({ delivery_status: "delivered", ...selloDeEntrega(session) })
+            .in("id", sItemIds)
+            .or("delivery_status.neq.delivered,delivery_status.is.null");
           if (!idErr) {
             itemsUpdatedCount += sItemIds.length;
             syncLog.push(`${sItemIds.length} items marcados por ID`);
@@ -199,7 +202,7 @@ export async function PATCH(req) {
                   for (const m of matchedItems) {
                     const { error: updErr } = await supabase
                       .from("sale_items")
-                      .update({ delivery_status: "delivered" })
+                      .update({ delivery_status: "delivered", ...selloDeEntrega(session) })
                       .eq("id", m.id);
                     if (!updErr) {
                       itemsUpdatedCount++;
@@ -229,18 +232,11 @@ export async function PATCH(req) {
             .eq("status", "credit");
 
           for (const s of activeS || []) {
-            const { data: pending } = await supabase
-              .from("sale_items")
-              .select("id")
-              .eq("sale_id", s.id)
-              .or("delivery_status.neq.delivered,delivery_status.is.null");
-
-            if (!pending || pending.length === 0) {
-              await supabase
-                .from("sales")
-                .update({ status: "paid", down_payment: s.total })
-                .eq("id", s.id);
-              syncLog.push(`Venta ${s.id} liquidada`);
+            const r = await liquidarSiYaSalioTodo(s.id);
+            if (r.liquidada) syncLog.push(`Venta ${s.id} liquidada (ya estaba pagada)`);
+            if (r.porCobrar) {
+              porCobrar.push(r.porCobrar);
+              syncLog.push(`Venta ${s.id}: se llevó todo y debe $${r.porCobrar.debe}`);
             }
           }
         }
@@ -323,6 +319,7 @@ export async function PATCH(req) {
     return Response.json({
       message: `Entrega actualizada. ${itemsUpdatedCount} productos sincronizados. [${syncLog.join(" | ")}]`,
       booking: updatedBooking,
+      porCobrar,
     });
   } catch (err) {
     console.error("Error general:", err);
