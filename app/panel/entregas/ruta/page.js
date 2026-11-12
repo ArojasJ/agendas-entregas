@@ -5,6 +5,7 @@ import Link from "next/link";
 import { geoAddress } from "@/lib/address";
 import { decodePanelTokenUnsafe } from "@/lib/panelToken";
 import { TIPO_PARADA_PAQUETERIA } from "@/lib/constants";
+import CobroPendiente from "../../CobroPendiente";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
@@ -286,6 +287,8 @@ export default function RutaPage() {
   };
 
   // ── Mark delivery status ──────────────────────────────
+  const [cobrosPendientes, setCobrosPendientes] = useState([]);
+
   const markStop = async (booking, status, paymentMethod = "efectivo") => {
     setUpdatingId(booking.id);
     try {
@@ -301,10 +304,13 @@ export default function RutaPage() {
           amountDue: booking.amount_due || 0,
         }),
       });
+      const d = await res.json().catch(() => ({}));
       if (!res.ok) {
         setStatusMsg({ text: "Error al guardar. Intenta de nuevo.", type: "error" });
         return;
       }
+      // Se llevó todo pero sigue debiendo: se pregunta, no se da por pagada.
+      if (d.porCobrar?.length > 0) setCobrosPendientes(d.porCobrar);
       setPendingDelivery(null);
       setPendingNoEntregado(null);
 
@@ -1068,6 +1074,10 @@ export default function RutaPage() {
           </>
         )}
       </div>
+
+      {cobrosPendientes.length > 0 && (
+        <CobroPendiente pendientes={cobrosPendientes} onCerrar={() => setCobrosPendientes([])} />
+      )}
     </div>
   );
 }

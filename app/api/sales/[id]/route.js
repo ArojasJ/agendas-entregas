@@ -1,6 +1,8 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { editarVenta, ErrorDeEdicion } from "@/lib/editarVenta";
+import { sincronizarCajasDelCliente } from "@/lib/ubicaciones";
+import { comoQuedanTrasCancelar } from "@/lib/paquetes";
 
 // Corregir una venta mueve inventario y dinero: la repartidora no entra.
 const PUEDEN_EDITAR = ["admin", "worker"];
@@ -32,6 +34,9 @@ export async function GET(req, { params }) {
           product_id,
           variant_id,
           delivery_status,
+          delivered_at,
+          delivered_by_name,
+          paquete_booking_id,
           products ( id, name, barcode, image_url ),
           product_variants ( id, name, option_type )
         ),
@@ -96,12 +101,15 @@ export async function PATCH(req, { params }) {
     if (action === 'cancel_forfeit') {
       const { data: sale, error: saleErr } = await supabase
         .from("sales")
-        .select("status, down_payment, total, client_id, sale_items(product_id, variant_id, quantity), payments(amount)")
+        .select("status, down_payment, total, client_id, ubicacion, caja, sale_items(product_id, variant_id, quantity), payments(amount)")
         .eq("id", id)
         .single();
 
       if (saleErr || !sale) return Response.json({ message: "Venta no encontrada" }, { status: 404 });
       if (sale.status === 'cancelled') return Response.json({ message: "La venta ya está cancelada" }, { status: 400 });
+
+      // Dónde estaba guardada, antes de cancelarla, para poder decir qué pasó con esa caja.
+      const cajaQueOcupaba = sale.ubicacion === "caja" ? sale.caja : null;
 
       // Restaurar stock
       for (let item of sale.sale_items) {
@@ -135,7 +143,22 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      return Response.json({ success: true, penalty, saldoFavor, message: "Venta penalizada y stock restaurado" });
+      // La mercancía cancelada vuelve a la tienda, así que deja de ocupar su lugar.
+      // Esto no se hacía: la caja se quedaba anotada en la ficha aunque estuviera
+      // vacía. Y como en esa misma caja puede quedar mercancía de otras compras que
+      // NO se cancelaron, se devuelve cómo quedó todo para preguntarlo en pantalla.
+      let cajas = null;
+      if (sale.client_id) {
+        try {
+          await supabase.from("sales").update({ ubicacion: null, caja: null }).eq("id", id);
+          await sincronizarCajasDelCliente(sale.client_id);
+          cajas = await comoQuedanTrasCancelar(sale.client_id, cajaQueOcupaba);
+        } catch (e) {
+          console.error("No se pudieron recalcular las cajas al cancelar " + id + ":", e);
+        }
+      }
+
+      return Response.json({ success: true, penalty, saldoFavor, cajas, message: "Venta penalizada y stock restaurado" });
     }
 
     if (action === 'revert_cancel') {

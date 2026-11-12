@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { geoAddress } from "@/lib/address";
 import { BODEGA_DIAS_DEFAULT, parseBodegaDias, NOMBRE_DIA } from "@/lib/constants";
+import CobroPendiente from "../CobroPendiente";
 
 
 const CASHBOX_INITIAL = 300;
@@ -269,6 +270,8 @@ export default function PanelPage() {
   const [bookingToReschedule, setBookingToReschedule] = useState(null);
 
   const [selectedBooking, setSelectedBooking] = useState(null);
+  // Ventas que quedaron entregadas completas pero con saldo: se pregunta si ya pagó.
+  const [cobrosPendientes, setCobrosPendientes] = useState([]);
   const [editForm, setEditForm] = useState({
     products: "",
     amount_due: 0,
@@ -816,6 +819,8 @@ export default function PanelPage() {
       }
       setBookings((prev) => prev.map((b) => (b.id === selectedBooking.id ? data.booking : b)));
       if (isAdmin) fetchCashboxInfo();
+      // Se llevó todo pero sigue debiendo: se pregunta, no se da por pagada.
+      if (data.porCobrar?.length > 0) setCobrosPendientes(data.porCobrar);
       setSelectedBooking(null);
       setEditForm({ products: "", amount_due: 0, delivery_status: "pendiente", payment_method: "efectivo" });
     } catch (err) {
@@ -1199,6 +1204,16 @@ export default function PanelPage() {
                 🌷 {verTodaFloreria ? "Viendo todas" : "Todas las entregas"}
               </button>
             )}
+            {/* Preparación de paquetes: sirve para los tres tipos de entrega, no solo
+                domicilio, porque las de bodega y paquetería se arman igual. */}
+            <Link
+              href={`/panel/entregas/preparacion?tipo=${activeTab === "floreria" ? "bodega" : activeTab}`}
+              className={`px-4 py-2 text-sm rounded-xl font-bold transition-all border flex items-center gap-1.5 ${
+                D ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/25" : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+              }`}
+            >
+              📦 Preparar paquetes
+            </Link>
             {activeTab === "domicilio" && (
               <Link
                 href="/panel/entregas/ruta"
@@ -2881,6 +2896,10 @@ function CashboxHistoryModal({ cuts, loading, dark: D, onClose, onRefresh }) {
           )}
         </div>
       </div>
+
+      {cobrosPendientes.length > 0 && (
+        <CobroPendiente pendientes={cobrosPendientes} onCerrar={() => setCobrosPendientes([])} />
+      )}
     </div>
   );
 }

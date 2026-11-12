@@ -4,6 +4,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import EditarVenta from "./EditarVenta";
 import { cajasDeTexto } from "@/lib/constants";
+import CajasTrasCancelar from "../../CajasTrasCancelar";
 
 export default function SaleDetailPage() {
   const router = useRouter();
@@ -21,6 +22,8 @@ export default function SaleDetailPage() {
 
   const [showAbonoModal, setShowAbonoModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  // Qué pasó con las cajas de la clienta al cancelar: se pregunta, no se asume.
+  const [cajasTrasCancelar, setCajasTrasCancelar] = useState(null);
   const [showRevertModal, setShowRevertModal] = useState(false);
   const [showDueDateModal, setShowDueDateModal] = useState(false);
   const [newDueDate, setNewDueDate] = useState("");
@@ -197,9 +200,15 @@ export default function SaleDetailPage() {
         headers: { "Content-Type": "application/json", "x-panel-token": token },
         body: JSON.stringify({ action: "cancel_forfeit" })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast("Venta penalizada correctamente", "success");
         setShowCancelModal(false);
+        // La mercancía cancelada ya no ocupa su lugar. Si quedó algo de otras compras
+        // en esa caja, o repartido en varias, se pregunta en vez de decidirlo solo.
+        if (data.cajas && (data.cajas.seLibero || data.cajas.cajasConRestos?.length > 0)) {
+          setCajasTrasCancelar(data.cajas);
+        }
         fetchSaleDetail();
       } else {
         showToast("Error al penalizar", "error");
@@ -480,26 +489,43 @@ export default function SaleDetailPage() {
                 cuando la compra no trae lugar anotado — que es lo más común. */}
             {(() => {
               if (!sale.client_id) return null;
-              const enCaja = sale.ubicacion === "caja" && sale.caja != null;
-              const enEstante = sale.ubicacion === "estante";
+              // Lo que ya se metió en un paquete salió de la caja aunque todavía no se
+              // entregue: mandar a alguien a buscarlo a la caja sería mandarlo en balde.
+              const porEntregar = (sale.sale_items || []).filter((i) => i.delivery_status !== "delivered");
+              const empacados = porEntregar.filter((i) => i.paquete_booking_id);
+              const guardados = porEntregar.filter((i) => !i.paquete_booking_id);
+              const todoEnPaquete = empacados.length > 0 && guardados.length === 0;
+
+              const enCaja = !todoEnPaquete && sale.ubicacion === "caja" && sale.caja != null;
+              const enEstante = !todoEnPaquete && sale.ubicacion === "estante";
               // Las demás cajas de la clienta. Si esta compra ya está en la única que
               // tiene, repetirla no aporta: se omite.
               const susCajas = cajasDeTexto(sale.clients?.box_1, sale.clients?.box_2)
                 .filter((n) => !(enCaja && n === Number(sale.caja)));
-              if (!enCaja && !enEstante && susCajas.length === 0) return null;
+              if (!todoEnPaquete && !enCaja && !enEstante && susCajas.length === 0) return null;
               return (
                 <div className="mb-3 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dónde está</span>
-                  {enCaja ? (
+                  {todoEnPaquete ? (
+                    <span className="text-sm font-black text-indigo-700 bg-indigo-100 px-2.5 py-1 rounded-lg">🎁 Paquete armado</span>
+                  ) : enCaja ? (
                     <span className="text-sm font-black text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg tabular-nums">📦 Caja {sale.caja}</span>
                   ) : enEstante ? (
                     <span className="text-sm font-black text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg">🏷️ Estante</span>
                   ) : (
                     <span className="text-sm font-bold text-slate-500">Sin lugar anotado</span>
                   )}
+                  {todoEnPaquete && (
+                    <span className="text-xs text-slate-500">Listo para salir, ya fuera de su caja</span>
+                  )}
+                  {empacados.length > 0 && guardados.length > 0 && (
+                    <span className="text-xs text-indigo-600 font-bold">
+                      {empacados.length} de {porEntregar.length} ya en el paquete
+                    </span>
+                  )}
                   {susCajas.length > 0 && (
                     <span className="text-xs text-slate-500">
-                      {enCaja ? "También tiene" : enEstante ? "La clienta tiene" : "Búscalo en sus cajas"}{" "}
+                      {todoEnPaquete ? "La clienta tiene" : enCaja ? "También tiene" : enEstante ? "La clienta tiene" : "Búscalo en sus cajas"}{" "}
                       <span className="font-bold text-slate-700 tabular-nums">
                         {susCajas.map((n) => `caja ${n}`).join(", ")}
                       </span>
@@ -526,9 +552,28 @@ export default function SaleDetailPage() {
                       )}
                       <p className="text-xs text-slate-500">{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} a ${item.unit_price} c/u</p>
                       {item.delivery_status === 'delivered' ? (
-                        <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
-                          ✓ Entregado
-                        </span>
+                        <div className="flex flex-col gap-1 mt-1 items-start">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
+                            ✓ Entregado
+                          </span>
+                          {/* Quién lo entregó y cuándo. Lo de antes de noviembre 2026 no
+                              lo tiene: no se guardaba, y se dice en vez de inventarlo. */}
+                          <span className="text-[11px] text-slate-400">
+                            {item.delivered_at ? (
+                              <>
+                                {new Date(item.delivered_at).toLocaleString("es-MX", {
+                                  day: "numeric", month: "long", year: "numeric",
+                                  hour: "numeric", minute: "2-digit",
+                                })}
+                                {item.delivered_by_name && (
+                                  <> · por <span className="font-bold text-slate-500">{item.delivered_by_name}</span></>
+                                )}
+                              </>
+                            ) : (
+                              <span className="italic">Sin registro de cuándo ni quién</span>
+                            )}
+                          </span>
+                        </div>
                       ) : (() => {
                         const failedBk = bookings.find(bk => {
                           let ids = bk.sale_item_ids || [];
@@ -545,9 +590,15 @@ export default function SaleDetailPage() {
                                 ⚠ Intento fallido{failedDate ? ` — ${failedDate}` : ""}
                               </span>
                             )}
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-[10px] font-black uppercase rounded-md border border-amber-100">
-                              ⌛ Pendiente de Entrega
-                            </span>
+                            {item.paquete_booking_id ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase rounded-md border border-indigo-100">
+                                🎁 En paquete armado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 text-[10px] font-black uppercase rounded-md border border-amber-100">
+                                ⌛ Pendiente de Entrega
+                              </span>
+                            )}
                           </div>
                         );
                       })()}
@@ -879,6 +930,14 @@ export default function SaleDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {cajasTrasCancelar && (
+        <CajasTrasCancelar
+          cajas={cajasTrasCancelar}
+          clientId={sale?.client_id}
+          onCerrar={() => { setCajasTrasCancelar(null); fetchSaleDetail(); }}
+        />
       )}
     </main>
   );

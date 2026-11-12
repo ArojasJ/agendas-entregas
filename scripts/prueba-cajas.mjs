@@ -1,5 +1,6 @@
 import { Client } from "pg";
 import { tokenDePrueba } from "./tokenDePrueba.mjs";
+import { isoDePrueba } from "./fechaDePrueba.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const USER = process.env.ADMIN_USER;
@@ -32,7 +33,7 @@ async function crearVentaConEntrega({ cantidad, entregar }) {
   }
   const b = await c.query(
     `INSERT INTO bookings (type,date,instagram,"fullName",phone,address,city,delivery_status,sale_item_ids,amount_due,override)
-     VALUES ('domicilio',CURRENT_DATE,$1,$2,'8711234567','Calle 1','Torreón','pendiente',$3,0,true)
+     VALUES ('domicilio','${isoDePrueba()}',$1,$2,'8711234567','Calle 1','Torreón','pendiente',$3,0,true)
      RETURNING id`, ["@" + IG, ETIQUETA, JSON.stringify(items)]);
   return { saleId, bookingId: b.rows[0].id, items };
 }
