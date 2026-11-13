@@ -186,3 +186,192 @@ try {
   const d = await res.json();
   console.log(`@magda.favela — ${res.ok ? d.empacados + " productos en PAQUETE ARMADO" : "ERROR " + JSON.stringify(d)}`);
 } finally { await db5.end(); }
+
+// ── @perlajanet_24, caja 33: su entrega a domicilio del 11 de noviembre ya estaba
+//    marcada como entregada y listaba 5 productos, pero sin ligarlos. Se ligan y se
+//    marcan con la fecha de esa entrega, no con la de hoy.
+const db6 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db6.connect();
+  const entregaPerla = '59f6dbbd-99a7-4a9e-9a9b-9e3828d9ccd1';
+  const ids = [
+    '0a4d517f-0038-482a-a307-15ad0cc75804', // CALCETAS LARGAS UNDER ARMOUR 6 PARES
+    '8f6ca5e5-c7af-4667-adfe-5cab47cce19c', // SANDALIAS CROCS ROSAS
+    'b4544d9a-5e22-4c5e-968d-4292244e7f26', // PACK 3 PEGAMENTOS ELMER'S   (caja 33)
+    '40c6055b-0ebf-4a21-977a-0b0e618e315f', // JABÓN BATH & BODY WORKS     (caja 33)
+    'b434eeee-edef-4834-acab-9994d92bb32a', // SET 2PZ SUETER Y PANTS NO BOUNDARIES
+  ];
+  const r = await db6.query(
+    `update sale_items set delivery_status='delivered', delivered_by_name='Ajuste de cajas'
+     where id = ANY($1::uuid[]) and delivery_status<>'delivered' returning id`, [ids]);
+  await db6.query(
+    `update sale_items set delivered_at = timestamptz '2026-11-11 18:00:00-06'
+     where id = ANY($1::uuid[])`, [ids]);
+  await db6.query(
+    `update bookings set sale_item_ids=$1::jsonb where id=$2`, [JSON.stringify(ids), entregaPerla]);
+
+  const quedan = (await db6.query(
+    `select count(*) n from sale_items i join sales s on s.id=i.sale_id join clients c on c.id=s.client_id
+     where c.instagram='@perlajanet_24' and i.delivery_status<>'delivered'
+       and s.status not in ('cancelled','pending_payment')`)).rows[0].n;
+  console.log(`@perlajanet_24 — ${r.rowCount} productos marcados entregados con fecha 11 de noviembre · le quedan ${quedan} pendientes`);
+} finally { await db6.end(); }
+
+// ── @perlajanet_24, el resto: 14 productos pendientes desde mayo. Casi todos
+//    aparecen listados en entregas suyas que YA están marcadas como entregadas —
+//    se los dieron y nadie los marcó. Se cruzan por nombre contra esas entregas
+//    para usar la fecha de verdad; los que no casen quedan con la del ajuste.
+const db7 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db7.connect();
+  const limpio = (s) => String(s || "").replace(/^\s*\d+\s*x\s*/i, "").trim().toUpperCase().replace(/\s+/g, " ");
+
+  const entregas = (await db7.query(
+    `select id, date, products from bookings
+     where instagram ilike '%perlajanet_24%' and delivery_status='entregado'
+     order by date`)).rows;
+
+  const pendientes = (await db7.query(
+    `select i.id, pr.name from sale_items i
+     join sales s on s.id=i.sale_id join products pr on pr.id=i.product_id
+     join clients c on c.id=s.client_id
+     where c.instagram='@perlajanet_24' and i.delivery_status<>'delivered'
+       and s.status not in ('cancelled','pending_payment')`)).rows;
+
+  let conFecha = 0;
+  const yaUsados = new Set();
+  for (const it of pendientes) {
+    // La entrega más antigua que lo mencione y no lo haya usado ya para otro renglón.
+    const bk = entregas.find((b) =>
+      String(b.products || "").split("\n").some((l) => {
+        const k = b.id + "|" + limpio(l);
+        return limpio(l) && limpio(l) === limpio(it.name) && !yaUsados.has(k) && yaUsados.add(k);
+      }));
+    await db7.query(
+      `update sale_items set delivery_status='delivered', delivered_by_name='Ajuste de cajas'
+       where id=$1 and delivery_status<>'delivered'`, [it.id]);
+    if (bk) {
+      await db7.query(`update sale_items set delivered_at=$1 where id=$2`, [bk.date, it.id]);
+      conFecha++;
+    }
+  }
+  console.log(`@perlajanet_24 — ${pendientes.length} productos marcados entregados (${conFecha} con la fecha real de su entrega)`);
+} finally { await db7.end(); }
+
+// ── @anapdroza, caja 80: su paquete ya está armado y fuera de las cajas, con
+//    entrega a domicilio hoy. Se liga a esa entrega por la vía del módulo.
+//    El monto a cobrar NO se toca: sus tres compras están liquidadas, y los $45 que
+//    dice su mensaje son del envío, que nadie puede saber desde aquí si ya pagó.
+const db8 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db8.connect();
+  const cl = (await db8.query(`select id from clients where instagram='@anapdroza'`)).rows[0].id;
+  const items = (await db8.query(
+    `select i.id from sale_items i join sales s on s.id=i.sale_id
+     where s.client_id=$1 and i.delivery_status<>'delivered' and i.paquete_booking_id is null
+       and s.status not in ('cancelled','pending_payment')`, [cl])).rows.map(r => r.id);
+  if (items.length) {
+    const tok = (await import("./tokenDePrueba.mjs")).tokenDePrueba("admin", "Ajuste de cajas");
+    const res = await fetch(`${process.env.BASE_URL || "http://localhost:3000"}/api/panel/paquetes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": tok },
+      body: JSON.stringify({
+        accion: "armar",
+        bookingId: "e024cf04-b879-4fa3-8b89-b5eba5088b04",
+        clientId: cl, itemIds: items,
+      }),
+    });
+    const d = await res.json();
+    console.log(`@anapdroza — ${res.ok ? d.empacados + " productos en PAQUETE ARMADO" : "ERROR " + JSON.stringify(d)}`);
+  } else {
+    console.log("@anapdroza — ya estaba armado");
+  }
+} finally { await db8.end(); }
+
+// ── @ximena_glzm, caja 90: igual que Ana Karen, paquete armado y entrega hoy. Aquí
+//    sí se sabe el envío: ella confirmó por mensaje que paga $45 en efectivo al
+//    recibir, así que va en la tarjeta para que el repartidor lo cobre.
+const db9 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db9.connect();
+  const cl = (await db9.query(`select id from clients where instagram='@ximena_glzm'`)).rows[0].id;
+  const items = (await db9.query(
+    `select i.id from sale_items i join sales s on s.id=i.sale_id
+     where s.client_id=$1 and i.delivery_status<>'delivered' and i.paquete_booking_id is null
+       and s.status not in ('cancelled','pending_payment')`, [cl])).rows.map(r => r.id);
+  if (items.length) {
+    const tok = (await import("./tokenDePrueba.mjs")).tokenDePrueba("admin", "Ajuste de cajas");
+    const res = await fetch(`${process.env.BASE_URL || "http://localhost:3000"}/api/panel/paquetes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": tok },
+      body: JSON.stringify({
+        accion: "armar",
+        bookingId: "6132545a-ccd1-4e9d-82f0-c0c2983fc074",
+        clientId: cl, itemIds: items, envio: 45,
+      }),
+    });
+    const d = await res.json();
+    console.log(`@ximena_glzm — ${res.ok ? d.empacados + " productos en PAQUETE ARMADO, a cobrar $" + d.cobro?.aCobrar : "ERROR " + JSON.stringify(d)}`);
+  } else {
+    console.log("@ximena_glzm — ya estaba armado");
+  }
+} finally { await db9.end(); }
+
+// ── @fernandaorozco_, caja 93: su paquete va en la ruta AHORA. Solo van 2 de sus 3
+//    productos: ella pidió por mensaje que el shaker no se lo sacaran todavía.
+//    Es justo el caso de palomear que resuelve el módulo.
+const db10 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db10.connect();
+  const cl = (await db10.query(`select id from clients where instagram='@fernandaorozco_'`)).rows[0].id;
+  const vanEstos = [
+    '61bd9637-ffd0-4be1-993d-91e0d7abc46a', // TSHIRT CAFE GYMSHARK HOMBRE
+    'fb79a679-2f52-4940-8802-da1410f65aa2', // MOCHILA PINK VICTORIA´S SECRET
+  ];                                        // el SHAKER se queda
+  const faltan = (await db10.query(
+    `select id from sale_items where id = ANY($1::uuid[]) and paquete_booking_id is null`, [vanEstos])).rows;
+  if (faltan.length) {
+    const tok = (await import("./tokenDePrueba.mjs")).tokenDePrueba("admin", "Ajuste de cajas");
+    const res = await fetch(`${process.env.BASE_URL || "http://localhost:3000"}/api/panel/paquetes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-panel-token": tok },
+      body: JSON.stringify({
+        accion: "armar",
+        bookingId: "7b5aeb99-8044-4231-913a-2d76d6971702",
+        clientId: cl, itemIds: vanEstos, envio: 45,
+      }),
+    });
+    const d = await res.json();
+    console.log(`@fernandaorozco_ — ${res.ok ? d.empacados + " productos en PAQUETE ARMADO, a cobrar $" + d.cobro?.aCobrar : "ERROR " + JSON.stringify(d)}`);
+  } else {
+    console.log("@fernandaorozco_ — ya estaba armado");
+  }
+} finally { await db10.end(); }
+
+// ── @fernandaorozco_, corrección: la entrega fue el 10 de noviembre y ya está
+//    marcada como entregada, así que sus 2 productos salieron ese día. El shaker,
+//    que ella pidió no sacar, quedó en el estante.
+const db11 = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+try {
+  await db11.connect();
+  const salieron = [
+    '61bd9637-ffd0-4be1-993d-91e0d7abc46a', // TSHIRT CAFE GYMSHARK HOMBRE
+    'fb79a679-2f52-4940-8802-da1410f65aa2', // MOCHILA PINK VICTORIA´S SECRET
+  ];
+  const r = await db11.query(
+    `update sale_items set delivery_status='delivered', delivered_by_name='Ajuste de cajas'
+     where id = ANY($1::uuid[]) and delivery_status<>'delivered' returning id`, [salieron]);
+  await db11.query(
+    `update sale_items set delivered_at = timestamptz '2026-11-10 14:00:00-06'
+     where id = ANY($1::uuid[])`, [salieron]);
+
+  // El shaker al estante, por la misma vía que usa el panel.
+  const ventaShaker = '383c2b91-32bb-4fc4-a58a-986a6a0a473a';
+  const tok = (await import("./tokenDePrueba.mjs")).tokenDePrueba("admin", "Ajuste de cajas");
+  const res = await fetch(`${process.env.BASE_URL || "http://localhost:3000"}/api/panel/ubicacion`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tok },
+    body: JSON.stringify({ saleIds: [ventaShaker], tipo: "estante" }),
+  });
+  console.log(`@fernandaorozco_ — ${r.rowCount} productos entregados el 10 de noviembre · shaker al estante: ${res.ok ? "ok" : "ERROR " + res.status}`);
+} finally { await db11.end(); }

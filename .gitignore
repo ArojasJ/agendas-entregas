@@ -43,3 +43,9 @@ scripts/e2e-*.png
 
 # Capturas que dejan las pruebas de navegador
 scripts/*.png
+
+# Listas y respaldos que genera el ajuste de cajas: llevan nombres, usuarios de
+# Instagram y compras de las clientas. Son archivos de trabajo, no código, y no
+# tienen por qué viajar al repositorio.
+scripts/productos-sin-ubicar.csv
+scripts/cotejado-*.json
