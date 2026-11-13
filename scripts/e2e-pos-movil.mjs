@@ -16,11 +16,22 @@ const sesion = (page, token) =>
     localStorage.setItem("staffName", "Prueba Admin");
   }, token);
 
+// Esta prueba revisa el cobro de siempre, el que lleva el carrito en la misma
+// pantalla. Fuera de la bodega el celular usa otra disposición —el carrito se
+// esconde tras una barra—, así que se fija el ajuste en "en bodega" para no
+// depender del interruptor real, que cambia según dónde ande la administradora.
+const enBodega = (page) =>
+  page.route("**/api/settings**", (r) => r.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ settings: { en_bodega: "true" } }),
+  }));
+
 try {
   const token = tokenDePrueba("admin", "Prueba Admin");
   const ctx = await browser.newContext({ ...devices["iPhone 13"] });
   const page = await ctx.newPage();
   await sesion(page, token);
+  await enBodega(page);
 
   await page.goto(`${BASE}/panel/pos`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
@@ -142,6 +153,7 @@ try {
   // ── Que la vista de computadora no se haya roto ──
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page2 = await ctx2.newPage();
+  await enBodega(page2);
   await sesion(page2, token);
   await page2.goto(`${BASE}/panel/pos`, { waitUntil: "networkidle" });
   await page2.waitForTimeout(1200);

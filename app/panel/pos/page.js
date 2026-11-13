@@ -28,6 +28,12 @@ export default function PosPage() {
   const [saving, setSaving] = useState(false);
   const [ubicacion, setUbicacion] = useState(null);      // propuesta del servidor
   const [ubicacionElegida, setUbicacionElegida] = useState(null);
+  // Vendiendo fuera de la bodega no se tiene el producto enfrente para leerle el
+  // código, y de memoria no siempre se sabe cómo quedó registrado. El precio sí se
+  // sabe, porque es el que se publicó en la historia: sirve para acotar la búsqueda.
+  const [fueraDeBodega, setFueraDeBodega] = useState(false);
+  const [precioFiltro, setPrecioFiltro] = useState("");
+  const [verCarritoMovil, setVerCarritoMovil] = useState(false);
   const [cargandoUbicacion, setCargandoUbicacion] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
@@ -229,15 +235,35 @@ export default function PosPage() {
     return () => document.removeEventListener("pointerdown", picaronAfuera);
   }, [showClientDropdown]);
 
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setFueraDeBodega(d.settings?.en_bodega === "false"); })
+      .catch(() => {});
+  }, []);
+
   const filteredProducts = useMemo(() => {
-    if (!search || search.trim().length < 2) return [];
+    const precio = fueraDeBodega ? Number(precioFiltro) : NaN;
+    const hayPrecio = Number.isFinite(precio) && String(precioFiltro).trim() !== "";
+    // Con precio se puede buscar sin escribir nombre: a veces solo se recuerda cuánto
+    // cuesta. Sin precio sigue haciendo falta escribir algo, o saldría todo.
+    if ((!search || search.trim().length < 2) && !hayPrecio) return [];
+
     const q = search.toLowerCase();
-    return products.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.barcode && p.barcode.includes(search)) ||
-      (p.product_variants || []).some(v => v.name?.toLowerCase().includes(q) || v.barcode?.includes(search))
-    );
-  }, [products, search]);
+    const cuesta = (p) =>
+      Number(p.price) === precio ||
+      (p.product_variants || []).some((v) => Number(v.price) === precio);
+
+    return products.filter((p) => {
+      const porNombre =
+        !search || search.trim().length < 2
+          ? true
+          : p.name.toLowerCase().includes(q) ||
+            (p.barcode && p.barcode.includes(search)) ||
+            (p.product_variants || []).some((v) => v.name?.toLowerCase().includes(q) || v.barcode?.includes(search));
+      return porNombre && (!hayPrecio || cuesta(p));
+    });
+  }, [products, search, fueraDeBodega, precioFiltro]);
 
   // Son más de mil clientas: pintarlas todas deja el celular pegado varios
   // segundos cada vez que se abre el listado. Se muestran las primeras y se
@@ -374,21 +400,56 @@ export default function PosPage() {
       {/* LADO IZQUIERDO: PRODUCTOS */}
       <div className="flex-1 flex flex-col lg:h-full border-r border-slate-200 relative">
         <div className="p-4 border-b border-slate-200 bg-slate-50/80 backdrop-blur-md z-10 sticky top-0">
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 opacity-50 text-lg">🔍</span>
-            <input 
-              ref={searchInputRef}
-              type="text" 
-              placeholder="Buscar por nombre, SKU o código de barras (Enter para añadir)..." 
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              className="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:border-emerald-500 focus:bg-white/[0.06] transition-all text-lg shadow-inner"
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 opacity-50 text-lg">🔍</span>
+              <input 
+                ref={searchInputRef}
+                type="text" 
+                placeholder="Buscar por nombre, SKU o código de barras (Enter para añadir)..." 
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 focus:outline-none focus:border-emerald-500 focus:bg-white/[0.06] transition-all text-lg shadow-inner"
+              />
+            </div>
+
+            {/* Solo fuera de la bodega: aquí no se tiene el producto enfrente para
+                leerle el código, pero el precio sí se sabe —es el que se publicó— y
+                acota la búsqueda a unos pocos. */}
+            {fueraDeBodega && (
+              <div className="relative w-32 shrink-0">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-lg">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Precio"
+                  value={precioFiltro}
+                  onChange={(e) => setPrecioFiltro(e.target.value.replace(/[^\d.]/g, ""))}
+                  onKeyDown={handleSearchKeyDown}
+                  className="w-full pl-8 pr-3 py-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-bold focus:outline-none focus:border-emerald-500 transition-all text-lg shadow-inner"
+                />
+              </div>
+            )}
           </div>
+
+          {fueraDeBodega && precioFiltro && (
+            <p className="mt-2 text-xs text-amber-700">
+              Mostrando solo lo que cuesta ${precioFiltro}
+              <button
+                type="button"
+                onClick={() => setPrecioFiltro("")}
+                className="ml-2 underline font-bold hover:text-amber-900"
+              >
+                quitar
+              </button>
+            </p>
+          )}
         </div>
 
-        <div className="flex-1 max-h-[60vh] lg:max-h-none overflow-y-auto p-4">
+        <div className={`flex-1 overflow-y-auto p-4 ${
+          fueraDeBodega ? "min-h-0 pb-28 lg:pb-4" : "max-h-[60vh] lg:max-h-none"
+        }`}>
           {loading ? (
             <p className="text-center opacity-50 mt-10">Cargando catálogo...</p>
           ) : search.trim().length < 2 ? (
@@ -450,7 +511,26 @@ export default function PosPage() {
       </div>
 
       {/* LADO DERECHO: CARRITO */}
-      <div className="w-full lg:w-[400px] flex flex-col bg-white border-l border-slate-100 lg:h-full">
+      <div className={`w-full lg:w-[400px] flex flex-col bg-white border-l border-slate-100 lg:h-full ${
+        // Vendiendo fuera de la bodega se usa el celular, y ahí el carrito vacío se
+        // comía media pantalla mientras lo que importa —encontrar el producto— vivía
+        // en un carril estrecho. Se esconde y queda la barra de abajo; al tocarla
+        // sube como hoja, sin perder de vista lo que se estaba buscando.
+        !fueraDeBodega ? ""
+          : verCarritoMovil
+            ? "fixed inset-x-0 bottom-0 z-40 max-h-[85vh] rounded-t-3xl shadow-2xl lg:static lg:max-h-none lg:rounded-none lg:shadow-none"
+            : "hidden lg:flex"
+      }`}>
+        {fueraDeBodega && verCarritoMovil && (
+          <button
+            type="button"
+            onClick={() => setVerCarritoMovil(false)}
+            className="lg:hidden shrink-0 w-full pt-3 pb-1 flex flex-col items-center gap-1"
+          >
+            <span className="w-10 h-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-bold text-slate-400">Cerrar</span>
+          </button>
+        )}
         <div className="p-5 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between">
           <h2 className="text-xl font-bold flex items-center gap-2">🛒 Nueva Venta</h2>
           {cart.length > 0 && (
@@ -816,6 +896,54 @@ export default function PosPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Barra del carrito, solo en celular y fuera de la bodega. Sustituye al panel
+          del carrito, que ahí estorbaba más de lo que servía: con una mano se ve lo
+          que llevas, el total y el botón de seguir, sin bajar nada. Va por encima de
+          la barra de menú del panel, que mide 72px. */}
+      {fueraDeBodega && !verCarritoMovil && (
+        <div className="lg:hidden fixed left-0 right-0 bottom-[72px] z-40 px-3 pb-2">
+          {cart.length === 0 ? (
+            <div className="rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-lg px-4 py-3 text-center">
+              <p className="text-sm text-slate-400">Busca un producto para empezar</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-xl p-2.5 flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setVerCarritoMovil(true)}
+                className="flex-1 min-w-0 text-left px-2"
+              >
+                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400 leading-none">
+                  {cart.reduce((n, i) => n + i.quantity, 0)} producto{cart.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"}
+                  {selectedClient ? ` · ${(selectedClient.instagram || selectedClient.name || "").slice(0, 14)}` : ""}
+                </p>
+                <p className="text-xl font-black text-slate-900 tabular-nums leading-tight">
+                  ${total.toFixed(2)}
+                </p>
+                <p className="text-[10px] text-slate-400 leading-none">toca para ver o editar</p>
+              </button>
+              <button
+                type="button"
+                onClick={openCheckout}
+                className="shrink-0 px-5 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+              >
+                Cobrar →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Al tocar la barra, el carrito se abre de abajo hacia arriba. */}
+      {fueraDeBodega && verCarritoMovil && (
+        <button
+          type="button"
+          aria-label="Cerrar carrito"
+          onClick={() => setVerCarritoMovil(false)}
+          className="lg:hidden fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm"
+        />
       )}
 
       {/* Modal: Tarjeta del cliente seleccionado */}
