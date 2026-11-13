@@ -98,15 +98,24 @@ try {
   // y hay más clientas que eso: sin paginar, las últimas parecían no tener caja.
   const g = await nuevaClienta("G");
   const propG = await proponer(g, 2);
-  // Una caja está ocupada si la trae una ficha O si hay una venta metida en ella, y
-  // las fichas pueden traer varias juntas ("19, 42"). Antes esto solo miraba fichas de
-  // un número y daba de menos, así que el contador parecía inflado sin estarlo.
+  // Una caja está ocupada si la trae una ficha O si hay una venta con mercancía
+  // DENTRO. Las fichas pueden traer varias juntas ("19, 42").
+  //
+  // Lo de "dentro" se volvió la clave al existir el paquete armado: una venta puede
+  // seguir apuntando a su caja sin ocuparla, porque su mercancía ya salió de ahí. Sin
+  // esa condición esta prueba contaba de más y daba por ocupadas cajas vacías.
   const ocupadasReales = await c.query(
     `SELECT DISTINCT n FROM (
        SELECT (regexp_matches(coalesce(box_1,'') || ',' || coalesce(box_2,''), '\\d+', 'g'))[1]::int AS n
          FROM clients
        UNION
-       SELECT caja::int FROM sales WHERE ubicacion = 'caja' AND caja IS NOT NULL
+       SELECT s.caja::int FROM sales s
+        WHERE s.ubicacion = 'caja' AND s.caja IS NOT NULL
+          AND s.status NOT IN ('cancelled','pending_payment')
+          AND EXISTS (SELECT 1 FROM sale_items i
+                       WHERE i.sale_id = s.id
+                         AND i.delivery_status <> 'delivered'
+                         AND i.paquete_booking_id IS NULL)
      ) t WHERE n > 0`);
   const tomadas = new Set(ocupadasReales.rows.map((r) => r.n));
   const invadidas = (propG.libres || []).filter((n) => tomadas.has(n));

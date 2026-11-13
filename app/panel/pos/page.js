@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo, useRef } from "react";
-import { cajasDeTexto } from "@/lib/constants";
+import { cajasDeTexto, etiquetaDeLugar } from "@/lib/constants";
+import ElegirUbicacion from "../ElegirUbicacion";
 
 export default function PosPage() {
   const [products, setProducts] = useState([]);
@@ -298,6 +299,15 @@ export default function PosPage() {
   const executeCheckout = async () => {
     if (paymentType === "credit" && !selectedClient) {
       showToast("Para ventas a crédito debes seleccionar un cliente", "error");
+      return;
+    }
+
+    // Con clienta, la mercancía se queda guardada y hay que decir dónde: si no, la
+    // venta entra sin lugar y acaba en la bolsa de "no se sabe dónde está". Sin
+    // clienta es una venta de mostrador: el producto sale por la puerta en ese
+    // momento, nunca se guarda, y pedir caja sería estorbar.
+    if (selectedClient && !ubicacionElegida) {
+      showToast("Dinos dónde se guarda: una caja o el estante", "error");
       return;
     }
 
@@ -700,84 +710,16 @@ export default function PosPage() {
                       <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto" />
                     </div>
                   ) : (
-                    <div className="p-5 space-y-3">
-                      {ubicacion.guardado?.length > 0 && (
-                        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5">
-                          <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">
-                            Ya tiene guardado
-                          </p>
-                          {ubicacion.guardado.map((g) => (
-                            <div key={g.saleId} className="flex items-baseline gap-2 text-sm">
-                              <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded tabular-nums ${
-                                g.ubicacion === "caja"
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-rose-100 text-rose-700"
-                              }`}>
-                                {g.ubicacion === "caja" ? `Caja ${g.caja}` : "Estante"}
-                              </span>
-                              <span className="text-slate-500 text-xs leading-snug">
-                                {g.productos.map((p) => p.nombre).join(", ")}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {ubicacion.tipo === "juntar" && (
-                        <Opcion
-                          // Se pinta por la caja elegida, no por aMover: cuando la
-                          // clienta ya tiene caja y nada en estante, aMover viene vacío
-                          // y la opción nunca se veía elegida aunque sí lo estuviera.
-                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === ubicacion.caja}
-                          onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
-                          titulo={`Juntar todo en la caja ${ubicacion.caja}`}
-                          detalle={ubicacion.aMover?.length > 0 ? "Mueve también lo que está en estante" : "Donde ya tiene sus cosas"}
-                          recomendada
-                        />
-                      )}
-
-                      {ubicacion.tipo !== "juntar" && ubicacion.tipo === "caja" && (
-                        <Opcion
-                          // Con solo mirar el tipo, esta opción se quedaba verde aunque
-                          // abajo se hubiera elegido otra caja, y se veían dos elegidas.
-                          elegida={ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === ubicacion.caja}
-                          onClick={() => setUbicacionElegida({ tipo: "caja", caja: ubicacion.caja, aMover: ubicacion.aMover || [] })}
-                          titulo={`Caja ${ubicacion.caja}`}
-                          detalle={ubicacion.motivo}
-                          recomendada
-                        />
-                      )}
-
-                      <Opcion
-                        elegida={ubicacionElegida?.tipo === "estante"}
-                        onClick={() => setUbicacionElegida({ tipo: "estante" })}
-                        titulo="Poner en estante"
-                        detalle="Sticker con su usuario de Instagram"
-                        recomendada={ubicacion.tipo === "estante"}
+                    <div className="p-5">
+                      {/* Las mismas opciones que en Pedidos Web: una sola copia, para
+                          que al agregar un lugar no se quede una pantalla atrás. La
+                          propuesta ya está cargada aquí, así que se le pasa hecha. */}
+                      <ElegirUbicacion
+                        clientId={selectedClient?.id}
+                        propuesta={ubicacion}
+                        elegida={ubicacionElegida}
+                        onElegir={setUbicacionElegida}
                       />
-
-                      {ubicacion.libres?.length > 0 && (
-                        <div className="pt-1">
-                          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                            O elige otra caja
-                          </p>
-                          <div className="flex gap-1.5 flex-wrap">
-                            {ubicacion.libres.slice(0, 8).map((n) => (
-                              <button
-                                key={n}
-                                onClick={() => setUbicacionElegida({ tipo: "caja", caja: n, aMover: ubicacion.aMover || [] })}
-                                className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border transition-all active:scale-95 tabular-nums ${
-                                  ubicacionElegida?.tipo === "caja" && ubicacionElegida?.caja === n
-                                    ? "bg-slate-900 border-slate-900 text-white"
-                                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
-                                }`}
-                              >
-                                {n}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1084,28 +1026,3 @@ export default function PosPage() {
   );
 }
 
-function Opcion({ elegida, onClick, titulo, detalle, recomendada }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all active:scale-[0.99] flex items-start gap-3 ${
-        elegida ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-200 hover:bg-slate-50"
-      }`}
-    >
-      <span className={`text-base leading-none mt-0.5 ${elegida ? "text-emerald-600" : "text-slate-300"}`}>
-        {elegida ? "◉" : "○"}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2 flex-wrap">
-          <span className={`text-sm font-bold ${elegida ? "text-emerald-800" : "text-slate-700"}`}>{titulo}</span>
-          {recomendada && (
-            <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">
-              Sugerido
-            </span>
-          )}
-        </span>
-        {detalle && <span className="block text-[11px] text-slate-400 leading-snug mt-0.5">{detalle}</span>}
-      </span>
-    </button>
-  );
-}

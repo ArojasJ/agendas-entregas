@@ -1,12 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import ElegirUbicacion from "../ElegirUbicacion";
 
 export default function AdminCatalogoPage() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+  // Un pedido web se paga solo, sin que nadie decida dónde se guarda la mercancía:
+  // por eso entraba sin lugar y acababa en la bolsa de "no se sabe dónde está".
+  const [sinUbicar, setSinUbicar] = useState([]);
+  const [elegida, setElegida] = useState({});
+  const [guardando, setGuardando] = useState(null);
 
   const showToast = (message, type = "success") => {
     setToast({ show: true, message, type });
@@ -30,6 +36,17 @@ export default function AdminCatalogoPage() {
           (s) => s.status === "catalog_pending" || s.status === "catalog_viewed" || s.status === "pending_payment"
         );
         setOrders(pending);
+
+        // Pedidos web ya pagados, de una clienta, con mercancía pendiente y sin
+        // lugar. Solo los web: el cobro en línea es el único camino que no pasa por
+        // la pantalla que pregunta dónde se guarda. Lo viejo de otras vías se limpia
+        // aparte, no aquí, para no convertir esta pantalla en una lista de 340.
+        setSinUbicar((data.sales || []).filter((v) =>
+          v.client_id && !v.ubicacion &&
+          v.payment_method === "Pedido Web" &&
+          !["catalog_pending", "catalog_viewed", "pending_payment", "cancelled"].includes(v.status) &&
+          (v.sale_items || []).some((i) => i.delivery_status !== "delivered")
+        ));
       }
     } catch (e) {
       console.error(e);
@@ -66,6 +83,31 @@ export default function AdminCatalogoPage() {
     }
   };
 
+  const guardarUbicacion = async (venta) => {
+    const elec = elegida[venta.id];
+    if (!elec || guardando) return;
+    setGuardando(venta.id);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch("/api/panel/ubicacion", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({
+          saleIds: [venta.id, ...(elec.aMover || [])],
+          tipo: elec.tipo,
+          caja: elec.caja,
+        }),
+      });
+      if (!res.ok) { showToast("No se pudo guardar el lugar", "error"); return; }
+      showToast(elec.tipo === "caja" ? `Guardado en la caja ${elec.caja}` : "Guardado en estante", "success");
+      setSinUbicar((prev) => prev.filter((v) => v.id !== venta.id));
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setGuardando(null);
+    }
+  };
+
   return (
     <main className="max-w-7xl mx-auto px-4 md:px-8 py-8 relative">
       <div className={`fixed top-6 right-6 z-[60] transition-all duration-500 transform ${toast.show ? "translate-y-0 opacity-100" : "-translate-y-10 opacity-0 pointer-events-none"}`}>
@@ -81,6 +123,59 @@ export default function AdminCatalogoPage() {
           <p className="text-sm mt-1 opacity-70">Gestiona los pedidos generados desde el catálogo en línea.</p>
         </div>
       </div>
+
+      {/* Pedidos ya pagados que nadie ubicó. El cobro en línea no pasa por la
+          pantalla que pregunta dónde se guarda, así que se pregunta aquí, con las
+          mismas opciones del punto de venta. */}
+      {sinUbicar.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-baseline gap-2 mb-3">
+            <h2 className="text-lg font-black text-slate-900">Falta decir dónde se guardan</h2>
+            <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">
+              {sinUbicar.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {sinUbicar.map((v) => {
+              const piezas = (v.sale_items || []).reduce((n, i) => n + (i.quantity || 1), 0);
+              return (
+                <div key={v.id} className="bg-white border border-slate-200 rounded-2xl p-5">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 truncate">
+                        {v.clients?.name || v.clients?.instagram || "Clienta"}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate">
+                        {v.clients?.instagram ? `@${String(v.clients.instagram).replace(/^@/, "")} · ` : ""}
+                        {(v.sale_items || []).map((i) => i.products?.name).filter(Boolean).join(", ")}
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-slate-400 shrink-0">
+                      {new Date(v.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+
+                  <ElegirUbicacion
+                    clientId={v.client_id}
+                    productos={piezas}
+                    elegida={elegida[v.id]}
+                    onElegir={(e) => setElegida((prev) => ({ ...prev, [v.id]: e }))}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => guardarUbicacion(v)}
+                    disabled={!elegida[v.id] || guardando === v.id}
+                    className="mt-4 w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-black shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition-all active:scale-95"
+                  >
+                    {guardando === v.id ? "Guardando…" : "Guardar dónde quedó"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {loading ? (

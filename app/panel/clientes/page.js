@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { cajasDeTexto } from "@/lib/constants";
+import { cajasDeTexto, etiquetaDeLugar } from "@/lib/constants";
 
 export default function ClientesPage() {
   return (
@@ -404,10 +404,8 @@ function ClientesContent() {
                       <div key={g.saleId || `caja-${g.caja}-${i}`} className="px-3 py-2.5">
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0 flex items-baseline gap-2 flex-wrap">
-                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded tabular-nums ${
-                              g.ubicacion === "caja" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
-                            }`}>
-                              {g.ubicacion === "caja" ? `Caja ${g.caja}` : "Estante"}
+                            <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded tabular-nums ${etiquetaDeLugar(g.ubicacion, g.caja).clase}`}>
+                              {etiquetaDeLugar(g.ubicacion, g.caja).texto}
                             </span>
                             <span className="text-xs text-slate-500 leading-snug">
                               {g.sinDetalle
@@ -415,7 +413,14 @@ function ClientesContent() {
                                 : g.productos.map((p) => p.nombre).join(", ")}
                             </span>
                           </div>
-                          {!g.sinDetalle && (
+                          {/* Lo que ya está en un paquete armado no se mueve desde
+                              aquí: su lugar lo manda la entrega. Para sacarlo hay que
+                              deshacer el paquete en Preparación, no cambiarlo de caja. */}
+                          {g.ubicacion === "paquete" ? (
+                            <span className="text-[11px] font-bold text-indigo-400 shrink-0 px-2 py-1">
+                              listo para salir
+                            </span>
+                          ) : !g.sinDetalle && (
                             <button
                               type="button"
                               onClick={() => setMoviendo(moviendo === g.saleId ? null : g.saleId)}
