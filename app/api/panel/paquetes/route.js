@@ -3,6 +3,7 @@ import { getPanelSession } from "@/lib/panelAuth";
 import {
   paquetesDelDia,
   clientasPosibles,
+  buscarClientas,
   productosEsperando,
   comoQuedanLasCajas,
   resumenDeCobro,
@@ -28,8 +29,14 @@ export async function GET(req) {
   const tipo = searchParams.get("tipo") || null;
   const bookingId = searchParams.get("bookingId");
   const clientId = searchParams.get("clientId");
+  const buscar = searchParams.get("buscar");
 
   try {
+    // Buscar a la clienta a mano cuando el sistema no propuso a la correcta.
+    if (buscar) {
+      return Response.json({ candidatas: await buscarClientas(buscar) });
+    }
+
     // Los productos que espera una clienta, para palomear cuáles se van.
     if (clientId) {
       return Response.json({ productos: await productosEsperando(clientId) });

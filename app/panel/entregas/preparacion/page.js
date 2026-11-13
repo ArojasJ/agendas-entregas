@@ -51,6 +51,7 @@ export default function PreparacionPage() {
   const [elegidos, setElegidos] = useState([]);
   const [buscando, setBuscando] = useState("");
   const [resultados, setResultados] = useState(null);
+  const [buscandoAhora, setBuscandoAhora] = useState(false);
   const [cajas, setCajas] = useState(null);
   const [juntarEn, setJuntarEn] = useState(null);
   // El envío no sale de ninguna venta: lo pone quien prepara el paquete.
@@ -121,16 +122,20 @@ export default function PreparacionPage() {
     setElegidos((d.productos || []).filter((p) => p.ubicacion === "paquete").map((p) => p.itemId));
   };
 
+  // Busca en todas las fichas, no entre las que el sistema ya propuso: si no propuso
+  // a nadie —que es cuando de verdad hace falta buscar— filtrar esa lista vacía no
+  // podía devolver nunca nada y la entrega se quedaba sin forma de ligarse.
   const buscar = async () => {
     if (buscando.trim().length < 3) return;
-    const r = await fetch(`/api/panel/paquetes?bookingId=${abierto.id}`, { headers: { "x-panel-token": token() } });
-    const d = await r.json();
-    const q = buscando.trim().toLowerCase();
-    setResultados((d.candidatas || []).filter(
-      (c) => (c.name || "").toLowerCase().includes(q) ||
-             (c.instagram || "").toLowerCase().includes(q) ||
-             (c.phone || "").includes(q)
-    ));
+    setBuscandoAhora(true);
+    try {
+      const r = await fetch(`/api/panel/paquetes?buscar=${encodeURIComponent(buscando.trim())}`,
+        { headers: { "x-panel-token": token() } });
+      const d = await r.json();
+      setResultados(d.candidatas || []);
+    } catch {
+      setResultados([]);
+    } finally { setBuscandoAhora(false); }
   };
 
   // Cada vez que cambia lo que se lleva, se recalcula cómo quedan las cajas.
@@ -329,7 +334,11 @@ export default function PreparacionPage() {
                   </div>
 
                   {(resultados ?? detalle.candidatas ?? []).length === 0 ? (
-                    <p className="text-sm text-slate-400 py-3">No coincide con ninguna clienta.</p>
+                    <p className="text-sm text-slate-400 py-3">
+                      {resultados
+                        ? "Esa búsqueda no encontró ninguna ficha."
+                        : "No coincide con ninguna clienta. Búscala abajo por nombre."}
+                    </p>
                   ) : (
                     <div className="space-y-2">
                       {(resultados ?? detalle.candidatas).map((c) => (
@@ -363,14 +372,29 @@ export default function PreparacionPage() {
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); buscar(); } }}
                         placeholder="Nombre, usuario o teléfono…"
                         className="flex-1 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-slate-400" />
-                      <button onClick={buscar} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold">Buscar</button>
+                      <button onClick={buscar} disabled={buscandoAhora}
+                        className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold disabled:opacity-50">
+                        {buscandoAhora ? "…" : "Buscar"}
+                      </button>
                     </div>
                   </div>
 
-                  <button onClick={malAgendada} disabled={trabajando}
-                    className="w-full py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 transition-colors disabled:opacity-50">
-                    Esta entrega está mal agendada — borrarla
-                  </button>
+                  {/* Borrar la entrega es la salida para cuando no corresponde a nadie, no
+                      un aviso de que algo esté mal. En bloque rojo y de ancho completo se
+                      leía como un veredicto del sistema incluso con la clienta ya reconocida
+                      en verde arriba. Grita solo cuando de verdad no coincide ninguna; si hay
+                      a quién ligar, se queda como un enlace discreto y a la mano. */}
+                  {(resultados ?? detalle.candidatas ?? []).length === 0 ? (
+                    <button onClick={malAgendada} disabled={trabajando}
+                      className="w-full py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 transition-colors disabled:opacity-50">
+                      Esta entrega está mal agendada — borrarla
+                    </button>
+                  ) : (
+                    <button onClick={malAgendada} disabled={trabajando}
+                      className="w-full text-center text-xs text-slate-400 hover:text-red-600 underline pt-1 disabled:opacity-50">
+                      Esta entrega está mal agendada — borrarla
+                    </button>
+                  )}
                 </>
               ) : (
                 <>

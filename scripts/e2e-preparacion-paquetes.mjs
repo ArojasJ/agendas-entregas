@@ -16,7 +16,7 @@ const fail = (m) => { out.push("  FALLA " + m); process.exitCode = 1; };
 
 const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 const browser = await chromium.launch();
-let clienteId, productoId, bookingId, cajaA, cajaB;
+let clienteId, productoId, bookingId, bookingHuerfano, cajaA, cajaB;
 const ventas = [];
 
 const cajaOcupada = async (n) => (await db.query(`
@@ -70,6 +70,15 @@ try {
   bookingId = b.rows[0].id;
   ok(`clienta con la caja ${cajaA} (2 productos) y la ${cajaB} (1), y una entrega sin ligar`);
 
+  // Y una entrega que no empata con NADA: ni el usuario, ni el nombre, ni el teléfono
+  // caen en ninguna ficha. Es el caso de verdad —uno de cada cuatro— y el único en el
+  // que se nota si el buscador busca o solo filtra lo que el sistema ya propuso.
+  const bh = await db.query(
+    `INSERT INTO bookings (type,date,instagram,"fullName",phone,status,delivery_status,products,sale_item_ids)
+     VALUES ('domicilio','${isoDePrueba()}','@zzz_usuario_que_no_existe','ZZZ Entrega Huerfana','9090909090',
+             'confirmed','pendiente','1x algo','[]'::jsonb) RETURNING id`);
+  bookingHuerfano = bh.rows[0].id;
+
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
   await ctx.addInitScript((t) => {
     localStorage.setItem("panelToken", t);
@@ -91,6 +100,31 @@ try {
   if (/Paquetes por preparar/i.test(texto)) ok("dice cuántos paquetes hay por preparar hoy");
   else fail("no dice cuántos faltan: " + texto.slice(0, 250));
 
+  // ── La entrega que no empata con nada: antes no había forma de ligarla ──
+  await page.getByText("ZZZ Entrega Huerfana", { exact: false }).first().click();
+  await page.waitForTimeout(2500);
+  texto = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/No coincide con ninguna clienta/i.test(texto))
+    ok("una entrega cuyo usuario no existe en ninguna ficha no propone a nadie, y lo dice");
+  else
+    fail("esperaba que no propusiera a nadie: " + texto.slice(0, 400));
+
+  await page.getByPlaceholder("Nombre, usuario o teléfono…").fill(ETIQUETA);
+  await page.getByRole("button", { name: /^Buscar$|^…$/ }).click();
+  await page.waitForTimeout(2500);
+  texto = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/3 productos esperando/i.test(texto))
+    ok("y aun así se puede buscar a la clienta por su nombre y la encuentra con sus 3 productos");
+  else
+    fail("sin propuestas, buscar por nombre sigue sin encontrarla: " + texto.slice(0, 500));
+
+  await page.screenshot({ path: "scripts/preparacion-sin-ficha.png" });
+
+  await page.getByRole("button", { name: "✕" }).first().click().catch(async () => {
+    await page.keyboard.press("Escape");
+  });
+  await page.waitForTimeout(1500);
+
   // Entrar al paquete de la clienta de prueba
   await page.getByText(ETIQUETA, { exact: false }).first().click();
   await page.waitForTimeout(2500);
@@ -103,6 +137,44 @@ try {
   if (/Lo que escribió la clienta/i.test(texto) && /lo que la clienta escribió/i.test(texto))
     ok("enseña lo que la clienta había anotado al agendar");
   else fail("no enseña lo que escribió la clienta");
+
+  // ── El botón de borrar no debe gritar cuando el sistema ya reconoció a la clienta ──
+  const borrar = page.getByRole("button", { name: /mal agendada/i }).first();
+  if (await borrar.count() === 0) fail("desapareció la salida para una entrega mal agendada");
+  let clases = (await borrar.getAttribute("class")) || "";
+  if (!/bg-red-50/.test(clases) && /underline/.test(clases))
+    ok("con la clienta ya reconocida, borrar la entrega es un enlace discreto, no un bloque rojo");
+  else
+    fail("sigue saliendo como bloque rojo junto a la coincidencia: " + clases);
+
+  await page.screenshot({ path: "scripts/preparacion-quien-es.png" });
+
+  // ── Buscar a mano busca en TODAS las fichas, no solo entre las propuestas ──
+  // La clienta de prueba no se puede encontrar por su nombre filtrando las propuestas
+  // (que es lo que hacía antes) si primero se vacía la lista con una búsqueda fallida.
+  await page.getByPlaceholder("Nombre, usuario o teléfono…").fill("zzzz_no_existe_zzzz");
+  await page.getByRole("button", { name: /^Buscar$|^…$/ }).click();
+  await page.waitForTimeout(2000);
+  texto = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/Esa búsqueda no encontró ninguna ficha/i.test(texto))
+    ok("una búsqueda sin resultados lo dice claro, y no se confunde con 'no coincide'");
+  else
+    fail("no avisa que la búsqueda no encontró nada: " + texto.slice(0, 400));
+
+  clases = (await page.getByRole("button", { name: /mal agendada/i }).first().getAttribute("class")) || "";
+  if (/bg-red-50/.test(clases))
+    ok("y ahí sí, sin ninguna ficha a la vista, borrar la entrega aparece en rojo");
+  else
+    fail("no resalta cuando de verdad no hay a quién ligar: " + clases);
+
+  await page.getByPlaceholder("Nombre, usuario o teléfono…").fill(ETIQUETA);
+  await page.getByRole("button", { name: /^Buscar$|^…$/ }).click();
+  await page.waitForTimeout(2500);
+  texto = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/3 productos esperando/i.test(texto))
+    ok("y al buscarla por su nombre la encuentra con sus 3 productos, saliendo de la lista vacía");
+  else
+    fail("buscar por nombre no la encuentra: " + texto.slice(0, 500));
 
   // Ligar
   await page.getByText("3 productos esperando", { exact: false }).first().click();
@@ -160,6 +232,7 @@ try {
 } finally {
   try {
     if (bookingId) await db.query("DELETE FROM bookings WHERE id=$1", [bookingId]);
+    if (bookingHuerfano) await db.query("DELETE FROM bookings WHERE id=$1", [bookingHuerfano]);
     if (ventas.length) {
       await db.query("DELETE FROM sale_items WHERE sale_id = ANY($1::uuid[])", [ventas]);
       await db.query("DELETE FROM sales WHERE id = ANY($1::uuid[])", [ventas]);
