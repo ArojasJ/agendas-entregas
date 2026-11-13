@@ -109,6 +109,27 @@ try {
   if (/Busca un producto para empezar/i.test(texto)) ok("y en su lugar queda una barra que dice qué hacer");
   else fail("no aparece la barra");
 
+  // ── Asignar la clienta ANTES de tener productos ──
+  // Al esconder el carrito, "Asignar cliente" se quedó sin puerta: con el carrito
+  // vacío la barra no se podía tocar y no había forma de elegir clienta.
+  if (/Toca para asignar clienta/i.test(texto)) ok("la barra invita a asignar clienta aunque no haya nada en el carrito");
+  else fail("la barra no ofrece asignar clienta: " + texto.slice(-250));
+
+  await page.getByText("Toca para asignar clienta").click();
+  await page.waitForTimeout(1200);
+  texto = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/ASIGNAR CLIENTE/i.test(texto)) ok("y al tocarla sube el carrito con el buscador de clientas");
+  else fail("no se puede llegar a asignar clienta: " + texto.slice(-300));
+
+  await page.getByPlaceholder(/@instagram o por nombre/i).first().fill("PRUEBA");
+  await page.waitForTimeout(1500);
+  const hayResultados = await page.getByText("@", { exact: false }).count();
+  if (hayResultados > 0) ok("el buscador de clientas responde desde el celular");
+  else fail("el buscador de clientas no muestra nada");
+
+  await page.getByRole("button", { name: /Cerrar/ }).first().click();
+  await page.waitForTimeout(900);
+
   // ── Agregar al carrito ──
   await page.getByText(`BLUSA ${ETIQUETA} 1`, { exact: false }).first().click();
   await page.waitForTimeout(1200);

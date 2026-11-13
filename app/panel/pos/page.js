@@ -904,26 +904,39 @@ export default function PosPage() {
           la barra de menú del panel, que mide 72px. */}
       {fueraDeBodega && !verCarritoMovil && (
         <div className="lg:hidden fixed left-0 right-0 bottom-[72px] z-40 px-3 pb-2">
-          {cart.length === 0 ? (
-            <div className="rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-lg px-4 py-3 text-center">
-              <p className="text-sm text-slate-400">Busca un producto para empezar</p>
-            </div>
-          ) : (
-            <div className="rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-xl p-2.5 flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => setVerCarritoMovil(true)}
-                className="flex-1 min-w-0 text-left px-2"
-              >
-                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400 leading-none">
-                  {cart.reduce((n, i) => n + i.quantity, 0)} producto{cart.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"}
-                  {selectedClient ? ` · ${(selectedClient.instagram || selectedClient.name || "").slice(0, 14)}` : ""}
+          <div className="rounded-2xl bg-white/95 backdrop-blur border border-slate-200 shadow-xl p-2.5 flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setVerCarritoMovil(true)}
+              className="flex-1 min-w-0 text-left px-2"
+            >
+              {/* La clienta va arriba y SIEMPRE, también con el carrito vacío: al
+                  esconder el carrito se quedó sin puerta de entrada y no había cómo
+                  asignarla. Y casi siempre se sabe a quién se le vende antes de
+                  ponerse a buscar el producto. */}
+              <p className={`text-[11px] font-black uppercase tracking-wider leading-none truncate ${
+                selectedClient ? "text-emerald-600" : "text-amber-600"
+              }`}>
+                {selectedClient
+                  ? `👤 ${selectedClient.instagram || selectedClient.name}`
+                  : "👤 Toca para asignar clienta"}
+              </p>
+              {cart.length === 0 ? (
+                <p className="text-sm text-slate-400 leading-tight mt-0.5">
+                  Busca un producto para empezar
                 </p>
-                <p className="text-xl font-black text-slate-900 tabular-nums leading-tight">
-                  ${total.toFixed(2)}
-                </p>
-                <p className="text-[10px] text-slate-400 leading-none">toca para ver o editar</p>
-              </button>
+              ) : (
+                <>
+                  <p className="text-xl font-black text-slate-900 tabular-nums leading-tight">
+                    ${total.toFixed(2)}
+                  </p>
+                  <p className="text-[10px] text-slate-400 leading-none">
+                    {cart.reduce((n, i) => n + i.quantity, 0)} producto{cart.reduce((n, i) => n + i.quantity, 0) === 1 ? "" : "s"} · toca para ver o editar
+                  </p>
+                </>
+              )}
+            </button>
+            {cart.length > 0 && (
               <button
                 type="button"
                 onClick={openCheckout}
@@ -931,8 +944,8 @@ export default function PosPage() {
               >
                 Cobrar →
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
