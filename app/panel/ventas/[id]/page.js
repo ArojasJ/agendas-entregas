@@ -553,9 +553,23 @@ export default function SaleDetailPage() {
                       <p className="text-xs text-slate-500">{item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'} a ${item.unit_price} c/u</p>
                       {item.delivery_status === 'delivered' ? (
                         <div className="flex flex-col gap-1 mt-1 items-start">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
-                            ✓ Entregado
-                          </span>
+                          {/* No todo lo que sale de la bodega se entregó: un apartado
+                              sin pagar se revende y a veces el producto se pierde.
+                              Esto lo ve el panel; en la pantalla de la clienta ni
+                              siquiera llega el dato. */}
+                          {item.resolucion === "revendido" ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase rounded-md border border-indigo-100">
+                              ♻️ Revendido
+                            </span>
+                          ) : item.resolucion === "perdido" ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 text-[10px] font-black uppercase rounded-md border border-red-100">
+                              ❌ Perdido
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-100">
+                              ✓ Entregado
+                            </span>
+                          )}
                           {/* Quién lo entregó y cuándo. Lo de antes de noviembre 2026 no
                               lo tiene: no se guardaba, y se dice en vez de inventarlo. */}
                           <span className="text-[11px] text-slate-400">

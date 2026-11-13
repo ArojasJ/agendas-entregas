@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin as adminSupabase } from "@/lib/supabaseAdmin";
+import { ocultarResolucion } from "@/lib/vistaCliente";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function GET(request) {
     .select(`
       *,
       payments ( amount, created_at ),
-      sale_items ( id, quantity, unit_price, delivery_status, products (id, name, image_url) )
+      sale_items ( id, quantity, unit_price, delivery_status, resolucion, products (id, name, image_url) )
     `)
     .eq("client_id", client.id)
     .order("created_at", { ascending: false });
@@ -38,6 +39,8 @@ export async function GET(request) {
   if (salesErr) {
     return NextResponse.json({ message: "Error al cargar historial" }, { status: 500 });
   }
+
+  ocultarResolucion(sales);
 
   // 3. Traer entregas (bookings) para mostrar su estado, usando su instagram y teléfono como fallback, 
   // o ideally filtrando por instagram

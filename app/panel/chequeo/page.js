@@ -58,7 +58,7 @@ export default function ChequeoPage() {
     const clave = `${cliente.id}-${productos.map((p) => p.itemId).join(",")}`;
     setTrabajando(clave);
     try {
-      const cuerpo = accion === "entregado"
+      const cuerpo = ["entregado", "revendido", "perdido"].includes(accion)
         ? { accion, itemIds: productos.map((p) => p.itemId), clientId: cliente.id }
         : { accion, saleIds: [...new Set(productos.map((p) => p.saleId))] };
 
@@ -81,7 +81,7 @@ export default function ChequeoPage() {
       const ids = new Set(productos.map((p) => p.itemId));
       setResueltos((n) => n + productos.length);
 
-      if (accion === "entregado") {
+      if (["entregado", "revendido", "perdido"].includes(accion)) {
         // Lo entregado sale de la lista; ya no hay nada que ubicar
         setClientes((prev) =>
           prev
@@ -226,6 +226,23 @@ export default function ChequeoPage() {
                             className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 transition-colors active:scale-95 disabled:opacity-50"
                           >
                             🏷️ En estante
+                          </button>
+                          {/* No todo se entrega ni se guarda: un apartado que no se
+                              pagó se revende, y a veces el producto simplemente se
+                              pierde. Son etiquetas, no mueven inventario ni dinero. */}
+                          <button
+                            onClick={() => accionar(c, "revendido", [p])}
+                            disabled={!!trabajando}
+                            className="text-xs font-bold px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors active:scale-95 disabled:opacity-50"
+                          >
+                            ♻️ Revendido
+                          </button>
+                          <button
+                            onClick={() => accionar(c, "perdido", [p])}
+                            disabled={!!trabajando}
+                            className="text-xs font-bold px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors active:scale-95 disabled:opacity-50"
+                          >
+                            ❌ Perdido
                           </button>
                         </div>
                       </div>

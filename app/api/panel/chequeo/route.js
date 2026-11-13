@@ -1,7 +1,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { liberarSiYaNoQuedaNada, liquidarSiYaSalioTodo } from "@/lib/ubicaciones";
-import { marcarEntregados } from "@/lib/entregadoPor";
+import { marcarEntregados, selloDeEntrega } from "@/lib/entregadoPor";
 import { cajasDeTexto } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -161,6 +161,48 @@ export async function PATCH(req) {
       return Response.json({ message: "No se pudo marcar en estante" }, { status: 500 });
     }
     return Response.json({ ok: true, marcadas: saleIds.length });
+  }
+
+  // Revendido o perdido: el producto deja de estar esperando, pero no se entregó.
+  //
+  // Es SOLO una etiqueta. No devuelve stock, no crea ventas, no toca dinero ni la
+  // deuda de la clienta: un apartado que no se pagó ya se penalizó por su lado, y un
+  // producto perdido es pérdida del negocio, no una venta. Lo único que cambia es que
+  // deja de contarse como pendiente, porque ya no está guardado en ningún lado.
+  if (accion === "revendido" || accion === "perdido") {
+    if (itemIds.length === 0) {
+      return Response.json({ message: "No se indicó qué productos" }, { status: 400 });
+    }
+
+    const { data: afectados } = await supabase
+      .from("sale_items").select("sale_id").in("id", itemIds);
+
+    const { error } = await supabase
+      .from("sale_items")
+      .update({
+        // Resuelto para el sistema; el motivo de verdad va en resolucion.
+        delivery_status: "delivered",
+        resolucion: accion,
+        ...selloDeEntrega(session),
+      })
+      .in("id", itemIds)
+      .or("delivery_status.neq.delivered,delivery_status.is.null");
+
+    if (error) {
+      console.error(`Error al marcar ${accion}:`, error);
+      return Response.json({ message: "No se pudo marcar" }, { status: 500 });
+    }
+
+    // La caja se suelta si ya no queda nada: lo revendido o perdido no ocupa lugar.
+    // La venta a crédito NO se liquida aquí a propósito: que se haya revendido no
+    // significa que la clienta haya pagado.
+    if (clientId) {
+      try { await liberarSiYaNoQuedaNada(clientId); }
+      catch (e) { console.error("No se pudo recalcular el lugar:", e); }
+    }
+
+    void afectados;
+    return Response.json({ ok: true, marcados: itemIds.length, resolucion: accion });
   }
 
   return Response.json({ message: "Acción desconocida" }, { status: 400 });
