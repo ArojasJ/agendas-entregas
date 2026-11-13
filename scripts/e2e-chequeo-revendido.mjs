@@ -15,7 +15,7 @@ const fail = (m) => { out.push("  FALLA " + m); process.exitCode = 1; };
 
 const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 const browser = await chromium.launch();
-let productoId;
+let productoId, bookingId;
 const clientes = [];
 
 async function clientaConPendiente(sufijo) {
@@ -43,7 +43,17 @@ try {
 
   const rev = await clientaConPendiente("rev");
   const per = await clientaConPendiente("per");
-  ok("dos clientas con un producto pendiente cada una, de hace 40 días");
+  // Y una tercera cuyo producto YA está en un paquete armado: seguía saliendo en
+  // Chequeo porque el filtro miraba el lugar de la venta, y el paquete se guarda por
+  // producto. Era el caso de la bufanda de @bustosmartha.
+  const empacada = await clientaConPendiente("pack");
+  const bk = await db.query(
+    `INSERT INTO bookings (type,date,instagram,"fullName",phone,status,delivery_status,products,sale_item_ids)
+     VALUES ('bodega',current_date + 400,'@prueba_botones_pack','PACK','8711234567','confirmed','pendiente','x','[]'::jsonb)
+     RETURNING id`);
+  bookingId = bk.rows[0].id;
+  await db.query(`update sale_items set paquete_booking_id=$1 where id=$2`, [bookingId, empacada.itemId]);
+  ok("tres clientas con un pendiente cada una; la tercera ya tiene su paquete armado");
 
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
   await ctx.addInitScript((t) => {
@@ -66,6 +76,12 @@ try {
   await abrir();
   const t = tarjetaDe("rev");
   if (await t.count() === 0) throw new Error("la clienta de prueba no aparece en Chequeo");
+
+  const enLista = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+  if (!/@prueba_botones_pack/.test(enLista))
+    ok("lo que ya está en un paquete armado NO sale en Chequeo: ya tiene lugar");
+  else
+    fail("un producto empacado sigue apareciendo en Chequeo");
 
   const texto = (await t.innerText()).replace(/\s+/g, " ");
   if (/Revendido/i.test(texto) && /Perdido/i.test(texto))
@@ -106,6 +122,10 @@ try {
   fail(e.message);
 } finally {
   try {
+    if (bookingId) {
+      await db.query(`update sale_items set paquete_booking_id=null where paquete_booking_id=$1`, [bookingId]);
+      await db.query("DELETE FROM bookings WHERE id=$1", [bookingId]);
+    }
     if (clientes.length) {
       await db.query(`DELETE FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE client_id = ANY($1::uuid[]))`, [clientes]);
       await db.query(`DELETE FROM sales WHERE client_id = ANY($1::uuid[])`, [clientes]);

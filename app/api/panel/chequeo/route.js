@@ -44,6 +44,10 @@ export async function GET(req) {
       .is("sales.clients.box_1", null)
       .is("sales.clients.box_2", null)
       .is("sales.ubicacion", null)
+      // Lo que ya está en un paquete armado SÍ tiene lugar: está listo para salir y
+      // su entrega lo va a marcar. Seguía saliendo aquí porque este filtro miraba el
+      // lugar de la venta y el paquete se guarda por producto.
+      .is("paquete_booking_id", null)
       // El orden tiene que ser de sale_items, no de la tabla anidada: PostgREST no
       // ordena las filas de arriba por una columna de la relación, y sin un orden
       // estable el paginado puede repetir y saltarse renglones. Lo viejo primero se
