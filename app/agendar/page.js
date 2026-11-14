@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { DOMICILIO_LIMIT, BODEGA_DIAS_DEFAULT, parseBodegaDias, textoDiasBodega, fechasFloreria } from "@/lib/constants";
+import { tieneIntentoFallidoSinSaldar, costoDeEnvio, ENVIO_NORMAL, ENVIO_DOBLE } from "@/lib/penalizacionEnvio";
 import { useRouter } from "next/navigation";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -312,13 +313,10 @@ export default function AgendarPage() {
       ? Math.max(DOMICILIO_LIMIT - domicilioCountForSelected, 0)
       : DOMICILIO_LIMIT;
 
-  // Penalización por intento fallido: solo si el último no_entregado no fue seguido de un entregado
-  const lastFailed = clientBookings
-    .filter(bk => bk.delivery_status === "no_entregado")
-    .sort((a, b) => new Date(b.date) - new Date(a.date))[0] || null;
-  const hasPendingFailedAttempt = !!lastFailed && !clientBookings.some(
-    bk => bk.delivery_status === "entregado" && new Date(bk.date) > new Date(lastFailed.date)
-  );
+  // La regla y los montos viven en lib/penalizacionEnvio: el costo estaba escrito a
+  // mano en cinco puntos de esta pantalla y la regla en un sexto.
+  const hasPendingFailedAttempt = tieneIntentoFallidoSinSaldar(clientBookings);
+  const envio = costoDeEnvio(clientBookings);
 
   // Calcular deuda de productos seleccionados
   useEffect(() => {
@@ -583,7 +581,7 @@ export default function AgendarPage() {
         productsString = selectedItems.map(i => `${i.quantity}x ${i.product_name}`).join(", ");
       }
 
-      const deliveryFee = hasPendingFailedAttempt ? 90 : 45;
+      const deliveryFee = envio;
 
       const res = await fetch("/api/bookings", {
         method: "POST",
@@ -1117,7 +1115,7 @@ export default function AgendarPage() {
               <div className="bg-rose-50 border-2 border-rose-200 rounded-2xl p-4 shadow-sm">
                 <p className="font-black text-rose-700 flex items-center gap-2 mb-1"><span>⚠️</span> Doble costo de envío aplicado</p>
                 <p className="text-rose-600 text-xs leading-relaxed">
-                  Tuvimos un intento de entrega fallido en tu dirección. Por política, el siguiente envío tiene un costo de <b>$90.00 MXN</b> en lugar de $45.00.
+                  Tuvimos un intento de entrega fallido en tu dirección. Por política, el siguiente envío tiene un costo de <b>${ENVIO_DOBLE}.00 MXN</b> en lugar de ${ENVIO_NORMAL}.00.
                 </p>
               </div>
             )}
@@ -1132,14 +1130,14 @@ export default function AgendarPage() {
                       <span className="text-[10px] text-rose-400 font-bold uppercase">Penalización por intento fallido</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-black text-xl text-rose-400">$90.00 MXN</span>
-                      <span className="text-slate-500 text-xs line-through block">$45.00</span>
+                      <span className="font-black text-xl text-rose-400">${ENVIO_DOBLE}.00 MXN</span>
+                      <span className="text-slate-500 text-xs line-through block">${ENVIO_NORMAL}.00</span>
                     </div>
                   </div>
                 ) : (
                   <div className="flex justify-between items-center mb-4">
                     <span className="font-bold text-sm tracking-wide text-slate-300">COSTO DE ENVÍO</span>
-                    <span className="font-black text-xl">$45.00 MXN</span>
+                    <span className="font-black text-xl">${ENVIO_NORMAL}.00 MXN</span>
                   </div>
                 )}
 
@@ -1151,7 +1149,7 @@ export default function AgendarPage() {
                     </div>
                     <div className="flex justify-between font-black text-lg text-emerald-400 pt-1">
                       <span>TOTAL A PAGAR:</span>
-                      <span>${(calculatingDebt + (hasPendingFailedAttempt ? 90 : 45)).toFixed(2)}</span>
+                      <span>${(calculatingDebt + envio).toFixed(2)}</span>
                     </div>
                   </div>
                 )}
@@ -1365,11 +1363,11 @@ export default function AgendarPage() {
                 <div className="flex justify-between items-end relative z-10">
                   <div>
                     <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Costo de envío</p>
-                    <p className="text-3xl font-black">${hasPendingFailedAttempt ? "90.00" : "45.00"}</p>
+                    <p className="text-3xl font-black">${envio.toFixed(2)}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-bold opacity-60 uppercase mb-1">Total a Pagar</p>
-                    <p className="text-3xl font-black">${(calculatingDebt + (hasPendingFailedAttempt ? 90 : 45)).toFixed(2)}</p>
+                    <p className="text-3xl font-black">${(calculatingDebt + envio).toFixed(2)}</p>
                   </div>
                 </div>
               </div>
