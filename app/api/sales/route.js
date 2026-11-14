@@ -2,6 +2,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { guardarUbicacion, estanEnBodega, anotarEnBitacora } from "@/lib/ubicaciones";
 import { traerTodo } from "@/lib/paginar";
+import { comoNaceElProducto } from "@/lib/entregadoPor";
 
 
 export async function GET(req) {
@@ -159,7 +160,7 @@ export async function POST(req) {
           variant_id: item.variant_id || null,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          delivery_status: "pending"
+          ...comoNaceElProducto(client_id, session),
         }]);
 
       if (itemError) {
