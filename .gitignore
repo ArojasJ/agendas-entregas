@@ -49,3 +49,6 @@ scripts/*.png
 # tienen por qué viajar al repositorio.
 scripts/productos-sin-ubicar.csv
 scripts/cotejado-*.json
+
+# Lleva nombres y usuarios de clientas
+scripts/saldos-a-favor-respaldo.json

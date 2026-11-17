@@ -354,7 +354,6 @@ function ClientesContent() {
                     ? <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-bold rounded-md">✓ Registrado</span>
                     : <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-400 text-[10px] font-bold rounded-md">Sin cuenta</span>
                   }
-                  {Number(c.saldo_favor) > 0 && <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[10px] font-black rounded-md">💚 ${Number(c.saldo_favor).toFixed(2)} a favor</span>}
                 </div>
               </div>
             </div>
@@ -536,11 +535,6 @@ function ClientesContent() {
                   <h2 className="text-xl font-black text-slate-900 leading-tight">{activeClient.name}</h2>
                   <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">{activeClient.instagram || "Sin Instagram"}</p>
                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                    {Number(activeClient.saldo_favor) > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 border border-emerald-200 text-emerald-700 text-[10px] font-black rounded-full">
-                        💚 ${Number(activeClient.saldo_favor).toFixed(2)} a favor
-                      </span>
-                    )}
                     {/* El expediente tampoco decía dónde tiene guardadas sus cosas */}
                     {cajasDeTexto(activeClient.box_1, activeClient.box_2).map((n) => (
                       <span key={n} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-black rounded-full tabular-nums">

@@ -72,7 +72,7 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
 
   // Al cambiar el sentido de la diferencia, la opción marcada deja de tener sentido
   useEffect(() => {
-    if (diferencia > 0) setResolucion((r) => (r === "devolver" || r === "saldo" ? r : "devolver"));
+    if (diferencia > 0) setResolucion("devolver");
     else if (diferencia < 0)
       setResolucion((r) => (r === "cobrar" || r === "credito" ? r : eraCredito ? "credito" : "cobrar"));
     else setResolucion(null);
@@ -161,7 +161,6 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
       if (!res.ok) return showToast(data.message || "No se pudo guardar", "error");
 
       if (data.devuelto > 0) showToast(`Listo. Devuélvele ${money(data.devuelto)} a la clienta`, "success");
-      else if (data.saldoAcreditado > 0) showToast(`Listo. Le quedaron ${money(data.saldoAcreditado)} a favor`, "success");
       else if (data.cobrado > 0) showToast(`Listo. Cóbrale ${money(data.cobrado)}`, "success");
       else showToast("Venta corregida", "success");
 
@@ -301,15 +300,11 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
             <div className="m-4 mb-0 bg-amber-50 border border-amber-200 rounded-2xl p-4">
               <p className="font-black text-amber-900">Sobran {money(diferencia)}</p>
               <p className="text-xs text-amber-700 mt-0.5 mb-3">La clienta pagó de más. ¿Qué se hace con ese dinero?</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 <button
                   onClick={() => setResolucion("devolver")}
                   className={`py-2.5 rounded-xl text-xs font-black border-2 transition-all ${resolucion === "devolver" ? "border-emerald-500 bg-emerald-500/10 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
                 >Devolver en efectivo</button>
-                <button
-                  onClick={() => setResolucion("saldo")}
-                  className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${resolucion === "saldo" ? "border-emerald-500 bg-emerald-500/10 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
-                >Dejar a su favor</button>
               </div>
             </div>
           )}

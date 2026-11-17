@@ -109,7 +109,7 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
-    const { client_id, total, discount, payment_method, status, down_payment, credit_days, items, saldo_applied, ubicacion } = body;
+    const { client_id, total, discount, payment_method, status, down_payment, credit_days, items, ubicacion } = body;
 
     if (!items || items.length === 0) {
       return Response.json({ message: "La venta no tiene productos." }, { status: 400 });
@@ -187,16 +187,6 @@ export async function POST(req) {
             .update({ stock: Math.max(0, product.stock - item.quantity) })
             .eq("id", item.product_id).gte("stock", item.quantity);
         }
-      }
-    }
-
-    // Deducir saldo a favor si se aplicó
-    const saldoAplicado = Number(saldo_applied) || 0;
-    if (saldoAplicado > 0 && client_id) {
-      const { data: client } = await supabase.from("clients").select("saldo_favor").eq("id", client_id).single();
-      if (client) {
-        const nuevoSaldo = Math.max(0, Math.round((Number(client.saldo_favor || 0) - saldoAplicado) * 100) / 100);
-        await supabase.from("clients").update({ saldo_favor: nuevoSaldo }).eq("id", client_id);
       }
     }
 

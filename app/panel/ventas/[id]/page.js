@@ -421,11 +421,11 @@ export default function SaleDetailPage() {
               <p className="text-xs text-red-500/70 mt-0.5">15% del total de la venta retenido por la tienda</p>
             </div>
             <div className="bg-emerald-50 p-4">
-              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Saldo a favor del cliente</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Devolverle en efectivo</span>
               <span className="text-2xl font-black text-emerald-600">
                 ${Math.max(0, Math.round(((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100).toFixed(2)}
               </span>
-              <p className="text-xs text-emerald-600/70 mt-0.5">Acreditado en su cuenta para próximas compras</p>
+              <p className="text-xs text-emerald-600/70 mt-0.5">Lo que pagó de más, descontada la penalización</p>
             </div>
           </div>
         ) : (

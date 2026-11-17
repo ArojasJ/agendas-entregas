@@ -123,26 +123,23 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      // Calcular 15% penalización sobre el total de la venta, saldo a favor = lo pagado - penalización
+      // El 15% de penalización se queda el negocio y entra al corte, como siempre.
+      // Lo que la clienta pagó de más se le DEVUELVE EN EFECTIVO: antes se le quedaba
+      // apuntado como saldo a favor, y eso se quitó. Nadie lo usaba nunca —ni una sola
+      // venta se pagó con saldo— y mientras tanto el sistema le prometía a la clienta
+      // un dinero que en la práctica se le entregaba a mano.
+      //
+      // El monto se sigue calculando y devolviendo en la respuesta: es lo que hay que
+      // sacar del cajón, y no decirlo sería peor que apuntarlo.
       const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
       const penalty = totalPagado > 0 ? Math.round(Number(sale.total) * 0.15 * 100) / 100 : 0;
-      const saldoFavor = Math.max(0, Math.round((totalPagado - penalty) * 100) / 100);
+      const aDevolver = Math.max(0, Math.round((totalPagado - penalty) * 100) / 100);
 
       // Actualizar venta
       const { error: updateErr } = await supabase.from("sales")
         .update({ status: 'cancelled', penalty_amount: penalty })
         .eq("id", id);
       if (updateErr) return Response.json({ message: "Error al cancelar" }, { status: 500 });
-
-      // Acreditar saldo a favor al cliente
-      if (sale.client_id && saldoFavor > 0) {
-        const { data: client } = await supabase.from("clients").select("saldo_favor").eq("id", sale.client_id).single();
-        if (client) {
-          await supabase.from("clients")
-            .update({ saldo_favor: Math.round((Number(client.saldo_favor || 0) + saldoFavor) * 100) / 100 })
-            .eq("id", sale.client_id);
-        }
-      }
 
       // La mercancía cancelada vuelve a la tienda, así que deja de ocupar su lugar.
       // Esto no se hacía: la caja se quedaba anotada en la ficha aunque estuviera
@@ -159,7 +156,7 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      return Response.json({ success: true, penalty, saldoFavor, cajas, message: "Venta penalizada y stock restaurado" });
+      return Response.json({ success: true, penalty, aDevolver, cajas, message: "Venta penalizada y stock restaurado" });
     }
 
     if (action === 'revert_cancel') {
@@ -183,16 +180,9 @@ export async function PATCH(req, { params }) {
         }
       }
 
-      // Quitar el saldo a favor que se acreditó
-      if (sale.client_id && sale.penalty_amount != null) {
-        const totalPagado = Number(sale.down_payment) + (sale.payments || []).reduce((s, p) => s + Number(p.amount), 0);
-        const saldoFavorAcreditado = Math.round((totalPagado - Number(sale.penalty_amount)) * 100) / 100;
-        const { data: client } = await supabase.from("clients").select("saldo_favor").eq("id", sale.client_id).single();
-        if (client) {
-          const nuevoSaldo = Math.max(0, Math.round((Number(client.saldo_favor || 0) - saldoFavorAcreditado) * 100) / 100);
-          await supabase.from("clients").update({ saldo_favor: nuevoSaldo }).eq("id", sale.client_id);
-        }
-      }
+      // Antes aquí se le quitaba el saldo a favor que la cancelación le había
+      // acreditado. Ya no se acredita ninguno, así que no hay nada que quitar: lo que
+      // se le devolvió fue efectivo, y eso se vuelve a cobrar en persona.
 
       const originalStatus = Number(sale.down_payment) < Number(sale.total) ? 'credit' : 'paid';
       const { error: updateErr } = await supabase.from("sales")
