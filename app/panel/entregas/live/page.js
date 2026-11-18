@@ -16,6 +16,23 @@ function secondsAgo(dateStr) {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
 }
 
+// "hace 12157s" no lo lee nadie. Después de un rato, lo único que importa es si el
+// repartidor sigue ahí o si ese punto ya no significa nada.
+function haceCuanto(segundos) {
+  if (segundos === null) return "sin señal";
+  if (segundos < 60) return `hace ${segundos} s`;
+  const min = Math.floor(segundos / 60);
+  if (min < 60) return `hace ${min} min`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `hace ${hrs} h ${min % 60} min`;
+  return `hace ${Math.floor(hrs / 24)} días`;
+}
+
+// Más de dos minutos sin señal y el punto deja de ser "dónde está": es "dónde estuvo".
+// Dos minutos porque al navegar dentro de Google Maps el navegador congela la pantalla
+// del repartidor y deja de mandar; se retoma al volver, y esos huecos son normales.
+const SEGUNDOS_PARA_ESTAR_VIEJO = 120;
+
 export default function LiveTrackingPage() {
   const router = useRouter();
   const mapRef = useRef(null);
@@ -253,16 +270,23 @@ export default function LiveTrackingPage() {
       });
     }
 
-    if (isActive) {
+    // Solo se sigue un punto que de verdad sea de ahora: perseguir uno viejo mueve el
+    // mapa a donde el repartidor estuvo hace horas.
+    if (isActive && secondsAgo(lastSeen) < SEGUNDOS_PARA_ESTAR_VIEJO) {
       mapInstanceRef.current.panTo(pos);
     }
-  }, [mapReady, driverLoc, isActive]);
+  }, [mapReady, driverLoc, isActive, lastSeen]);
 
   // ── Stats ─────────────────────────────────────────────
   const pending = bookings.filter(b => b.delivery_status !== "entregado");
   const delivered = bookings.filter(b => b.delivery_status === "entregado");
   const secs = secondsAgo(lastSeen);
-  const freshLocation = secs !== null && secs < 30;
+  // La bandera is_active no sirve para saber si está transmitiendo: se queda en true
+  // para siempre si el repartidor cierra la app sin apagar el GPS, y entonces el panel
+  // decía "activo" con una posición de hace tres horas. La hora no miente.
+  const freshLocation = secs !== null && secs < SEGUNDOS_PARA_ESTAR_VIEJO;
+  const transmitiendo = isActive && freshLocation;
+  const desdeHace = haceCuanto(secs);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
@@ -279,13 +303,13 @@ export default function LiveTrackingPage() {
             📍 Ruta en Vivo
           </h1>
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${isActive && freshLocation ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+            <span className={`w-2 h-2 rounded-full ${transmitiendo ? "bg-emerald-400 animate-pulse" : secs !== null && isActive ? "bg-amber-400" : "bg-slate-600"}`} />
             <span className="text-xs text-slate-400">
-              {isActive && freshLocation
-                ? `Activa · hace ${secs}s`
-                : isActive
-                ? `Sin señal · hace ${secs ?? "—"}s`
-                : "Repartidora no compartiendo"}
+              {transmitiendo
+                ? `En vivo · ${desdeHace}`
+                : secs !== null && isActive
+                ? `Sin señal · ${desdeHace}`
+                : "No está compartiendo ubicación"}
             </span>
           </div>
         </div>
@@ -315,8 +339,8 @@ export default function LiveTrackingPage() {
           {mapReady && (
             <div className="absolute bottom-4 left-4 bg-slate-900/90 border border-slate-700 rounded-2xl px-4 py-3 space-y-1.5 backdrop-blur-sm">
               <div className="flex items-center gap-2 text-xs text-slate-300">
-                <span className="w-3 h-3 rounded-full bg-sky-400 inline-block" />
-                Repartidora (en vivo)
+                <span className={`w-3 h-3 rounded-full inline-block ${transmitiendo ? "bg-sky-400" : "bg-slate-500"}`} />
+                {transmitiendo ? "Repartidor (en vivo)" : `Repartidor (${desdeHace})`}
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-300">
                 <span className="w-3 h-3 rounded-full bg-red-500 inline-block" />
@@ -356,15 +380,19 @@ export default function LiveTrackingPage() {
           {/* Estado repartidora */}
           <div className="px-4 py-3 border-b border-slate-800">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Estado</p>
-            <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${isActive && freshLocation ? "bg-emerald-500/10 border-emerald-500/20" : "bg-slate-800 border-slate-700"}`}>
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isActive && freshLocation ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+            <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${transmitiendo ? "bg-emerald-500/10 border-emerald-500/20" : secs !== null && isActive ? "bg-amber-500/10 border-amber-500/30" : "bg-slate-800 border-slate-700"}`}>
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${transmitiendo ? "bg-emerald-400 animate-pulse" : secs !== null && isActive ? "bg-amber-400" : "bg-slate-600"}`} />
               <div>
-                <p className={`text-sm font-bold ${isActive && freshLocation ? "text-emerald-300" : "text-slate-400"}`}>
-                  {isActive && freshLocation ? "Compartiendo ubicación" : isActive ? "Sin señal reciente" : "GPS no activo"}
+                <p className={`text-sm font-bold ${transmitiendo ? "text-emerald-300" : secs !== null && isActive ? "text-amber-300" : "text-slate-400"}`}>
+                  {transmitiendo
+                    ? "Compartiendo ubicación"
+                    : secs !== null && isActive
+                    ? `Última señal ${desdeHace} — puede que ya no esté ahí`
+                    : "GPS no activo"}
                 </p>
                 {lastSeen && (
                   <p className="text-[10px] text-slate-500">
-                    Última señal: hace {secs ?? "—"}s
+                    Última señal: {desdeHace}
                   </p>
                 )}
               </div>

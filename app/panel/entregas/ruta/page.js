@@ -586,58 +586,121 @@ export default function RutaPage() {
     }
   };
 
-  // ── GPS sharing ───────────────────────────────────────
+  // ── Compartir ubicación ───────────────────────────────
+  //
+  // Esto estaba apagándose solo y nadie se enteraba. Al abrir Google Maps y volver, la
+  // pantalla se recarga entera —por eso existe todo lo de restaurar la ruta— y el
+  // botón del GPS volvía apagado, porque era lo único que no se guardaba. Se apagaba
+  // en la primera parada del día.
+  //
+  // Un límite que no se puede quitar desde una página web: mientras está DENTRO de
+  // Google Maps, el navegador congela esta pantalla y no hay forma de mandar nada. Lo
+  // que sí se puede es retomar al instante al volver y no mentir sobre la antigüedad
+  // del dato, que es lo que hacía el letrero de "activo".
+
+  const ultimoEnvioRef = useRef({ lat: null, lng: null, cuando: 0 });
+
+  // La precisión no se manda: no hay columna donde guardarla. Se usa aquí para tirar
+  // las lecturas malas antes de que salgan, que es donde de verdad sirve.
   const sendLocation = useCallback(async (lat, lng) => {
-    const token = getPanelToken();
-    await fetch("/api/driver-location", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-panel-token": token },
-      body: JSON.stringify({ lat, lng, is_active: true }),
-    });
+    ultimoEnvioRef.current = { lat, lng, cuando: Date.now() };
+    try {
+      await fetch("/api/driver-location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": getPanelToken() },
+        body: JSON.stringify({ lat, lng, is_active: true }),
+      });
+    } catch {
+      // Sin señal no hay nada que hacer: la próxima lectura lo reintenta. La posición
+      // no se encola como las entregas porque una posición vieja no sirve de nada.
+    }
   }, []);
+
+  // Cuántos metros hay entre dos coordenadas, para no mandar lo mismo una y otra vez.
+  const metrosEntre = (aLat, aLng, bLat, bLng) => {
+    const R = 6371000;
+    const rad = (g) => (g * Math.PI) / 180;
+    const dLat = rad(bLat - aLat);
+    const dLng = rad(bLng - aLng);
+    const x = Math.sin(dLat / 2) ** 2 +
+      Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  };
 
   const startGps = useCallback(() => {
     if (!navigator.geolocation) return;
+    if (gpsWatchRef.current !== null) return; // ya está prendido
     setSharingGps(true);
-    let lastLat = null, lastLng = null;
+    localStorage.setItem("rutaGps", "on");
+
+    let ultima = null;
     gpsWatchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        lastLat = pos.coords.latitude;
-        lastLng = pos.coords.longitude;
-        sendLocation(lastLat, lastLng);
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        // Una lectura de más de 150 metros de error no dice dónde está: dice en qué
+        // colonia anda. Mandarla hace que el punto salte por el mapa.
+        if (accuracy != null && accuracy > 150) return;
+        ultima = { lat, lng, accuracy };
+
+        const previo = ultimoEnvioRef.current;
+        const movido = previo.lat === null ? Infinity : metrosEntre(previo.lat, previo.lng, lat, lng);
+        const desde = Date.now() - previo.cuando;
+        // Se manda si se movió de verdad, o cada 20 segundos para que se sepa que
+        // sigue vivo. Antes mandaba cada 5 segundos estuviera parado o no: 720
+        // peticiones por hora, con la batería y los datos de su plan.
+        if (movido > 25 || desde > 20000) sendLocation(lat, lng);
       },
       () => {},
-      { enableHighAccuracy: true, maximumAge: 5000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
     );
-    // Enviar cada 5s aunque no haya cambio
+
+    // Latido: si lleva rato sin moverse, igual se avisa que sigue ahí.
     gpsSendRef.current = setInterval(() => {
-      if (lastLat !== null) sendLocation(lastLat, lastLng);
-    }, 5000);
+      if (!ultima) return;
+      if (Date.now() - ultimoEnvioRef.current.cuando > 25000) {
+        sendLocation(ultima.lat, ultima.lng);
+      }
+    }, 10000);
   }, [sendLocation]);
 
-  const stopGps = useCallback(async () => {
+  const apagarWatch = useCallback(() => {
     if (gpsWatchRef.current !== null) {
       navigator.geolocation.clearWatch(gpsWatchRef.current);
       gpsWatchRef.current = null;
     }
     clearInterval(gpsSendRef.current);
     gpsSendRef.current = null;
-    setSharingGps(false);
-    const token = getPanelToken();
-    await fetch("/api/driver-location", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-panel-token": token },
-      body: JSON.stringify({ lat: 0, lng: 0, is_active: false }),
-    });
   }, []);
 
-  // Detener GPS al desmontar
+  const stopGps = useCallback(async () => {
+    apagarWatch();
+    setSharingGps(false);
+    // "off" a propósito: si él lo apagó, no se lo vuelvo a prender solo. Prenderlo
+    // contra su voluntad en cada parada sería peor que no tenerlo.
+    localStorage.setItem("rutaGps", "off");
+    try {
+      await fetch("/api/driver-location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": getPanelToken() },
+        body: JSON.stringify({ lat: 0, lng: 0, is_active: false }),
+      });
+    } catch {}
+  }, [apagarWatch]);
+
+  // Al salir de la pantalla se suelta el GPS del teléfono, pero NO se le dice al
+  // servidor que se apagó: irse a Google Maps hace exactamente esto, y marcarlo
+  // apagado en cada parada sería el problema contrario. Que el dato esté viejo lo
+  // dice la hora, no una bandera.
+  useEffect(() => apagarWatch, [apagarWatch]);
+
+  // Prenderlo solo al entrar en modo conducción. Está trabajando: no hay razón para
+  // pedirle que se acuerde de picar un botón todos los días, ni de volver a picarlo
+  // después de cada parada.
   useEffect(() => {
-    return () => {
-      if (gpsWatchRef.current !== null) navigator.geolocation.clearWatch(gpsWatchRef.current);
-      clearInterval(gpsSendRef.current);
-    };
-  }, []);
+    if (mode !== "driving") return;
+    if (localStorage.getItem("rutaGps") === "off") return;
+    startGps();
+  }, [mode, startGps]);
 
   // ── UI helpers ────────────────────────────────────────
   const statusClasses = {
