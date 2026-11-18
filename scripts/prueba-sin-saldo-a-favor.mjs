@@ -106,11 +106,62 @@ try {
   else
     fail("no se revirtió bien: " + JSON.stringify(revertida));
 
+  // ── Dejar constancia de que ya se le entregó el efectivo ──
+  const estado = async () => (await db.query(
+    `select devuelto_at, devuelto_por_name from sales where id=$1`, [ventaId])).rows[0];
+
+  // Volver a cancelarla para tener el pendiente
+  await fetch(`${BASE}/api/sales/${ventaId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tokenDePrueba("admin", "Antonio") },
+    body: JSON.stringify({ action: "cancel_forfeit" }),
+  });
+  if ((await estado()).devuelto_at === null)
+    ok("una cancelación nueva nace pendiente de devolver: el efectivo todavía no sale del cajón");
+  else
+    fail("nació marcada como devuelta");
+
+  const r3 = await fetch(`${BASE}/api/sales/${ventaId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tokenDePrueba("admin", "Antonio") },
+    body: JSON.stringify({ action: "marcar_devuelto" }),
+  });
+  if (!r3.ok) throw new Error("no se pudo marcar devuelto: " + (await r3.text()).slice(0, 200));
+  const e3 = await estado();
+  if (e3.devuelto_at && e3.devuelto_por_name === "Antonio")
+    ok("al picar 'Ya se le devolvió' queda la fecha y quién lo entregó");
+  else
+    fail("no quedó constancia: " + JSON.stringify(e3));
+
+  // Y el dinero de la venta no se movió: eso era lo importante
+  const dinero = (await db.query(
+    `select total, down_payment, penalty_amount from sales where id=$1`, [ventaId])).rows[0];
+  if (Number(dinero.total) === 1000 && Number(dinero.down_payment) === 200 && Number(dinero.penalty_amount) === 150)
+    ok("y no se tocó ni un peso de lo que la clienta pagó ni de la penalización");
+  else
+    fail("se alteró el dinero de la venta: " + JSON.stringify(dinero));
+
+  const r4 = await fetch(`${BASE}/api/sales/${ventaId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "x-panel-token": tokenDePrueba("admin", "Antonio") },
+    body: JSON.stringify({ action: "deshacer_devuelto" }),
+  });
+  if (r4.ok && (await estado()).devuelto_at === null)
+    ok("y se puede deshacer si se marcó por error");
+  else
+    fail("no se pudo deshacer");
+
   // ── Nadie quedó con saldo en toda la base ──
   const quedan = (await db.query(
     `select count(*)::int n from clients where coalesce(saldo_favor,0) <> 0`)).rows[0].n;
   if (quedan === 0) ok("y en toda la base no queda ninguna clienta con saldo a favor");
   else out.push(`  --    todavía hay ${quedan} clientas con saldo: falta correr la limpieza`);
+
+  const pendientes = (await db.query(
+    `select count(*)::int n from sales where status='cancelled' and devuelto_at is null and id <> $1`,
+    [ventaId])).rows[0].n;
+  if (pendientes === 0) ok("ni ninguna cancelación vieja pidiendo devolver: se arranca en cero");
+  else out.push(`  --    quedan ${pendientes} cancelaciones por devolver`);
 } catch (e) {
   fail(e.message);
 } finally {

@@ -159,6 +159,29 @@ export async function PATCH(req, { params }) {
       return Response.json({ success: true, penalty, aDevolver, cajas, message: "Venta penalizada y stock restaurado" });
     }
 
+    // Dejar constancia de que ya se le entregó en efectivo lo que pagó de más. El
+    // monto NO se guarda: se calcula de la venta y así se queda. Guardarlo en cero
+    // para "cerrarlo" habría significado cambiar lo que la clienta pagó.
+    if (action === 'marcar_devuelto' || action === 'deshacer_devuelto') {
+      const { data: venta } = await supabase
+        .from("sales").select("id, status").eq("id", id).single();
+      if (!venta) return Response.json({ message: "Venta no encontrada" }, { status: 404 });
+      if (venta.status !== 'cancelled') {
+        return Response.json({ message: "Esta venta no está cancelada" }, { status: 409 });
+      }
+      const devolver = action === 'marcar_devuelto';
+      const { error } = await supabase.from("sales").update({
+        devuelto_at: devolver ? new Date().toISOString() : null,
+        devuelto_por_staff_id: devolver && session.staffId ? String(session.staffId) : null,
+        devuelto_por_name: devolver ? (session.displayName || session.username || null) : null,
+      }).eq("id", id);
+      if (error) {
+        console.error("Error al marcar la devolución de " + id + ":", error);
+        return Response.json({ message: "No se pudo guardar" }, { status: 500 });
+      }
+      return Response.json({ success: true, devuelto: devolver });
+    }
+
     if (action === 'revert_cancel') {
       const { data: sale, error: saleErr } = await supabase
         .from("sales")

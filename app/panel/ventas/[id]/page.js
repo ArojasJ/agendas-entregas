@@ -294,6 +294,30 @@ export default function SaleDetailPage() {
     }
   };
 
+  // Dejar constancia de que el efectivo ya se le entregó, para que la venta deje de
+  // pedirlo. El monto no cambia: lo que cambia es que ya está saldado.
+  const marcarDevuelto = async (devolver) => {
+    setSavingAbono(true);
+    try {
+      const token = localStorage.getItem("panelToken") || "";
+      const res = await fetch(`/api/sales/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token },
+        body: JSON.stringify({ action: devolver ? "marcar_devuelto" : "deshacer_devuelto" }),
+      });
+      if (res.ok) {
+        showToast(devolver ? "Anotado: ya se le devolvió" : "Vuelve a quedar pendiente de devolver", "success");
+        fetchSaleDetail();
+      } else {
+        showToast("No se pudo guardar", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setSavingAbono(false);
+    }
+  };
+
   const handleSaveDueDate = async () => {
     if (!newDueDate) return;
     setSavingAbono(true);
@@ -420,13 +444,37 @@ export default function SaleDetailPage() {
               <span className="text-2xl font-black text-red-600">${Number(sale.penalty_amount || 0).toFixed(2)}</span>
               <p className="text-xs text-red-500/70 mt-0.5">15% del total de la venta retenido por la tienda</p>
             </div>
-            <div className="bg-emerald-50 p-4">
-              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Devolverle en efectivo</span>
-              <span className="text-2xl font-black text-emerald-600">
-                ${Math.max(0, Math.round(((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100).toFixed(2)}
-              </span>
-              <p className="text-xs text-emerald-600/70 mt-0.5">Lo que pagó de más, descontada la penalización</p>
-            </div>
+            {(() => {
+              const aDevolver = Math.max(0, Math.round(
+                ((Number(sale.down_payment) + totalPagadoAbonos) - Number(sale.penalty_amount || 0)) * 100) / 100);
+              if (aDevolver <= 0) return null;
+              // El monto se sigue enseñando aunque ya se haya devuelto: es parte de la
+              // historia de la cancelación, no un pendiente que desaparece.
+              return sale.devuelto_at ? (
+                <div className="bg-slate-50 p-4">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">Ya se le devolvió</span>
+                  <span className="text-2xl font-black text-slate-500">${aDevolver.toFixed(2)}</span>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {new Date(sale.devuelto_at).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })}
+                    {sale.devuelto_por_name ? ` · ${sale.devuelto_por_name}` : ""}
+                  </p>
+                  <button onClick={() => marcarDevuelto(false)} disabled={savingAbono}
+                    className="mt-2 text-[11px] text-slate-400 hover:text-slate-600 underline disabled:opacity-50">
+                    No, todavía no se le ha devuelto
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 p-4">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Devolverle en efectivo</span>
+                  <span className="text-2xl font-black text-emerald-600">${aDevolver.toFixed(2)}</span>
+                  <p className="text-xs text-emerald-600/70 mt-0.5">Lo que pagó de más, descontada la penalización</p>
+                  <button onClick={() => marcarDevuelto(true)} disabled={savingAbono}
+                    className="mt-3 w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-black hover:bg-emerald-700 transition-colors disabled:opacity-50">
+                    Ya se le devolvió
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <div className={`border rounded-2xl p-6 shadow-sm ${deuda > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
