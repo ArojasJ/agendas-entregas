@@ -22,7 +22,57 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* La tipografía del sistema es lo primero que distingue una app de una página: en
+     iPhone se ve con la de iOS y en Android con la de Android, sin que nada se sienta
+     prestado. Antes decía Arial, que además pisaba la fuente Geist que el proyecto sí
+     carga, así que no se usaba ninguna de las dos a propósito. */
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", system-ui, sans-serif;
+}
+
+/* ── Que se sienta app y no navegador ─────────────────────────────────────────── */
+
+/* El recuadro azul que pinta el navegador al tocar un botón. Ninguna app nativa lo
+   tiene, y es de las cosas que más delatan que esto es una página web. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  /* El rebote al llegar al final y el "jalar para recargar": en la pantalla de ruta,
+     un jalón de más le recargaba la ruta al repartidor a media parada. */
+  overscroll-behavior: none;
+}
+
+/* El texto no se selecciona solo al tocar y arrastrar, como en una app. Los campos de
+   escritura sí, obviamente: ahí sí hace falta poder seleccionar y corregir. */
+.app-chrome {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.app-chrome input,
+.app-chrome textarea,
+.app-chrome [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Respetar la muesca y la barra del home. El layout declara viewportFit: "cover", que
+   mete el contenido debajo de las dos; sin esto los botones de abajo —"No estaba" y
+   "Entregado", los que más se pican— quedaban tapados por la raya del iPhone. */
+.safe-top    { padding-top: env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* Pantalla completa para una tarea: el repartidor en modo conducción no necesita el
+   encabezado del panel ni la barra de navegación de abajo, y esa barra le tapaba los
+   dos botones que más pica —"No estaba" y "Entregado"—, que quedaban asomándose por
+   debajo. Una app nativa que te está guiando toma la pantalla entera. */
+body[data-pantalla-completa] [data-chrome-panel] {
+  display: none !important;
+}
+
+.safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .hide-scrollbar::-webkit-scrollbar { display: none; }

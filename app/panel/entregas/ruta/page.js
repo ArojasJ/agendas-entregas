@@ -6,6 +6,7 @@ import { geoAddress } from "@/lib/address";
 import { decodePanelTokenUnsafe } from "@/lib/panelToken";
 import { TIPO_PARADA_PAQUETERIA } from "@/lib/constants";
 import CobroPendiente from "../../CobroPendiente";
+import { vibrar, mantenerPantallaEncendida, encolar, cuantasEsperan, vaciarCola } from "@/lib/ruta/telefono";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
@@ -144,12 +145,12 @@ export default function RutaPage() {
     setLoadingBookings(true);
     try {
       const token = getPanelToken();
-      const [res, resClients] = await Promise.all([
-        fetch("/api/bookings", { headers: { "x-panel-token": token } }),
-        fetch("/api/clients", { headers: { "x-panel-token": token } }),
-      ]);
+      // Solo las paradas de hoy. Antes esto pedía /api/bookings —todas las entregas de
+      // la historia, 2.6 MB— y además /api/clients, que ya no se usa desde que se quitó
+      // el saldo a favor. Eran 3 MB cada vez que el repartidor volvía de Google Maps.
+      const res = await fetch(`/api/panel/ruta?fecha=${today}`, { headers: { "x-panel-token": token } });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = { bookings: (await res.json()).paradas || [] };
       const saved = localStorage.getItem("rutaOrder");
       let savedIds = [];
       try { savedIds = saved ? JSON.parse(saved) : []; } catch {}
@@ -183,13 +184,16 @@ export default function RutaPage() {
             }
             const pendientes = todayDom.filter((b) => !isDone(b)).length;
             setStatusMsg({ text: `✓ Ruta restaurada — ${pendientes} de ${valid.length} paradas pendientes`, type: "success" });
+            yaRestauro.current = true;
             return;
           }
         } catch {}
       }
       setOrder(todayDom.map((b) => b.id));
+      yaRestauro.current = true;
     } catch (err) {
       console.error(err);
+      yaRestauro.current = true;
     } finally {
       setLoadingBookings(false);
     }
@@ -212,11 +216,20 @@ export default function RutaPage() {
     }
   }, [order]);
 
+  // Guardar el modo y la parada, pero NO en el primer pintado.
+  //
+  // Estos dos efectos corrían al montar con los valores iniciales —"review" y 0— y
+  // pisaban lo guardado ANTES de que fetchBookings alcanzara a leerlo. El del orden
+  // estaba protegido con un if; estos no. Por eso el repartidor volvía de Google Maps
+  // y aterrizaba en la lista de revisión, en la parada 1, aunque iba en la 6.
+  const yaRestauro = useRef(false);
   useEffect(() => {
+    if (!yaRestauro.current) return;
     localStorage.setItem("rutaMode", mode);
   }, [mode]);
 
   useEffect(() => {
+    if (!yaRestauro.current) return;
     localStorage.setItem("rutaIdx", String(currentIdx));
   }, [currentIdx]);
 
@@ -277,29 +290,54 @@ export default function RutaPage() {
 
   // ── Mark delivery status ──────────────────────────────
   const [cobrosPendientes, setCobrosPendientes] = useState([]);
+  const [sinMandar, setSinMandar] = useState(0);
+
+  // Mandar una marca al servidor. Separado de markStop para que la cola pueda
+  // reintentar exactamente lo mismo cuando vuelva la señal.
+  const mandarMarca = useCallback(async (envio) => {
+    const res = await fetch("/api/bookings/update-delivery", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-panel-token": getPanelToken() },
+      body: JSON.stringify(envio),
+    });
+    if (!res.ok) return false;
+    const d = await res.json().catch(() => ({}));
+    if (d.porCobrar?.length > 0) setCobrosPendientes((p) => [...p, ...d.porCobrar]);
+    return true;
+  }, []);
 
   const markStop = async (booking, status, paymentMethod = "efectivo") => {
     setUpdatingId(booking.id);
+    // El golpecito sale de inmediato, no al responder el servidor: es el acuse de que
+    // el toque se registró, y en la calle eso es lo que el repartidor necesita saber.
+    vibrar();
+    const envio = {
+      id: booking.id,
+      deliveryStatus: status,
+      paymentMethod,
+      products: booking.products || "",
+      amountDue: booking.amount_due || 0,
+    };
     try {
-      const token = getPanelToken();
-      const res = await fetch("/api/bookings/update-delivery", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-panel-token": token },
-        body: JSON.stringify({
-          id: booking.id,
-          deliveryStatus: status,
-          paymentMethod,
-          products: booking.products || "",
-          amountDue: booking.amount_due || 0,
-        }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setStatusMsg({ text: "Error al guardar. Intenta de nuevo.", type: "error" });
-        return;
+      let llego = false;
+      try {
+        llego = await mandarMarca(envio);
+      } catch {
+        llego = false;
       }
-      // Se llevó todo pero sigue debiendo: se pregunta, no se da por pagada.
-      if (d.porCobrar?.length > 0) setCobrosPendientes(d.porCobrar);
+
+      if (!llego) {
+        // Sin señal la marca NO se pierde: se guarda y se reintenta sola. La pantalla
+        // sigue como si hubiera salido, porque para el repartidor ya quedó: la entrega
+        // la hizo, lo que falta es que el servidor se entere.
+        const esperando = encolar(envio);
+        setSinMandar(esperando);
+        setStatusMsg({
+          text: `Sin señal — guardada en el teléfono. Se manda sola al volver la conexión (${esperando} esperando).`,
+          type: "info",
+        });
+      }
+
       setPendingDelivery(null);
       setPendingNoEntregado(null);
 
@@ -339,11 +377,97 @@ export default function RutaPage() {
       else if (prevIdx !== -1) setCurrentIdx(prevIdx);
     } catch (err) {
       console.error(err);
-      setStatusMsg({ text: "Sin conexión. Intenta de nuevo.", type: "error" });
+      setStatusMsg({ text: "Algo falló al guardar. La marca quedó en el teléfono.", type: "error" });
     } finally {
       setUpdatingId(null);
     }
   };
+
+  // ── Reintentar lo que quedó sin mandar ────────────────
+  // Se intenta al volver la señal, al regresar a la pantalla y al abrirla. Son tres
+  // momentos distintos porque el teléfono no siempre avisa: en la calle el navegador
+  // puede decir que hay conexión cuando todavía no sirve.
+  useEffect(() => {
+    if (!authChecked) return;
+    setSinMandar(cuantasEsperan());
+
+    let corriendo = false;
+    const intentar = async () => {
+      if (corriendo || cuantasEsperan() === 0) return;
+      corriendo = true;
+      try {
+        const { enviadas, pendientes } = await vaciarCola(mandarMarca);
+        setSinMandar(pendientes);
+        if (enviadas > 0) {
+          setStatusMsg({
+            text: `✓ Se ${enviadas === 1 ? "mandó 1 entrega" : `mandaron ${enviadas} entregas`} que ${enviadas === 1 ? "estaba" : "estaban"} esperando señal.`,
+            type: "success",
+          });
+          fetchBookings();
+        }
+      } finally { corriendo = false; }
+    };
+
+    const alVolverAPantalla = () => { if (document.visibilityState === "visible") intentar(); };
+    window.addEventListener("online", intentar);
+    document.addEventListener("visibilitychange", alVolverAPantalla);
+    intentar();
+
+    return () => {
+      window.removeEventListener("online", intentar);
+      document.removeEventListener("visibilitychange", alVolverAPantalla);
+    };
+  }, [authChecked, mandarMarca]);
+
+  // Con un modal abierto, el fondo no se mueve. En el navegador se scrollea la página
+  // de atrás mientras el modal está encima, y eso no pasa en ninguna app.
+  useEffect(() => {
+    const abierto = !!pendingDelivery || !!pendingNoEntregado;
+    if (!abierto) return;
+    const antes = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = antes; };
+  }, [pendingDelivery, pendingNoEntregado]);
+
+  // ── Deslizar entre paradas ────────────────────────────
+  // Con una mano, en la calle. Los botones de Anterior/Siguiente se quedan: el gesto
+  // es un atajo, no la única forma, porque un gesto que nadie te enseñó no existe.
+  const tocoRef = useRef(null);
+  const alEmpezarGesto = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    tocoRef.current = { x: t.clientX, y: t.clientY, cuando: Date.now() };
+  };
+  const alSoltarGesto = (e) => {
+    const inicio = tocoRef.current;
+    tocoRef.current = null;
+    const t = e.changedTouches?.[0];
+    if (!inicio || !t) return;
+    const dx = t.clientX - inicio.x;
+    const dy = t.clientY - inicio.y;
+    // Horizontal de verdad y con intención: si no, cualquier scroll cambiaría de parada.
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+    if (Date.now() - inicio.cuando > 600) return;
+    if (pendingDelivery || pendingNoEntregado) return;
+    if (dx < 0 && currentIdx < sorted.length - 1) { vibrar(10); setCurrentIdx((i) => i + 1); }
+    if (dx > 0 && currentIdx > 0) { vibrar(10); setCurrentIdx((i) => i - 1); }
+  };
+
+  // ── Que no se apague la pantalla manejando ────────────
+  useEffect(() => {
+    if (mode !== "driving") return;
+    return mantenerPantallaEncendida();
+  }, [mode]);
+
+  // ── Pantalla completa mientras maneja ─────────────────
+  // Se esconden el encabezado del panel y la barra de abajo. Esa barra le tapaba los
+  // botones de "No estaba" y "Entregado": se asomaban apenas por debajo y había que
+  // adivinar dónde picar. Al volver a revisión, el panel reaparece.
+  useEffect(() => {
+    if (mode !== "driving") return;
+    document.body.dataset.pantallaCompleta = "1";
+    return () => { delete document.body.dataset.pantallaCompleta; };
+  }, [mode]);
 
   // ── Google Autocomplete (classic — más confiable en iOS) ─
   // Se carga SOLO cuando el repartidor abre el editor de dirección
@@ -543,9 +667,9 @@ export default function RutaPage() {
       .reduce((sum, bk) => sum + (Number(bk.amount_due) || 0), 0);
 
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+      <div className="app-chrome min-h-[100dvh] bg-slate-950 text-white flex flex-col">
         {/* Header */}
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+        <div className="safe-top bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
           <button onClick={() => { setMode("review"); stopGps(); }} className="text-slate-400 hover:text-white text-sm font-bold flex items-center gap-2">
             ← Revisión
           </button>
@@ -569,6 +693,16 @@ export default function RutaPage() {
         <div className="h-1 bg-slate-800">
           <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
+
+        {/* Lo que se marcó sin señal y todavía no sale */}
+        {sinMandar > 0 && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="text-xs text-amber-300 font-bold">
+              {sinMandar === 1 ? "1 entrega guardada" : `${sinMandar} entregas guardadas`} en el teléfono — se {sinMandar === 1 ? "manda" : "mandan"} al volver la señal
+            </span>
+          </div>
+        )}
 
         {/* Total a cobrar en ruta */}
         {totalToCobrar > 0 && (
@@ -598,7 +732,12 @@ export default function RutaPage() {
             </div>
           </div>
         ) : !currentStop ? null : (
-          <div className="flex-1 flex flex-col p-4 gap-4 max-w-lg mx-auto w-full">
+          <div
+            data-parada
+            onTouchStart={alEmpezarGesto}
+            onTouchEnd={alSoltarGesto}
+            className="flex-1 flex flex-col p-4 gap-4 max-w-lg mx-auto w-full"
+          >
             {/* Número de parada */}
             <div className="flex items-center gap-3 pt-2">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-black text-white shadow-lg ${
@@ -737,7 +876,7 @@ export default function RutaPage() {
             {/* Selector de método de pago */}
             {pendingDelivery && pendingDelivery.booking.id === currentStop.id && (
               <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm">
-                <div className="bg-slate-900 border-t border-slate-700 rounded-t-3xl p-6 space-y-4">
+                <div className="safe-bottom bg-slate-900 border-t border-slate-700 rounded-t-3xl p-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Forma de pago</p>
@@ -781,7 +920,7 @@ export default function RutaPage() {
             {/* Confirmación No entregado */}
             {pendingNoEntregado && pendingNoEntregado.booking.id === currentStop.id && (
               <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm">
-                <div className="bg-slate-900 border-t border-slate-700 rounded-t-3xl p-6 space-y-4">
+                <div className="safe-bottom bg-slate-900 border-t border-slate-700 rounded-t-3xl p-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">¿Confirmar intento fallido?</p>
@@ -818,7 +957,7 @@ export default function RutaPage() {
             )}
 
             {/* Anterior / Siguiente manual */}
-            <div className="flex gap-3 pb-4">
+            <div className="safe-bottom flex gap-3 pb-4">
               <button
                 disabled={currentIdx === 0}
                 onClick={() => setCurrentIdx((i) => i - 1)}

@@ -249,7 +249,7 @@ export default function PanelLayout({ children }) {
         <div className="shrink-0 bg-white" style={{ height: "env(safe-area-inset-top, 44px)" }} />
 
         {/* Header compacto */}
-        <header className="shrink-0 h-14 bg-white border-b border-slate-100 flex items-center justify-between px-4 shadow-sm">
+        <header data-chrome-panel className="shrink-0 h-14 bg-white border-b border-slate-100 flex items-center justify-between px-4 shadow-sm">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
               <span className="text-sm">🚚</span>
@@ -294,6 +294,7 @@ export default function PanelLayout({ children }) {
 
         {/* Barra de navegación inferior */}
         <nav
+          data-chrome-panel
           className="shrink-0 bg-white border-t border-slate-100 grid shadow-[0_-1px_0_rgba(0,0,0,0.06)]"
           style={{
             gridTemplateColumns: `repeat(${mobileQuickLinks.length}, 1fr)`,
@@ -382,6 +383,7 @@ export default function PanelLayout({ children }) {
           {children}
         </div>
         <nav
+          data-chrome-panel
           className="shrink-0 bg-slate-900 border-t border-slate-800 flex"
           style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         >
@@ -478,7 +480,7 @@ export default function PanelLayout({ children }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Mobile Navbar & logout */}
-        <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b bg-white/90 border-slate-200 backdrop-blur-md z-20">
+        <header data-chrome-panel className="h-16 flex items-center justify-between px-4 md:px-8 border-b bg-white/90 border-slate-200 backdrop-blur-md z-20">
             <div className="md:hidden flex items-center gap-3">
              <button 
                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
