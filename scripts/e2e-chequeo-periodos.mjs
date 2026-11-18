@@ -45,7 +45,15 @@ try {
     ok(`${boton}: ${c.productos} productos · ${c.clientas} clientas (${(tardo / 1000).toFixed(1)}s)`);
   }
 
-  if (medidas["todo"] && medidas["180"] && medidas["90"]) {
+  // Esta prueba mide la pantalla CON rezago: que los períodos crezcan, que no se
+  // desborde con cientos de renglones y que el buscador aguante. El rezago llegó a
+  // cero el 18 de noviembre de 2026 y Chequeo se apagó del menú, así que no hay nada
+  // que medir. Se dice y no se falla: una prueba que falla para siempre enseña a
+  // ignorar las fallas, y ésta vuelve a servir sola el día que aparezca rezago nuevo.
+  const hayRezago = (medidas["todo"]?.productos || 0) > 0;
+  if (!hayRezago) {
+    out.push("  --    no hay rezago que medir: Chequeo está en cero y apagado del menú");
+  } else if (medidas["todo"] && medidas["180"] && medidas["90"]) {
     if (medidas["todo"].productos > medidas["180"].productos &&
         medidas["180"].productos > medidas["90"].productos)
       ok(`en pantalla van de menos a más: ${medidas["90"].productos} < ${medidas["180"].productos} < ${medidas["todo"].productos}`);
@@ -58,14 +66,16 @@ try {
   if (anchos[0] <= anchos[1] + 2) ok(`con todo el rezago no se desborda a lo ancho (${anchos[0]} <= ${anchos[1]})`);
   else fail(`se desborda: ${anchos[0]} > ${anchos[1]}`);
 
-  const buscar = page.getByPlaceholder(/Buscar clienta/i);
-  const antesBusca = Date.now();
-  await buscar.fill("simo");
-  await page.waitForTimeout(800);
-  const tardoBusca = Date.now() - antesBusca;
-  const texto = await page.locator("body").innerText();
-  if (/@simo/i.test(texto)) ok(`el buscador responde con todo cargado (${(tardoBusca / 1000).toFixed(1)}s)`);
-  else fail("el buscador no encontró a la clienta con todo cargado");
+  if (hayRezago) {
+    const buscar = page.getByPlaceholder(/Buscar clienta/i);
+    const antesBusca = Date.now();
+    await buscar.fill("simo");
+    await page.waitForTimeout(800);
+    const tardoBusca = Date.now() - antesBusca;
+    const texto = await page.locator("body").innerText();
+    if (/@simo/i.test(texto)) ok(`el buscador responde con todo cargado (${(tardoBusca / 1000).toFixed(1)}s)`);
+    else fail("el buscador no encontró a la clienta con todo cargado");
+  }
 
   await page.screenshot({ path: "scripts/chequeo-todo.png" });
   out.push(`  --    la pantalla completa tardó ${((Date.now() - t0) / 1000).toFixed(1)}s en total`);

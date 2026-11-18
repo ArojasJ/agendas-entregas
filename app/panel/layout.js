@@ -220,8 +220,17 @@ export default function PanelLayout({ children }) {
     { name: "Historial",       href: "/panel/historial",        icon: "📋", roles: ["admin"] },
     { name: "Registros",       href: "/panel/registros",        icon: "🆕", roles: ["admin", "worker"] },
     { name: "Catálogo",        href: "/panel/categorias",       icon: "🛍️", roles: ["admin"] },
-    // Provisional: se quita cuando el rezago de productos sin ubicación esté resuelto
-    { name: "Chequeo",         href: "/panel/chequeo",          icon: "🧹", roles: ["admin", "worker"] },
+    // APAGADO. Chequeo era una pantalla provisional para ubicar el rezago de productos
+    // vendidos de los que no se sabía dónde estaban. Ese rezago llegó a CERO el 18 de
+    // noviembre de 2026 y la pantalla dejó de hacer falta a diario.
+    //
+    // No se borró nada: la pantalla, su API, sus acciones (estante, entregado,
+    // revendido, perdido) y sus pruebas siguen enteras, y /panel/chequeo abre si se
+    // escribe la dirección. Lo único apagado es que salga en el menú, para no tener un
+    // botón que siempre lleva a una lista vacía.
+    //
+    // Para volver a enseñarla: devuélvele los roles ["admin", "worker"].
+    { name: "Chequeo",         href: "/panel/chequeo",          icon: "🧹", roles: [] },
     { name: "Bitácora",        href: "/panel/bitacora",         icon: "📓", roles: ["admin", "worker"] },
   ].filter(link => link.roles.includes(panelRole));
 
