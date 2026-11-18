@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { buildConfirmationMessage } from "@/lib/mensajeConfirmacion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -52,6 +53,8 @@ export default function PreparacionPage() {
   const [buscando, setBuscando] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscandoAhora, setBuscandoAhora] = useState(false);
+  const [nota, setNota] = useState("");
+  const [copiado, setCopiado] = useState(false);
   const [cajas, setCajas] = useState(null);
   const [juntarEn, setJuntarEn] = useState(null);
   // El envío no sale de ninguna venta: lo pone quien prepara el paquete.
@@ -173,8 +176,38 @@ export default function PreparacionPage() {
       });
       const d = await r.json();
       if (!r.ok) { setAviso(d.message || "No se pudo armar."); return; }
+      // Si se trajeron productos de otro paquete que no salió, se dice: es mercancía
+      // que estaba apartada en otro lado y alguien podría ir a buscarla ahí.
+      if (d.movidos > 0) {
+        setNota(`Se ${d.movidos === 1 ? "movió 1 producto" : `movieron ${d.movidos} productos`} de otro paquete que no salió.`);
+      }
       cerrar();
     } finally { setTrabajando(false); }
+  };
+
+  // El mismo mensaje que se copia desde las tarjetas de Entregas, pero armado con lo
+  // que se acaba de palomear, no con lo que diga la tarjeta: en este momento la
+  // tarjeta todavía no se ha rellenado, y si se palomearon 3 de 5 productos el mensaje
+  // tiene que decir esos 3 y lo que se debe de ésos.
+  //
+  // Está ANTES de armar a propósito: así se manda la confirmación sin salirse de la
+  // pantalla ni esperar a que la lista se actualice, que era tener dos pestañas
+  // abiertas y perder el hilo del trabajo.
+  const copiarMensaje = async () => {
+    if (elegidos.length === 0) { setAviso("Palomea primero qué se lleva."); return; }
+    const texto = buildConfirmationMessage({
+      ...abierto,
+      products: cajas?.cobro?.texto || abierto?.products || "",
+      amount_due: cajas?.cobro ? cajas.cobro.aCobrar : abierto?.amount_due,
+    });
+    if (!texto) { setAviso("No se pudo armar el mensaje para este tipo de entrega."); return; }
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      setAviso("No se pudo copiar. Revisa los permisos del navegador.");
+    }
   };
 
   const malAgendada = async () => {
@@ -242,6 +275,12 @@ export default function PreparacionPage() {
           </div>
         ) : (
           <>
+            {nota && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 mb-4 flex items-start justify-between gap-3">
+                <p className="text-sm text-amber-800 font-bold">{nota}</p>
+                <button onClick={() => setNota("")} className="text-amber-400 hover:text-amber-600 text-sm shrink-0">✕</button>
+              </div>
+            )}
             <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4 mb-4 flex items-center justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Paquetes por preparar</p>
@@ -528,6 +567,12 @@ export default function PreparacionPage() {
                     Deshacer
                   </button>
                 )}
+                <button onClick={copiarMensaje} disabled={elegidos.length === 0}
+                  className={`px-4 py-3 rounded-2xl border font-bold text-sm transition-colors disabled:opacity-50 ${
+                    copiado ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                  {copiado ? "✓ Copiado" : "Copiar mensaje"}
+                </button>
                 <button onClick={armar} disabled={trabajando || elegidos.length === 0}
                   className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-black shadow-lg shadow-emerald-500/20 disabled:opacity-50 active:scale-95 transition-all">
                   {trabajando ? "Guardando…" : `Armar paquete (${elegidos.length})`}
