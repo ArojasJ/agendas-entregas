@@ -61,10 +61,30 @@ export async function GET(req) {
         .eq("paquete_booking_id", bookingId);
       const ligadaA = yaDentro?.[0]?.sales?.client_id || null;
 
+      // Cuánto de lo anotado a cobrar es ENVÍO.
+      //
+      // amount_due de un paquete ya armado es deuda + envío, y la pantalla lo metía
+      // entero en la casilla del envío. Al rearmar —cuando la clienta no se lleva
+      // todo— volvía a sumarle la deuda encima: a una que debía $610 le habría
+      // cobrado $610 de envío por tres productos ya liquidados.
+      //
+      // No hace falta guardarlo aparte: se recupera restándole a lo anotado la deuda
+      // de lo que está adentro ahora mismo.
+      const dentro = (yaDentro || []).map((i) => i.id);
+      let envioGuardado = 0;
+      if (ligadaA && dentro.length > 0) {
+        const cobro = await resumenDeCobro(ligadaA, dentro, 0);
+        envioGuardado = Math.max(0, Math.round((Number(bk.amount_due || 0) - cobro.debeMercancia) * 100) / 100);
+      } else if (dentro.length === 0) {
+        // Sin paquete armado, lo anotado es el envío que alguien puso a mano.
+        envioGuardado = Number(bk.amount_due || 0);
+      }
+
       return Response.json({
         entrega: bk,
         ligadaA,
-        yaEnElPaquete: (yaDentro || []).map((i) => i.id),
+        yaEnElPaquete: dentro,
+        envioGuardado,
         candidatas,
         productos: ligadaA ? await productosEsperando(ligadaA) : [],
       });
@@ -82,7 +102,8 @@ export async function POST(req) {
   if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
 
   try {
-    const { accion, bookingId, clientId, itemIds, juntarRestosEn, envio } = await req.json();
+    const { accion, bookingId, clientId, itemIds, juntarRestosEn, envio,
+            dondeQuedanLosSacados } = await req.json();
 
     // Cómo quedarían las cajas con lo que se lleva, y cuánto habría que cobrarle:
     // las dos cosas que se enseñan antes de armar.
@@ -96,7 +117,10 @@ export async function POST(req) {
     }
 
     if (accion === "armar") {
-      const r = await armarPaquete({ bookingId, clientId, itemIds, juntarRestosEn, envio, session });
+      const r = await armarPaquete({
+        bookingId, clientId, itemIds, juntarRestosEn, envio, session,
+        dondeQuedanLosSacados,
+      });
       const resumen = clientId ? await comoQuedanLasCajas(clientId, []) : null;
       return Response.json({ ok: true, ...r, cajas: resumen });
     }

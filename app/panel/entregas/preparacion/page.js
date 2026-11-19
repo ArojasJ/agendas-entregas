@@ -55,6 +55,7 @@ export default function PreparacionPage() {
   const [buscandoAhora, setBuscandoAhora] = useState(false);
   const [nota, setNota] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [dondeLosSacados, setDondeLosSacados] = useState(null);
   const [cajas, setCajas] = useState(null);
   const [juntarEn, setJuntarEn] = useState(null);
   // El envío no sale de ninguna venta: lo pone quien prepara el paquete.
@@ -101,12 +102,15 @@ export default function PreparacionPage() {
   const abrir = async (bk) => {
     setAbierto(bk);
     setDetalle(null); setClienta(null); setElegidos([]); setCajas(null);
-    setJuntarEn(null); setResultados(null); setBuscando(""); setAviso("");
-    // Si ya traía algo anotado a cobrar, se respeta como punto de partida del envío.
-    setEnvio(Number(bk.amount_due) > 0 ? String(bk.amount_due) : "");
+    setJuntarEn(null); setResultados(null); setBuscando(""); setAviso(""); setDondeLosSacados(null);
+    // El envío se pone abajo, con lo que diga el servidor: en un paquete ya armado
+    // amount_due es deuda + envío, y meterlo entero aquí volvía a sumar la deuda al
+    // rearmar.
+    setEnvio("");
     const r = await fetch(`/api/panel/paquetes?bookingId=${bk.id}`, { headers: { "x-panel-token": token() } });
     const d = await r.json();
     setDetalle(d);
+    if (d.envioGuardado > 0) setEnvio(String(d.envioGuardado));
     if (d.ligadaA) {
       const yaEs = (d.candidatas || []).find((c) => c.id === d.ligadaA);
       setClienta(yaEs || { id: d.ligadaA, name: "Clienta ligada" });
@@ -172,13 +176,22 @@ export default function PreparacionPage() {
         body: JSON.stringify({
           accion: "armar", bookingId: abierto.id, clientId: clienta.id,
           itemIds: elegidos, juntarRestosEn: juntarEn, envio,
+          // Si se le sacó algo al paquete, a dónde se queda. Sin elección explícita
+          // vuelve al lugar que tenía antes de empacarse, que casi siempre es lo que
+          // uno quiere y no hay que decirlo.
+          dondeQuedanLosSacados: sacados.length > 0 ? (dondeLosSacados ?? volverianA) : null,
         }),
       });
       const d = await r.json();
       if (!r.ok) { setAviso(d.message || "No se pudo armar."); return; }
       // Si se trajeron productos de otro paquete que no salió, se dice: es mercancía
       // que estaba apartada en otro lado y alguien podría ir a buscarla ahí.
-      if (d.movidos > 0) {
+      if (d.sacados > 0) {
+        const destino = dondeLosSacados ?? volverianA;
+        const donde = destino?.tipo === "caja" ? `la caja ${destino.caja}`
+          : destino?.tipo === "estante" ? "el estante" : "su lugar";
+        setNota(`${d.sacados === 1 ? "1 producto salió" : `${d.sacados} productos salieron`} del paquete y ${d.sacados === 1 ? "se queda" : "se quedan"} en ${donde}.`);
+      } else if (d.movidos > 0) {
         setNota(`Se ${d.movidos === 1 ? "movió 1 producto" : `movieron ${d.movidos} productos`} de otro paquete que no salió.`);
       }
       cerrar();
@@ -241,6 +254,21 @@ export default function PreparacionPage() {
   const listos = paquetes.filter((p) => p.listo);
   const productos = detalle?.productos || [];
   const indice = abierto ? paquetes.findIndex((p) => p.id === abierto.id) + 1 : 0;
+
+  // Lo que ya estaba en el paquete y se acaba de despalomear. Pasa cuando la clienta
+  // llega, ve lo que debe y decide llevarse solo lo liquidado: el paquete ya estaba
+  // armado y hay que sacarle cosas sin deshacerlo entero.
+  const sacados = (detalle?.yaEnElPaquete || []).filter((id) => !elegidos.includes(id));
+  const productosSacados = productos.filter((p) => sacados.includes(p.itemId));
+  // A dónde vuelven si nadie dice otra cosa: al lugar que tenían antes de empacarse.
+  const volverianA = (() => {
+    const lugares = productosSacados.map((p) => p.lugarGuardado).filter((l) => l?.ubicacion);
+    if (lugares.length === 0) return null;
+    const cajas = [...new Set(lugares.filter((l) => l.ubicacion === "caja").map((l) => Number(l.caja)))];
+    if (cajas.length === 1 && lugares.every((l) => l.ubicacion === "caja")) return { tipo: "caja", caja: cajas[0] };
+    if (lugares.every((l) => l.ubicacion === "estante")) return { tipo: "estante" };
+    return null;
+  })();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -481,6 +509,53 @@ export default function PreparacionPage() {
                             </button>
                           );
                         })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* La clienta llegó y no se llevó todo. Antes había que deshacer el
+                      paquete entero y rearmarlo; ahora se despalomea y se pregunta
+                      dónde se queda lo que no se llevó. */}
+                  {productosSacados.length > 0 && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+                          No se {productosSacados.length === 1 ? "lleva 1 producto" : `lleva ${productosSacados.length} productos`}
+                        </p>
+                        <p className="text-sm text-amber-900 font-bold leading-snug mt-0.5">
+                          {productosSacados.map((p) => p.nombre).join(", ")}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-1.5">¿Dónde se queda?</p>
+                        <div className="flex flex-wrap gap-2">
+                          {volverianA?.tipo === "caja" && (
+                            <button onClick={() => setDondeLosSacados({ tipo: "caja", caja: volverianA.caja })}
+                              className={`px-3 py-2 rounded-xl text-xs font-black border-2 transition-colors ${
+                                (dondeLosSacados ?? volverianA).tipo === "caja" && Number((dondeLosSacados ?? volverianA).caja) === volverianA.caja
+                                  ? "border-amber-500 bg-white text-amber-800"
+                                  : "border-amber-200 bg-white/60 text-amber-700"}`}>
+                              📦 De vuelta a la caja {volverianA.caja}
+                            </button>
+                          )}
+                          <button onClick={() => setDondeLosSacados({ tipo: "estante" })}
+                            className={`px-3 py-2 rounded-xl text-xs font-black border-2 transition-colors ${
+                              (dondeLosSacados ?? volverianA)?.tipo === "estante"
+                                ? "border-amber-500 bg-white text-amber-800"
+                                : "border-amber-200 bg-white/60 text-amber-700"}`}>
+                            🏷️ Al estante
+                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-amber-700 font-bold">Caja</span>
+                            <input type="text" inputMode="numeric" placeholder="#"
+                              value={dondeLosSacados?.tipo === "caja" && Number(dondeLosSacados.caja) !== volverianA?.caja ? dondeLosSacados.caja : ""}
+                              onChange={(e) => {
+                                const n = e.target.value.replace(/\D/g, "");
+                                setDondeLosSacados(n ? { tipo: "caja", caja: n } : null);
+                              }}
+                              className="w-16 px-2 py-2 rounded-xl border-2 border-amber-200 bg-white text-xs font-black text-amber-800 text-center focus:outline-none focus:border-amber-400" />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
