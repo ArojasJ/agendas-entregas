@@ -55,6 +55,7 @@ function InventarioContent() {
   const [isNewCategory, setIsNewCategory] = useState(false);
   const [barcodeError, setBarcodeError] = useState("");
   const [sortBy, setSortBy] = useState("az");
+  const [soloSinCosto, setSoloSinCosto] = useState(false);
 
   // Variant state
   const [hasVariants, setHasVariants] = useState(false);
@@ -348,6 +349,15 @@ function InventarioContent() {
     setDeletedVariantIds([]);
   };
 
+  // Las filas con stock y sin costo capturado: son las que falsean la ganancia, porque
+  // el inventario las cuenta como si no hubieran costado nada. Se cuenta igual que en
+  // /api/products/inventory-value: un producto con variantes lleva el costo en ellas.
+  const sinCostoDe = (p) => {
+    const filas = p.product_variants?.length ? p.product_variants : [p];
+    return filas.filter(f => (Number(f.stock) || 0) > 0 && !(Number(f.cost) || 0));
+  };
+  const piezasSinCosto = (p) => sinCostoDe(p).reduce((s, f) => s + (Number(f.stock) || 0), 0);
+
   const filteredProducts = useMemo(() => {
     const getStock = p => (p.product_variants?.length > 0)
       ? p.product_variants.reduce((s, v) => s + (v.stock || 0), 0)
@@ -355,6 +365,7 @@ function InventarioContent() {
 
     const normalize = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
     return products
+      .filter(p => !soloSinCosto || piezasSinCosto(p) > 0)
       .filter(p => {
         const q = normalize(search);
         const matchVariant = p.product_variants?.some(v =>
@@ -373,7 +384,7 @@ function InventarioContent() {
         if (sortBy === "precio_asc")  return (a.price || 0) - (b.price || 0);
         return 0;
       });
-  }, [products, search, sortBy]);
+  }, [products, search, sortBy, soloSinCosto]);
 
   const variantTotalStock = (p) => (p.product_variants || []).reduce((s, v) => s + (v.stock || 0), 0);
 
@@ -457,9 +468,13 @@ function InventarioContent() {
                   {inventoryValue.unidades.toLocaleString("es-MX")}
                 </p>
                 {inventoryValue.unidadesSinCosto > 0 && (
-                  <p className="text-[11px] text-amber-600 font-semibold mt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setSoloSinCosto(v => !v); setSearch(""); }}
+                    className={`text-[11px] font-semibold mt-1 underline underline-offset-2 transition-colors ${soloSinCosto ? "text-amber-800" : "text-amber-600 hover:text-amber-800"}`}>
                     {inventoryValue.unidadesSinCosto} sin costo capturado
-                  </p>
+                    <span className="ml-1 opacity-70">{soloSinCosto ? "— quitar filtro" : "— ver cuáles"}</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -489,10 +504,24 @@ function InventarioContent() {
 
       {/* Product List */}
       <div className="rounded-2xl border bg-slate-50 border-slate-200 overflow-hidden">
+        {soloSinCosto && (
+          <div className="px-5 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3">
+            <p className="text-xs text-amber-800">
+              <span className="font-bold">Solo los que les falta el costo.</span>{" "}
+              Sin costo, estas piezas cuentan como ganancia completa y el inventario sale inflado.
+            </p>
+            <button type="button" onClick={() => setSoloSinCosto(false)}
+              className="shrink-0 text-xs font-bold text-amber-800 bg-white border border-amber-300 px-3 py-1 rounded-lg hover:bg-amber-100 transition-colors">
+              Ver todos
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="p-10 text-center opacity-50">Cargando inventario...</div>
         ) : filteredProducts.length === 0 ? (
-          <div className="p-10 text-center opacity-50">No hay productos que coincidan.</div>
+          <div className="p-10 text-center opacity-50">
+            {soloSinCosto && !search ? "Ya todos los productos con stock tienen su costo capturado." : "No hay productos que coincidan."}
+          </div>
         ) : (
           <div className="divide-y divide-slate-200">
             {filteredProducts.map(p => {
@@ -511,6 +540,11 @@ function InventarioContent() {
                       <h3 className="font-bold text-base flex items-center gap-2">
                         {p.name}
                         {hasVars && <span className="text-[10px] font-black uppercase tracking-wider bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full">{pvs.length} variantes</span>}
+                        {isAdmin && piezasSinCosto(p) > 0 && (
+                          <span className="text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                            Sin costo · {piezasSinCosto(p)} pz
+                          </span>
+                        )}
                       </h3>
                       <div className="flex flex-wrap items-center gap-3 text-xs opacity-60 mt-1">
                         {p.category && <span>🏷 {p.category}</span>}
@@ -524,6 +558,11 @@ function InventarioContent() {
                               <span key={v.id} className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md font-medium">{v.name}</span>
                             ))}
                             {pvs.length > 4 && <span className="text-slate-400">+{pvs.length - 4}</span>}
+                          </span>
+                        )}
+                        {isAdmin && hasVars && sinCostoDe(p).length > 0 && (
+                          <span className="text-amber-700 font-bold opacity-100">
+                            ⚠ Falta el costo de: {sinCostoDe(p).map(v => v.name).join(", ")}
                           </span>
                         )}
                       </div>
@@ -542,7 +581,9 @@ function InventarioContent() {
                       ) : (
                         <>
                           <p className="text-sm font-bold text-emerald-400">${p.price}</p>
-                          <p className="text-[10px] opacity-50">Costo: ${p.cost}</p>
+                          <p className={`text-[10px] ${!(Number(p.cost) || 0) ? "text-amber-700 font-bold" : "opacity-50"}`}>
+                            {!(Number(p.cost) || 0) ? "Costo: sin capturar" : `Costo: $${p.cost}`}
+                          </p>
                         </>
                       )}
                     </div>
