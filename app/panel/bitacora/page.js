@@ -17,6 +17,9 @@ export default function BitacoraPage() {
   const [cargando, setCargando] = useState(true);
   const [marcando, setMarcando] = useState(null);
   const [historial, setHistorial] = useState("");
+  // El trabajo contrario: mercancía que se quitó de una venta y hay que ir a sacarla
+  // de la caja. No se mezcla con lo de guardar porque son cosas opuestas.
+  const [porSacar, setPorSacar] = useState([]);
 
   const token = () => localStorage.getItem("panelToken") || "";
 
@@ -24,7 +27,31 @@ export default function BitacoraPage() {
     const sesion = decodePanelTokenUnsafe(localStorage.getItem("panelToken"));
     if (!["admin", "worker"].includes(sesion?.role)) { router.push("/panel"); return; }
     cargar("");
+    cargarPorSacar();
   }, []);
+
+  const cargarPorSacar = async () => {
+    try {
+      const res = await fetch("/api/panel/pendientes-sacar", { headers: { "x-panel-token": token() } });
+      if (res.ok) setPorSacar((await res.json()).pendientes || []);
+    } catch {}
+  };
+
+  const marcarSacado = async (id) => {
+    setMarcando("sacar:" + id);
+    try {
+      const res = await fetch("/api/panel/pendientes-sacar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": token() },
+        body: JSON.stringify({ ids: [id], hecha: true }),
+      });
+      if (res.ok) setPorSacar((p) => p.filter((x) => x.id !== id));
+      else alert((await res.json()).message || "No se pudo guardar.");
+    } catch {
+      alert("Error de conexión.");
+    }
+    setMarcando(null);
+  };
 
   const cargar = async (dia) => {
     setCargando(true);
@@ -68,7 +95,9 @@ export default function BitacoraPage() {
           <p className="text-sm text-slate-500 mt-1 leading-relaxed max-w-xl">
             {historial
               ? "Consultando lo que se hizo ese día."
-              : "Lo que hay que guardar al llegar a la bodega. Se anota solo cuando vendes estando fuera."}
+              : porSacar.length > 0
+                ? "Lo que hay que mover en la bodega: sacar lo que se quitó de una venta, y guardar lo que se vendió estando fuera."
+                : "Lo que hay que guardar al llegar a la bodega. Se anota solo cuando vendes estando fuera."}
           </p>
         </div>
 
@@ -98,6 +127,55 @@ export default function BitacoraPage() {
           )}
         </div>
 
+        {/* Va arriba y no al final: es lo urgente. Mientras la mercancía siga en la
+            caja está apartada a nombre de quien ya no la compró, y el sistema la da
+            por disponible, así que se le puede vender a otra clienta. */}
+        {!historial && porSacar.length > 0 && (
+          <div className="bg-white border-2 border-rose-300 rounded-2xl overflow-hidden">
+            <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200">
+              <p className="text-[11px] font-black text-rose-700 uppercase tracking-widest">
+                Sacar de la bodega
+              </p>
+              <p className="text-[11px] text-rose-600 mt-0.5 leading-snug">
+                Se quitaron de una venta y siguen guardadas. Hasta que no salgan, están
+                apartadas y se pueden vender por error.
+              </p>
+            </div>
+            <div className="divide-y divide-rose-100">
+              {porSacar.map((p) => (
+                <div key={p.id} className="px-5 py-3 flex items-start gap-3">
+                  <button
+                    onClick={() => marcarSacado(p.id)}
+                    disabled={!!marcando}
+                    className="w-5 h-5 rounded-md border-2 border-rose-300 hover:border-rose-600 shrink-0 mt-0.5 transition-all active:scale-90"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-rose-200 text-rose-800 tabular-nums">
+                        {p.ubicacion === "caja" ? `Caja ${p.caja}` : "Estante"}
+                      </span>
+                      <span className="text-sm font-bold text-slate-900">
+                        {p.cantidad > 1 ? `${p.cantidad}x ` : ""}{p.producto}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                      Era de {p.cliente}
+                      {p.saleId && (
+                        <>
+                          {" · "}
+                          <a href={`/panel/ventas/${p.saleId}`} className="text-slate-500 underline underline-offset-2 hover:text-slate-800">
+                            ver la venta
+                          </a>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {cargando ? (
           <div className="py-20 text-center">
             <div className="w-7 h-7 border-4 border-slate-300 border-t-slate-700 rounded-full animate-spin mx-auto" />
@@ -106,7 +184,7 @@ export default function BitacoraPage() {
           <div className="py-20 text-center">
             <p className="text-5xl mb-3">{historial ? "📭" : "✓"}</p>
             <p className="font-black text-slate-700">
-              {historial ? "Nada ese día" : "Todo al corriente"}
+              {historial ? "Nada ese día" : porSacar.length > 0 ? "Nada que guardar" : "Todo al corriente"}
             </p>
             {!historial && (
               <p className="text-sm text-slate-400 mt-1">

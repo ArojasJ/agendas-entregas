@@ -147,6 +147,61 @@ try {
   else
     fail("el aviso ya no dice qué sacar");
 
+  // ── El recado vive en la base, no en este navegador ──
+  const ps = await db.query(
+    `select producto, cantidad, ubicacion, caja, hecha, creada_por, sale_id
+       from pendientes_sacar where sale_id = $1`, [ventaId]);
+  if (ps.rows.length === 1 && ps.rows[0].ubicacion === "caja" && Number(ps.rows[0].caja) === caja && !ps.rows[0].hecha)
+    ok(`quedó anotado en la base: caja ${caja}, sin hacer`);
+  else
+    fail("no se anotó el pendiente: " + JSON.stringify(ps.rows));
+
+  if (ps.rows[0]?.creada_por === "Antonio") ok("con el nombre de quien corrigió la venta");
+  else fail("no quedó quién lo generó: " + ps.rows[0]?.creada_por);
+
+  // El lugar va CONGELADO: si después mueven esa compra de caja, el recado no la
+  // sigue. Perseguirla mandaría a la bodega a una caja donde el producto nunca estuvo.
+  await db.query(`update sales set caja = 1 where id = $1`, [ventaId]);
+  const congelado = await db.query(`select caja from pendientes_sacar where sale_id = $1`, [ventaId]);
+  if (Number(congelado.rows[0].caja) === caja)
+    ok("y el lugar queda congelado: mover la compra de caja no le mueve el recado");
+  else
+    fail("el recado siguió a la venta: ahora dice caja " + congelado.rows[0].caja);
+  await db.query(`update sales set caja = $2 where id = $1`, [ventaId, caja]);
+
+  // Desde otro aparato —otro navegador, sin nada guardado— tiene que verse igual
+  const otro = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+  await otro.addInitScript((t2) => {
+    localStorage.setItem("panelToken", t2);
+    localStorage.setItem("panelAuth", "true");
+    localStorage.setItem("panelRole", "worker");
+    localStorage.setItem("staffName", "Gaby");
+  }, tokenDePrueba("worker", "Gaby"));
+  const pOtro = await otro.newPage();
+  await pOtro.goto(`${BASE}/panel/ventas/${ventaId}`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await pOtro.waitForTimeout(4000);
+  if (/Falta sacarlo de la bodega/i.test((await pOtro.locator("body").innerText()).replace(/\s+/g, " ")))
+    ok("y desde otro aparato también se ve: ya no vive en el navegador de quien lo quitó");
+  else
+    fail("desde otro aparato no aparece el pendiente");
+
+  // ── Y sale en la Bitácora, que es donde se lee al llegar a la bodega ──
+  await pOtro.goto(`${BASE}/panel/bitacora`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await pOtro.waitForTimeout(4000);
+  const tb = (await pOtro.locator("body").innerText()).replace(/\s+/g, " ");
+  if (/Sacar de la bodega/i.test(tb)) ok("la bitácora trae su propio bloque de 'sacar'");
+  else fail("no aparece en la bitácora: " + tb.slice(0, 250));
+
+  if (new RegExp(`Caja ${caja} ${ETIQUETA} QUE SE VA`, "i").test(tb))
+    ok("con la caja y el producto");
+  else
+    fail("el renglón de la bitácora no dice qué sacar");
+
+  if (/Era de @prueba_sacar_caja/i.test(tb)) ok("y de quién era, para saber a qué caja ir");
+  else fail("no dice de quién era");
+  await pOtro.screenshot({ path: "scripts/sacar-de-la-caja-bitacora.png" });
+  await otro.close();
+
   // ── Lo demás que ya hacía bien, que no se rompa ──
   const vuelta = await db.query(`select stock from products where id = $1`, [productos["QUE SE VA"]]);
   if (Number(vuelta.rows[0].stock) === 1) ok("el producto volvió a existencias: de 0 a 1");
@@ -180,6 +235,13 @@ try {
   else
     fail("el aviso volvió después de darlo por hecho");
 
+  const cerrado = await db.query(
+    `select hecha, hecha_por from pendientes_sacar where sale_id = $1`, [ventaId]);
+  if (cerrado.rows[0]?.hecha && cerrado.rows[0]?.hecha_por === "Antonio")
+    ok("en la base queda hecho y con el nombre de quien fue por él");
+  else
+    fail("no se cerró en la base: " + JSON.stringify(cerrado.rows[0]));
+
   // ── Y lo entregado sigue sin poderse quitar ──
   await db.query(`update sale_items set delivery_status='delivered' where id=$1`, [items["QUE SE QUEDA"]]);
   await abrir();
@@ -193,6 +255,7 @@ try {
 } finally {
   try {
     if (ventaId) {
+      await db.query("DELETE FROM pendientes_sacar WHERE sale_id = $1", [ventaId]);
       await db.query("DELETE FROM payments WHERE sale_id = $1", [ventaId]);
       await db.query("DELETE FROM sale_items WHERE sale_id = $1", [ventaId]);
       await db.query("DELETE FROM bitacora_tareas WHERE sale_id = $1", [ventaId]);

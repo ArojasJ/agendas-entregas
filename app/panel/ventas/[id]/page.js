@@ -6,8 +6,6 @@ import EditarVenta from "./EditarVenta";
 import { cajasDeTexto } from "@/lib/constants";
 import CajasTrasCancelar from "../../CajasTrasCancelar";
 
-const CLAVE_SACAR = "sacarDeLaCaja:";
-
 export default function SaleDetailPage() {
   const router = useRouter();
   const { id } = useParams();
@@ -53,30 +51,40 @@ export default function SaleDetailPage() {
 
   useEffect(() => {
     setPanelRole(localStorage.getItem("panelRole"));
-    if (id) fetchSaleDetail();
-    try {
-      const guardado = localStorage.getItem(CLAVE_SACAR + id);
-      setPorSacar(guardado ? JSON.parse(guardado) : []);
-    } catch { setPorSacar([]); }
+    if (id) { fetchSaleDetail(); cargarPorSacar(); }
   }, [id]);
 
   // Al quitar un producto de la venta, el renglón se borra pero la mercancía sigue
-  // dentro de la caja. Ese pendiente ya no tiene dónde vivir en la base —el producto
-  // dejó de pertenecer a la venta—, así que se queda en el navegador hasta que alguien
-  // diga que ya fue por él: un aviso de cuatro segundos se pierde al cambiar de
-  // pantalla, y lo que se pierde es mercancía apartada que se puede revender.
-  const anotarPorSacar = (lista) => {
-    if (!lista?.length) return;
-    setPorSacar((previo) => {
-      const junto = [...previo, ...lista];
-      try { localStorage.setItem(CLAVE_SACAR + id, JSON.stringify(junto)); } catch {}
-      return junto;
-    });
+  // dentro de la caja. Ese pendiente se guarda en la base y no en esta pantalla:
+  // quien va por ella casi nunca es quien corrigió la venta, ni el mismo día ni desde
+  // el mismo aparato. También sale en la Bitácora.
+  const cargarPorSacar = async () => {
+    try {
+      const res = await fetch(`/api/panel/pendientes-sacar?saleId=${id}`, {
+        headers: { "x-panel-token": localStorage.getItem("panelToken") || "" },
+      });
+      if (res.ok) setPorSacar((await res.json()).pendientes || []);
+    } catch {}
   };
 
-  const yaLoSaque = () => {
+  const yaLoSaque = async () => {
+    const ids = porSacar.map((p) => p.id);
+    if (ids.length === 0) return;
     setPorSacar([]);
-    try { localStorage.removeItem(CLAVE_SACAR + id); } catch {}
+    try {
+      const res = await fetch("/api/panel/pendientes-sacar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": localStorage.getItem("panelToken") || "" },
+        body: JSON.stringify({ ids, hecha: true }),
+      });
+      if (!res.ok) {
+        showToast("No se pudo guardar; el pendiente sigue ahí", "error");
+        cargarPorSacar();
+      }
+    } catch {
+      showToast("Sin conexión; el pendiente sigue ahí", "error");
+      cargarPorSacar();
+    }
   };
 
   const fetchSaleDetail = async () => {
@@ -414,7 +422,7 @@ export default function SaleDetailPage() {
         <EditarVenta
           sale={sale}
           onClose={() => setShowEdit(false)}
-          onSaved={(data) => { setShowEdit(false); anotarPorSacar(data?.sacar); fetchSaleDetail(); }}
+          onSaved={() => { setShowEdit(false); fetchSaleDetail(); cargarPorSacar(); }}
           showToast={showToast}
         />
       )}
@@ -446,7 +454,7 @@ export default function SaleDetailPage() {
               <p className="text-xs text-rose-700 mt-0.5 max-w-lg leading-relaxed">
                 Se quitó de la venta y ya volvió a existencias, pero la mercancía sigue
                 guardada. Mientras no la saques está apartada y se le puede vender a otra
-                clienta.
+                clienta. También quedó anotado en la Bitácora.
               </p>
             </div>
             <button
@@ -463,7 +471,7 @@ export default function SaleDetailPage() {
                   {s.ubicacion === "caja" ? `Caja ${s.caja}` : "Estante"}
                 </span>
                 <span className="text-sm font-bold text-rose-900 leading-snug">
-                  {s.cantidad > 1 ? `${s.cantidad}x ` : ""}{s.nombre}
+                  {s.cantidad > 1 ? `${s.cantidad}x ` : ""}{s.producto}
                 </span>
               </li>
             ))}

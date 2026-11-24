@@ -40,7 +40,19 @@ Y para leer, usa `loQueTieneGuardado()` en `lib/ubicaciones.js` en vez de mirar
 `sales.ubicacion` a pelo: devuelve `ubicacion: "paquete"` para lo empacado, agrupa por
 lugar real y ya sabe enseñar una compra repartida en dos cajas.
 
+La única excepción es `pendientes_sacar`, que guarda caja y ubicación **congeladas**:
+ahí el producto ya dejó de pertenecer a la venta, así que preguntarle a la venta
+mandaría a la bodega a la caja donde esa compra esté hoy y no a donde quedó la
+mercancía. Ver `migrations/2026-11-24-sacar-de-la-bodega.sql`.
+
 ## Otras reglas que ya costaron caro
+
+- **Quitar un producto de una venta no lo saca de la caja.** El renglón se borra y el
+  producto vuelve a existencias, pero la mercancía sigue guardada: apartada a nombre de
+  quien ya no la compró y, como el sistema la da por disponible, vendible por error.
+  Quien quita el producto casi nunca es quien va por él, ni el mismo día ni desde el
+  mismo aparato, así que el recado se escribe en `pendientes_sacar` y sale en la
+  Bitácora hasta que alguien lo palomee. Vive en `editarVenta()`.
 
 - **Entregar no es cobrar.** Marcar entregado el último producto de una venta a crédito
   no la liquida. Solo se cierra si el dinero ya estaba registrado; si sigue debiendo, se
