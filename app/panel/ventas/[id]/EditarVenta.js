@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import ElegirUbicacion from "../../ElegirUbicacion";
 
 const pesos = (n) => Math.round(Number(n || 0) * 100) / 100;
 const money = (n) => "$" + pesos(n).toFixed(2);
@@ -13,6 +14,8 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
   const [busca, setBusca] = useState("");
   const [resolucion, setResolucion] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  // Dónde se guarda, cuando agregar productos cambia la respuesta
+  const [lugar, setLugar] = useState(null);
 
   useEffect(() => {
     setItems(
@@ -72,6 +75,17 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
       })
       .filter((s) => s.ubicacion);
   }, [items, sale]);
+
+  // Agregarle productos a una venta cambia dónde conviene guardarla: con una sola cosa
+  // basta el estante, con dos ya vale una caja. Al cobrar sí se pregunta; al corregir
+  // la venta no se preguntaba nunca, así que una compra que creció se quedaba en el
+  // estante de cuando tenía un solo producto y nadie se enteraba.
+  //
+  // Solo cuando se AGREGA: quitar no obliga a mover nada, y preguntarlo en cada cambio
+  // de precio sería ruido.
+  const agregoProductos = items.some((i) => !i.id);
+  const porGuardar = items.filter((i) => !i.entregado).length;
+  const preguntarLugar = agregoProductos && !!sale.client_id && porGuardar > 0;
 
   const subtotal = pesos(items.reduce((s, i) => s + Number(i.unit_price || 0) * Number(i.quantity || 0), 0));
   const descuento = pesos(Math.max(0, Number(discount) || 0));
@@ -183,6 +197,22 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
       });
       const data = await res.json();
       if (!res.ok) return showToast(data.message || "No se pudo guardar", "error");
+
+      // El lugar se guarda aparte y DESPUÉS de la corrección: si fallara, la venta ya
+      // quedó bien y solo se perdió el movimiento de caja, que se puede rehacer desde
+      // la misma venta. Al revés sería mover mercancía de una corrección que no entró.
+      if (preguntarLugar && (lugar?.tipo === "caja" || lugar?.tipo === "estante")) {
+        const rl = await fetch("/api/panel/ubicacion", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "x-panel-token": token },
+          body: JSON.stringify({
+            saleIds: [sale.id, ...(lugar.aMover || [])],
+            tipo: lugar.tipo,
+            caja: lugar.caja,
+          }),
+        });
+        if (!rl.ok) showToast("La venta quedó bien, pero no se pudo cambiar el lugar", "error");
+      }
 
       if (data.devuelto > 0) showToast(`Listo. Devuélvele ${money(data.devuelto)} a la clienta`, "success");
       else if (data.cobrado > 0) showToast(`Listo. Cóbrale ${money(data.cobrado)}`, "success");
@@ -337,6 +367,24 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {preguntarLugar && (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-sm font-black text-slate-900">
+                Ahora son {porGuardar} producto{porGuardar === 1 ? "" : "s"}. ¿Dónde se guardan?
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 mb-3">
+                Al agregar algo puede convenir otra cosa que cuando se cobró.
+              </p>
+              <ElegirUbicacion
+                clientId={sale.client_id}
+                productos={porGuardar}
+                elegida={lugar}
+                onElegir={setLugar}
+                compacto
+              />
             </div>
           )}
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import EditarVenta from "./EditarVenta";
 import { cajasDeTexto } from "@/lib/constants";
 import CajasTrasCancelar from "../../CajasTrasCancelar";
+import ElegirUbicacion from "../../ElegirUbicacion";
 
 export default function SaleDetailPage() {
   const router = useRouter();
@@ -26,6 +27,10 @@ export default function SaleDetailPage() {
   const [cajasTrasCancelar, setCajasTrasCancelar] = useState(null);
   // Mercancía que se quitó de la venta y sigue físicamente en una caja o el estante
   const [porSacar, setPorSacar] = useState([]);
+  // Cambiar de lugar esta compra sin tener que ir a la ficha de la clienta
+  const [moviendoLugar, setMoviendoLugar] = useState(false);
+  const [lugarElegido, setLugarElegido] = useState(null);
+  const [guardandoLugar, setGuardandoLugar] = useState(false);
   const [showRevertModal, setShowRevertModal] = useState(false);
   const [showDueDateModal, setShowDueDateModal] = useState(false);
   const [newDueDate, setNewDueDate] = useState("");
@@ -65,6 +70,35 @@ export default function SaleDetailPage() {
       });
       if (res.ok) setPorSacar((await res.json()).pendientes || []);
     } catch {}
+  };
+
+  // Mover de lugar lo de esta compra. Antes solo se podía desde la ficha de la
+  // clienta: quien está viendo la venta tenía que acordarse de que existía ese camino.
+  const guardarLugar = async () => {
+    if (!lugarElegido || guardandoLugar) return;
+    setGuardandoLugar(true);
+    try {
+      const res = await fetch("/api/panel/ubicacion", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-panel-token": localStorage.getItem("panelToken") || "" },
+        body: JSON.stringify({
+          saleIds: [sale.id, ...(lugarElegido.aMover || [])],
+          tipo: lugarElegido.tipo,
+          caja: lugarElegido.caja,
+        }),
+      });
+      if (res.ok) {
+        setMoviendoLugar(false);
+        setLugarElegido(null);
+        showToast(lugarElegido.tipo === "caja" ? `Guardado en la caja ${lugarElegido.caja}` : "Guardado en el estante");
+        fetchSaleDetail();
+      } else {
+        showToast((await res.json()).message || "No se pudo cambiar el lugar", "error");
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    }
+    setGuardandoLugar(false);
   };
 
   const yaLoSaque = async () => {
@@ -618,7 +652,10 @@ export default function SaleDetailPage() {
               // tiene, repetirla no aporta: se omite.
               const susCajas = cajasDeTexto(sale.clients?.box_1, sale.clients?.box_2)
                 .filter((n) => !(enCaja && n === Number(sale.caja)));
-              if (!todoEnPaquete && !enCaja && !enEstante && susCajas.length === 0) return null;
+              // Lo que todavía se puede mover: lo entregado ya salió y lo empacado está
+              // fuera de su caja esperando la entrega. Si no queda nada, no hay qué mover.
+              const sePuedeMover = guardados.length > 0;
+              if (!todoEnPaquete && !enCaja && !enEstante && susCajas.length === 0 && !sePuedeMover) return null;
               return (
                 <div className="mb-3 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dónde está</span>
@@ -647,9 +684,47 @@ export default function SaleDetailPage() {
                       </span>
                     </span>
                   )}
+                  {sePuedeMover && puedeEditar && (
+                    <button
+                      onClick={() => { setLugarElegido(null); setMoviendoLugar(true); }}
+                      className="ml-auto text-xs font-bold text-slate-500 hover:text-slate-900 underline underline-offset-2"
+                    >
+                      {enCaja || enEstante ? "Cambiar" : "Decidir dónde va"}
+                    </button>
+                  )}
                 </div>
               );
             })()}
+
+            {moviendoLugar && (
+              <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+                <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[92vh]">
+                  <div className="shrink-0 p-5 border-b border-slate-200 flex items-center justify-between">
+                    <h2 className="text-lg font-black text-slate-900">¿Dónde se guarda?</h2>
+                    <button onClick={() => setMoviendoLugar(false)}
+                      className="w-9 h-9 rounded-xl bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5">
+                    <ElegirUbicacion
+                      clientId={sale.client_id}
+                      productos={(sale.sale_items || []).filter((i) => i.delivery_status !== "delivered" && !i.paquete_booking_id).length}
+                      elegida={lugarElegido}
+                      onElegir={setLugarElegido}
+                    />
+                  </div>
+                  <div className="shrink-0 p-5 border-t border-slate-200 grid grid-cols-2 gap-3">
+                    <button onClick={() => setMoviendoLugar(false)}
+                      className="py-3 rounded-2xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50">
+                      Cancelar
+                    </button>
+                    <button onClick={guardarLugar} disabled={!lugarElegido || guardandoLugar}
+                      className="py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold disabled:opacity-50">
+                      {guardandoLugar ? "Guardando…" : "Guardar"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm divide-y divide-slate-100">
               {sale.sale_items && sale.sale_items.map((item) => (
                 <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
