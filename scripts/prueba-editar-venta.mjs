@@ -269,16 +269,18 @@ try {
   if ((await cajaPendiente()) === cajaAntes + 700) ok("caja: al cobrar $300 más la caja sube exactamente $300");
   else fail(`la caja quedó en ${await cajaPendiente()}, esperaba ${cajaAntes + 700}`);
 
-  // Dejarlo como saldo: el efectivo se queda en el cajón pero sale de la caja contada
+  // Ya no existe el saldo a favor: aunque lo pidan, lo que sobra se devuelve en
+  // efectivo. Se manda el tipo viejo a propósito, para que nadie lo resucite sin que
+  // esta prueba se entere.
   const saldoPrevio = await saldo();
   const rCaja = await editarCaja({
     items: [{ id: await renglonCaja(), product_id: productoId, quantity: 6, unit_price: 100 }],
     discount: 0, resolucion: { tipo: "saldo" },
   });
   const cuerpoCaja = await rCaja.json();
-  if ((await saldo()) === saldoPrevio + 100 && cuerpoCaja.saldoAcreditado === 100)
-    ok("caja: al dejarlo a su favor se le acreditan los $100");
-  else fail(`saldo ${await saldo()} (antes ${saldoPrevio}), acreditado ${cuerpoCaja.saldoAcreditado}`);
+  if ((await saldo()) === saldoPrevio && cuerpoCaja.saldoAcreditado === undefined && cuerpoCaja.devuelto === 100)
+    ok("caja: pidiendo dejarlo a su favor igual se le devuelven los $100 en efectivo");
+  else fail(`saldo ${await saldo()} (antes ${saldoPrevio}), acreditado ${cuerpoCaja.saldoAcreditado}, devuelto ${cuerpoCaja.devuelto}`);
 
   if ((await cajaPendiente()) === cajaAntes + 600) ok("caja: y el corte contará $600, no los $700 de antes");
   else fail(`la caja quedó en ${await cajaPendiente()}, esperaba ${cajaAntes + 600}`);
@@ -363,8 +365,11 @@ try {
     ok("al bajar a $30 sale todo el efectivo que quedaba ($70)");
   else fail(`total ${vS.total}, devuelto ${cS.devuelto}, enganche ${vS.down_payment}`);
 
-  if ((await saldo()) === 20 && cS.saldoAcreditado === 20)
-    ok("y los $20 de saldo que ya no se ocupan le regresan a su saldo a favor");
+  // Los $20 que esa venta vieja cubrió con saldo y ya no ocupa no se le acreditan
+  // —la columna quedó en cero para todas y no se vuelve a llenar— y tampoco salen del
+  // cajón, porque nunca entraron a él: solo salió el efectivo de verdad, los $70.
+  if ((await saldo()) === 0 && cS.saldoAcreditado === undefined)
+    ok("y los $20 que cubrió el saldo viejo no se le vuelven a acreditar ni salen en efectivo");
   else fail(`saldo acreditado ${cS.saldoAcreditado}, saldo del cliente ${await saldo()}`);
 
   if (vS.status === "paid") ok("la venta sigue marcada como pagada, que es lo que es");

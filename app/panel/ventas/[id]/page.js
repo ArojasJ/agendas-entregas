@@ -6,6 +6,8 @@ import EditarVenta from "./EditarVenta";
 import { cajasDeTexto } from "@/lib/constants";
 import CajasTrasCancelar from "../../CajasTrasCancelar";
 
+const CLAVE_SACAR = "sacarDeLaCaja:";
+
 export default function SaleDetailPage() {
   const router = useRouter();
   const { id } = useParams();
@@ -24,6 +26,8 @@ export default function SaleDetailPage() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   // Qué pasó con las cajas de la clienta al cancelar: se pregunta, no se asume.
   const [cajasTrasCancelar, setCajasTrasCancelar] = useState(null);
+  // Mercancía que se quitó de la venta y sigue físicamente en una caja o el estante
+  const [porSacar, setPorSacar] = useState([]);
   const [showRevertModal, setShowRevertModal] = useState(false);
   const [showDueDateModal, setShowDueDateModal] = useState(false);
   const [newDueDate, setNewDueDate] = useState("");
@@ -50,7 +54,30 @@ export default function SaleDetailPage() {
   useEffect(() => {
     setPanelRole(localStorage.getItem("panelRole"));
     if (id) fetchSaleDetail();
+    try {
+      const guardado = localStorage.getItem(CLAVE_SACAR + id);
+      setPorSacar(guardado ? JSON.parse(guardado) : []);
+    } catch { setPorSacar([]); }
   }, [id]);
+
+  // Al quitar un producto de la venta, el renglón se borra pero la mercancía sigue
+  // dentro de la caja. Ese pendiente ya no tiene dónde vivir en la base —el producto
+  // dejó de pertenecer a la venta—, así que se queda en el navegador hasta que alguien
+  // diga que ya fue por él: un aviso de cuatro segundos se pierde al cambiar de
+  // pantalla, y lo que se pierde es mercancía apartada que se puede revender.
+  const anotarPorSacar = (lista) => {
+    if (!lista?.length) return;
+    setPorSacar((previo) => {
+      const junto = [...previo, ...lista];
+      try { localStorage.setItem(CLAVE_SACAR + id, JSON.stringify(junto)); } catch {}
+      return junto;
+    });
+  };
+
+  const yaLoSaque = () => {
+    setPorSacar([]);
+    try { localStorage.removeItem(CLAVE_SACAR + id); } catch {}
+  };
 
   const fetchSaleDetail = async () => {
     try {
@@ -387,7 +414,7 @@ export default function SaleDetailPage() {
         <EditarVenta
           sale={sale}
           onClose={() => setShowEdit(false)}
-          onSaved={() => { setShowEdit(false); fetchSaleDetail(); }}
+          onSaved={(data) => { setShowEdit(false); anotarPorSacar(data?.sacar); fetchSaleDetail(); }}
           showToast={showToast}
         />
       )}
@@ -410,6 +437,39 @@ export default function SaleDetailPage() {
           )}
         </div>
       </div>
+
+      {porSacar.length > 0 && (
+        <div className="mb-8 rounded-2xl border-2 border-rose-300 bg-rose-50 p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <p className="font-black text-rose-900">Falta sacarlo de la bodega</p>
+              <p className="text-xs text-rose-700 mt-0.5 max-w-lg leading-relaxed">
+                Se quitó de la venta y ya volvió a existencias, pero la mercancía sigue
+                guardada. Mientras no la saques está apartada y se le puede vender a otra
+                clienta.
+              </p>
+            </div>
+            <button
+              onClick={yaLoSaque}
+              className="shrink-0 px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-500 transition-colors active:scale-95"
+            >
+              Ya lo saqué
+            </button>
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {porSacar.map((s, n) => (
+              <li key={n} className="flex items-start gap-2">
+                <span className="shrink-0 text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-rose-200 text-rose-800 tabular-nums mt-0.5">
+                  {s.ubicacion === "caja" ? `Caja ${s.caja}` : "Estante"}
+                </span>
+                <span className="text-sm font-bold text-rose-900 leading-snug">
+                  {s.cantidad > 1 ? `${s.cantidad}x ` : ""}{s.nombre}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">

@@ -37,6 +37,8 @@ export async function GET(req, { params }) {
           delivered_at,
           delivered_by_name,
           paquete_booking_id,
+          ubicacion,
+          caja,
           resolucion,
           products ( id, name, barcode, image_url ),
           product_variants ( id, name, option_type )

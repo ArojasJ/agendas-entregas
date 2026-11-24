@@ -26,6 +26,9 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
         quantity: it.quantity,
         unit_price: pesos(it.unit_price),
         entregado: it.delivery_status === "delivered",
+        // El lugar se le pregunta al producto; si él no lo tiene, a la compra
+        ubicacion: it.ubicacion === "caja" || it.ubicacion === "estante" ? it.ubicacion : sale.ubicacion,
+        caja: it.ubicacion === "caja" || it.ubicacion === "estante" ? it.caja : sale.caja,
       }))
     );
   }, [sale]);
@@ -48,6 +51,27 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
     }
     return m;
   }, [catalogo]);
+
+  // Lo que se está quitando y sigue físicamente guardado. El renglón desaparece al
+  // guardar, pero la mercancía se queda dentro de la caja: si nadie va por ella, queda
+  // apartada con el nombre de una clienta que ya no la compró, y además vuelve a
+  // existencias, así que se puede revender sin saberlo.
+  const aSacar = useMemo(() => {
+    const siguen = new Set(items.map((i) => i.id).filter(Boolean));
+    return (sale.sale_items || [])
+      .filter((it) => it.id && !siguen.has(it.id) && it.delivery_status !== "delivered")
+      .map((it) => {
+        const propio = it.ubicacion === "caja" || it.ubicacion === "estante";
+        const ubicacion = propio ? it.ubicacion : sale.ubicacion;
+        const caja = propio ? it.caja : sale.caja;
+        return {
+          nombre: (it.products?.name || "Producto").trim(),
+          ubicacion: ubicacion === "caja" || ubicacion === "estante" ? ubicacion : null,
+          caja: ubicacion === "caja" ? caja : null,
+        };
+      })
+      .filter((s) => s.ubicacion);
+  }, [items, sale]);
 
   const subtotal = pesos(items.reduce((s, i) => s + Number(i.unit_price || 0) * Number(i.quantity || 0), 0));
   const descuento = pesos(Math.max(0, Number(discount) || 0));
@@ -164,7 +188,9 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
       else if (data.cobrado > 0) showToast(`Listo. Cóbrale ${money(data.cobrado)}`, "success");
       else showToast("Venta corregida", "success");
 
-      onSaved();
+      // El aviso de qué sacar de la caja no cabe en un mensajito de cuatro segundos:
+      // se lo queda la pantalla de la venta hasta que alguien diga que ya fue por ello.
+      onSaved(data);
     } catch {
       showToast("Error de conexión", "error");
     } finally {
@@ -290,6 +316,29 @@ export default function EditarVenta({ sale, onClose, onSaved, showToast }) {
             </div>
             <div className="flex justify-between text-slate-500"><span>Ya pagado</span><span>{money(pagado)}</span></div>
           </div>
+
+          {aSacar.length > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4">
+              <p className="font-black text-rose-900 text-sm">
+                Hay que sacarlo de la bodega a mano
+              </p>
+              <p className="text-xs text-rose-700 mt-0.5">
+                El sistema lo quita de la venta y lo regresa a existencias, pero la mercancía
+                se queda guardada. Si no la sacas, se le puede vender a otra clienta estando
+                apartada.
+              </p>
+              <ul className="mt-2.5 space-y-1.5">
+                {aSacar.map((s, n) => (
+                  <li key={n} className="flex items-start gap-2">
+                    <span className="shrink-0 text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-rose-200 text-rose-800 tabular-nums mt-0.5">
+                      {s.ubicacion === "caja" ? `Caja ${s.caja}` : "Estante"}
+                    </span>
+                    <span className="text-xs font-bold text-rose-900 leading-snug">{s.nombre}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
         </div>
 
