@@ -524,7 +524,10 @@ export default function SaleDetailPage() {
           <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500 block mb-1">Total Pagado</span>
           <span className="text-3xl font-black text-emerald-600">${isCatalog ? "0.00" : isCancelled ? Number(sale.penalty_amount || 0).toFixed(2) : isCredit ? totalPagado.toFixed(2) : sale.total}</span>
           <p className="text-xs text-slate-500 mt-2">
-            {isEsperandoPago ? "Esperando el pago en línea" : isPagoAbandonado ? "El pago nunca se completó" : isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : isCredit ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
+            {/* Una venta que se liquidó a abonos no se pagó de contado. Decirlo
+                escondía que ese dinero entró en pagos, que es justo lo que hay que
+                mirar cuando uno de ellos se capturó mal. */}
+            {isEsperandoPago ? "Esperando el pago en línea" : isPagoAbandonado ? "El pago nunca se completó" : isCatalog ? "Pendiente de confirmación" : isCancelled ? "15% de penalización retenido" : (isCredit || totalPagadoAbonos > 0) ? `Enganche: $${sale.down_payment} + $${totalPagadoAbonos} en abonos` : "Pagado de contado"}
           </p>
         </div>
 
@@ -823,7 +826,14 @@ export default function SaleDetailPage() {
           </section>
 
           {/* ABONOS */}
-          {(isCredit || (isCancelled && totalPagadoAbonos > 0)) && (
+          {/* Una venta liquidada con abonos seguía teniendo su historial, pero la
+              pantalla dejaba de enseñarlo en cuanto quedaba pagada. Si el último abono
+              se capturó mal —se liquidó por accidente una que solo traía un abono
+              chico— no quedaba ningún camino para corregirlo: el botón de borrar estaba
+              detrás de una sección que ya no salía. El dinero no se esconde porque la
+              venta haya cerrado; lo que lo cierra de verdad es el corte de caja, y eso
+              el propio botón ya lo respeta. */}
+          {(isCredit || (totalPagadoAbonos > 0 && !isCatalog)) && (
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
                 <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
