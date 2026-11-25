@@ -22,6 +22,8 @@ export default function PosPage() {
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [paymentType, setPaymentType] = useState("paid"); // 'paid' o 'credit'
   const [downPayment, setDownPayment] = useState(0);
+  // Apartar sin dejar nada sí se vale, pero se pregunta antes
+  const [avisoSinEnganche, setAvisoSinEnganche] = useState(false);
   const [creditDays, setCreditDays] = useState(15);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
 
@@ -285,7 +287,12 @@ export default function PosPage() {
   const openCheckout = () => {
     if (cart.length === 0) return;
     setPaymentType("paid");
-    setDownPayment(total);
+    // El enganche arranca en CERO, no en el total. Arrancaba lleno con el total y al
+    // pasar a crédito el campo se quedaba así: quien no lo borraba dejaba apuntada
+    // como liquidada una venta que la clienta solo había apartado, y el dinero
+    // aparecía cobrado sin haber entrado al cajón. Pasó varias veces.
+    setDownPayment(0);
+    setAvisoSinEnganche(false);
     setShowCheckoutModal(true);
     pedirUbicacion();
   };
@@ -316,7 +323,19 @@ export default function PosPage() {
     setCargandoUbicacion(false);
   };
 
+  // Apartar sin dejar un peso se vale y se hace, pero ya no se puede hacer de pasada:
+  // ahora que el campo nace en cero, dejarlo así tiene que ser una decisión y no un
+  // descuido. Se pregunta una vez; si dice que sí, la venta entra igual.
+  const intentarCobrar = () => {
+    if (paymentType === "credit" && Math.max(0, Number(downPayment) || 0) === 0) {
+      setAvisoSinEnganche(true);
+      return;
+    }
+    executeCheckout();
+  };
+
   const executeCheckout = async () => {
+    setAvisoSinEnganche(false);
     if (paymentType === "credit" && !selectedClient) {
       showToast("Para ventas a crédito debes seleccionar un cliente", "error");
       return;
@@ -719,7 +738,7 @@ export default function PosPage() {
             <div className="flex-1 min-h-0 overflow-y-auto p-6">
               <div className="flex items-center justify-center gap-4 mb-6">
                 <button 
-                  onClick={() => { setPaymentType("paid"); setDownPayment(total); }}
+                  onClick={() => { setPaymentType("paid"); setDownPayment(0); }}
                   className={`flex-1 py-4 rounded-2xl border-2 transition-all font-bold ${paymentType === 'paid' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
                 >
                   Pago Completo
@@ -774,14 +793,15 @@ export default function PosPage() {
               {paymentType === 'credit' && selectedClient && (
                 <div className="mb-6 p-5 rounded-2xl bg-white border border-slate-100 space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wider">Monto de Apartado (Enganche)</label>
+                    <label htmlFor="enganche" className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wider">Monto de Apartado (Enganche)</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
                       <input
+                        id="enganche"
                         type="number"
                         value={downPayment}
                         onChange={e => setDownPayment(Number(e.target.value) || 0)}
-                        onKeyDown={e => { if (e.key === "Enter") executeCheckout(); }}
+                        onKeyDown={e => { if (e.key === "Enter") intentarCobrar(); }}
                         className="w-full pl-9 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xl font-bold focus:outline-none focus:border-amber-500"
                       />
                     </div>
@@ -841,11 +861,45 @@ export default function PosPage() {
                 se desliza es el contenido, pero cobrar siempre se alcanza. */}
             <div className="shrink-0 p-5 border-t border-slate-200 bg-white">
               <button
-                onClick={executeCheckout}
+                onClick={() => intentarCobrar()}
                 disabled={saving || (paymentType === 'credit' && !selectedClient)}
                 className={`w-full py-4 rounded-2xl text-slate-900 font-bold text-lg shadow-lg transition-all active:scale-95 ${paymentType === 'paid' ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20' : 'bg-amber-500 hover:bg-amber-400 shadow-amber-500/20 disabled:bg-amber-500/20 disabled:text-amber-500/50'}`}
               >
                 {saving ? "Procesando..." : paymentType === 'paid' ? "Finalizar Cobro" : "Aprobar Crédito"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Apartar sin dejar nada se vale —se hace seguido— pero no debe pasar por
+          descuido. Va por encima del cobro, que es z-50. */}
+      {avisoSinEnganche && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 pt-6 pb-4 text-center">
+              <div className="text-4xl mb-2">💸</div>
+              <h2 className="text-xl font-black text-slate-900">¿Hacer la venta con $0?</h2>
+              <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">
+                No estás registrando ningún enganche. La venta se aparta y la clienta
+                queda debiendo los <span className="font-bold text-slate-700">${total.toFixed(2)}</span> completos.
+              </p>
+            </div>
+            <div className="px-6 pb-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setAvisoSinEnganche(false)}
+                className="py-3 rounded-2xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors active:scale-95"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={() => executeCheckout()}
+                disabled={saving}
+                className="py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold disabled:opacity-50 transition-colors active:scale-95"
+              >
+                {saving ? "Procesando..." : "Sí, sin enganche"}
               </button>
             </div>
           </div>
