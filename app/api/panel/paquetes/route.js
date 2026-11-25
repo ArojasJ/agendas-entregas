@@ -11,6 +11,7 @@ import {
   deshacerPaquete,
   juntarLoQueQueda,
 } from "@/lib/paquetes";
+import { costoDeEnvio } from "@/lib/penalizacionEnvio";
 
 // Preparación de paquetes. Quien reparte también prepara, así que entra todo el panel.
 
@@ -61,23 +62,32 @@ export async function GET(req) {
         .eq("paquete_booking_id", bookingId);
       const ligadaA = yaDentro?.[0]?.sales?.client_id || null;
 
-      // Cuánto de lo anotado a cobrar es ENVÍO.
+      // Cuánto es el ENVÍO de esta entrega.
       //
-      // amount_due de un paquete ya armado es deuda + envío, y la pantalla lo metía
-      // entero en la casilla del envío. Al rearmar —cuando la clienta no se lleva
-      // todo— volvía a sumarle la deuda encima: a una que debía $610 le habría
-      // cobrado $610 de envío por tres productos ya liquidados.
+      // Antes se adivinaba: envío = lo anotado a cobrar − la deuda de hoy. Esa resta
+      // se equivoca siempre que lo anotado no sea "deuda + envío", y casi nunca lo es.
+      // En un paquete sin armar, lo anotado es el precio de la MERCANCÍA que escribió
+      // la clienta —a Monica Luna le salieron $900 de envío—, y en uno ya armado la
+      // deuda se mueve después, cuando ella abona: a Katia, que pagó sus $1,100
+      // después de que le armaran el paquete, la resta le devolvía $1,145 de envío.
       //
-      // No hace falta guardarlo aparte: se recupera restándole a lo anotado la deuda
-      // de lo que está adentro ahora mismo.
+      // Ahora el envío se guarda en su propia casilla al armar, y aquí solo se lee.
+      // Ver migrations/2026-11-25-el-envio-se-guarda.sql.
       const dentro = (yaDentro || []).map((i) => i.id);
-      let envioGuardado = 0;
-      if (ligadaA && dentro.length > 0) {
-        const cobro = await resumenDeCobro(ligadaA, dentro, 0);
-        envioGuardado = Math.max(0, Math.round((Number(bk.amount_due || 0) - cobro.debeMercancia) * 100) / 100);
-      } else if (dentro.length === 0) {
-        // Sin paquete armado, lo anotado es el envío que alguien puso a mano.
-        envioGuardado = Number(bk.amount_due || 0);
+      let envioGuardado = Number(bk.envio || 0);
+
+      // Un paquete que todavía no se arma no tiene envío guardado, así que se propone
+      // el que le toca por regla —$45, o $90 si dejó un viaje perdido sin saldar— en
+      // vez de dejar la casilla vacía y que se entregue sin cobrarlo. La regla ya vive
+      // en lib/penalizacionEnvio y es la misma que ve la clienta al agendar.
+      let envioSugerido = false;
+      if (envioGuardado === 0 && dentro.length === 0 && bk.type === "domicilio") {
+        const { data: suyas } = await supabase
+          .from("bookings")
+          .select("date, type, delivery_status")
+          .eq("instagram", bk.instagram);
+        envioGuardado = costoDeEnvio(suyas || []);
+        envioSugerido = true;
       }
 
       return Response.json({
@@ -85,6 +95,7 @@ export async function GET(req) {
         ligadaA,
         yaEnElPaquete: dentro,
         envioGuardado,
+        envioSugerido,
         candidatas,
         productos: ligadaA ? await productosEsperando(ligadaA) : [],
       });

@@ -72,6 +72,22 @@ mercancía. Ver `migrations/2026-11-24-sacar-de-la-bodega.sql`.
   lo que se vuelve a cobrar. Antes contaba todos los tipos y le cobraba $90 a quien no
   había pasado a recoger a bodega. Vive en `lib/penalizacionEnvio.js`.
 
+- **El envío se guarda; la deuda se pregunta.** `bookings.amount_due` es UN número
+  —deuda + envío— congelado al armar el paquete. Nadie puede volver a separarlo, y la
+  deuda se mueve después porque la clienta abona. Restarlo para sacar el envío falla
+  siempre: a Monica Luna le salieron $900 de envío (era el precio de su ropa) y a
+  Katia $1,145 (era su deuda, ya pagada). El envío vive en `bookings.envio`, que es el
+  único dato del cobro que no sale de ninguna venta; la deuda se le pide a la venta
+  cada vez, con `resumenDeCobro()`. **El envío NO entra a las finanzas ni al corte:**
+  entregar no genera ningún pago, y así se queda. Ver
+  `migrations/2026-11-25-el-envio-se-guarda.sql`.
+
+- **`amount_due` de un paquete armado es una foto vieja.** Se escribe al armar y nadie
+  la refresca: si la clienta paga entre que se arma y se entrega, la tarjeta del
+  repartidor la sigue mandando a cobrar. Solo se actualiza volviendo a armar el
+  paquete. Mientras siga así, lo que se enseñe en pantalla se calcula en vivo, no se
+  lee de ahí.
+
 - **Nunca borres una entrega que tenga productos adentro**
   (`sale_items.paquete_booking_id`): desarma el paquete sin que nadie se entere.
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { buildConfirmationMessage } from "@/lib/mensajeConfirmacion";
+import { ENVIO_DOBLE } from "@/lib/penalizacionEnvio";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -60,6 +61,8 @@ export default function PreparacionPage() {
   const [juntarEn, setJuntarEn] = useState(null);
   // El envío no sale de ninguna venta: lo pone quien prepara el paquete.
   const [envio, setEnvio] = useState("");
+  // Si el monto lo propuso la regla de envío y no lo escribió nadie, se dice.
+  const [envioSugerido, setEnvioSugerido] = useState(false);
   const [trabajando, setTrabajando] = useState(false);
   const [aviso, setAviso] = useState("");
 
@@ -103,14 +106,14 @@ export default function PreparacionPage() {
     setAbierto(bk);
     setDetalle(null); setClienta(null); setElegidos([]); setCajas(null);
     setJuntarEn(null); setResultados(null); setBuscando(""); setAviso(""); setDondeLosSacados(null);
-    // El envío se pone abajo, con lo que diga el servidor: en un paquete ya armado
-    // amount_due es deuda + envío, y meterlo entero aquí volvía a sumar la deuda al
-    // rearmar.
-    setEnvio("");
+    // El envío lo dice el servidor, que ahora lo tiene guardado aparte en vez de
+    // sacarlo a restas de lo anotado a cobrar. Ver 2026-11-25-el-envio-se-guarda.sql.
+    setEnvio(""); setEnvioSugerido(false);
     const r = await fetch(`/api/panel/paquetes?bookingId=${bk.id}`, { headers: { "x-panel-token": token() } });
     const d = await r.json();
     setDetalle(d);
     if (d.envioGuardado > 0) setEnvio(String(d.envioGuardado));
+    setEnvioSugerido(!!d.envioSugerido);
     if (d.ligadaA) {
       const yaEs = (d.candidatas || []).find((c) => c.id === d.ligadaA);
       setClienta(yaEs || { id: d.ligadaA, name: "Clienta ligada" });
@@ -378,11 +381,17 @@ export default function PreparacionPage() {
             <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
               {abierto.products && (
                 <div className="rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Lo que escribió la clienta</p>
+                  {/* Al armar, el paquete reescribe products y amount_due con lo suyo.
+                      Seguir diciendo "lo que escribió la clienta" sobre un texto que
+                      escribió el sistema es de donde salió la confusión de los $900. */}
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
+                    {abierto.preparado_at ? "Quedó anotado al armarlo" : "Lo que escribió la clienta"}
+                  </p>
                   <p className="text-sm text-slate-700 whitespace-pre-line">{abierto.products}</p>
                   {Number(abierto.amount_due) > 0 && (
                     <p className="text-xs text-amber-700 font-bold mt-1.5">
                       Anotado a cobrar: {pesos(abierto.amount_due)}
+                      {abierto.preparado_at ? "" : " — es de su mercancía, no del envío"}
                     </p>
                   )}
                 </div>
@@ -574,11 +583,20 @@ export default function PreparacionPage() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3 text-sm">
-                        <span className="text-slate-500">Envío</span>
+                        <div>
+                          <span className="text-slate-500">Envío</span>
+                          {envioSugerido && (
+                            <span className="block text-[10px] text-slate-400 leading-tight">
+                              {Number(envio) === ENVIO_DOBLE
+                                ? "doble, por el viaje perdido"
+                                : "el de siempre"} · cámbialo si no
+                            </span>
+                          )}
+                        </div>
                         <div className="relative w-32">
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
                           <input type="text" inputMode="decimal" value={envio} placeholder="0"
-                            onChange={(e) => setEnvio(e.target.value)}
+                            onChange={(e) => { setEnvio(e.target.value); setEnvioSugerido(false); }}
                             className="w-full pl-6 pr-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-sm text-right font-bold text-slate-800 focus:outline-none focus:border-slate-400" />
                         </div>
                       </div>
