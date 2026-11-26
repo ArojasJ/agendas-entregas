@@ -2122,6 +2122,18 @@ export default function PanelPage() {
           onRefresh={fetchCashboxHistory}
         />
       )}
+
+      {/* "Se llevó todo y sigue debiendo, ¿ya te pagó?".
+          Esto vivía dentro de <CashboxHistoryModal>, donde `cobrosPendientes` ni
+          siquiera existe: es estado de ESTA pantalla. Hacía dos destrozos a la vez.
+          Abrir el historial de cortes tumbaba la página entera con
+          "cobrosPendientes is not defined", y la pregunta no podía salir nunca al
+          marcar una entrega, porque solo se dibujaba dentro de un modal que ni se
+          abría. Sin la pregunta, entregar se parece a cobrar: justo lo que la regla
+          de "entregar no es cobrar" existe para impedir. */}
+      {cobrosPendientes.length > 0 && (
+        <CobroPendiente pendientes={cobrosPendientes} onCerrar={() => setCobrosPendientes([])} />
+      )}
       {confirmDeleteBooking.show && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
           <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -2823,10 +2835,6 @@ function CashboxHistoryModal({ cuts, loading, dark: D, onClose, onRefresh }) {
           )}
         </div>
       </div>
-
-      {cobrosPendientes.length > 0 && (
-        <CobroPendiente pendientes={cobrosPendientes} onCerrar={() => setCobrosPendientes([])} />
-      )}
     </div>
   );
 }

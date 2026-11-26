@@ -34,7 +34,13 @@ const ok = (m) => out.push("  ok    " + m);
 const fail = (m) => { out.push("  FALLA " + m); process.exitCode = 1; };
 
 const db = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-const browser = await chromium.launch();
+// `localhost` puede resolverse a IPv6 (::1) y caer en otro servidor del equipo, que
+// contesta HTML donde la prueba espera JSON. Se fija a IPv4 sin cambiar el origen:
+// entrar por 127.0.0.1 a pelo hace que Next bloquee sus recursos de desarrollo por
+// venir de "otro origen", y la pantalla se queda sin hidratar.
+const browser = await chromium.launch({
+  args: ["--host-resolver-rules=MAP localhost 127.0.0.1"],
+});
 let clienteId, ventaId, bookingId, bookingFallido;
 const productos = [];
 

@@ -88,6 +88,15 @@ mercancía. Ver `migrations/2026-11-24-sacar-de-la-bodega.sql`.
   paquete. Mientras siga así, lo que se enseñe en pantalla se calcula en vivo, no se
   lee de ahí.
 
+- **Un modal no ve el estado de la pantalla que lo abre.** `CashboxHistoryModal` es un
+  componente aparte, y adentro traía `{cobrosPendientes.length > 0 && <CobroPendiente/>}`,
+  que es estado de la pantalla de Entregas. Dos daños de un solo renglón mal puesto:
+  abrir "Ver historial de cortes" tumbaba la página con *cobrosPendientes is not
+  defined*, y la pregunta "¿ya te pagó?" no podía salir nunca al entregar, porque solo
+  se dibujaba dentro de un modal que ni se abría. Lo segundo es peor: sin preguntar,
+  entregar se parece a cobrar. Los diálogos del negocio van en la pantalla, no dentro
+  de otro modal.
+
 - **Nunca borres una entrega que tenga productos adentro**
   (`sale_items.paquete_booking_id`): desarma el paquete sin que nadie se entere.
 
