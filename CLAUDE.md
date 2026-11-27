@@ -109,5 +109,25 @@ mercancía. Ver `migrations/2026-11-24-sacar-de-la-bodega.sql`.
   clienta un dinero que en la práctica se le entregaba a mano. La columna
   `clients.saldo_favor` quedó en cero para todas; no la vuelvas a llenar.
 
+- **El lugar de una entrega se guarda, no se adivina cada vez.** `bookings.lat/lng`
+  existían desde siempre y estaban vacías en las 318 entregas desde octubre, mientras el
+  mapa del repartidor le mandaba a Google el TEXTO de la dirección —"Cto bosque de
+  leopardo, Parajes del bosque 1"— para que adivinara. El 26 de noviembre la ruta se
+  abrió de Los Ángeles a Cuba con los pines encimados: cuando Google no entiende,
+  contesta el centro del país, y ese solo punto desencuadra el mapa entero. Lo resuelve
+  `lib/ruta/coordenadas.js`, que prefiere el pin que mandó la clienta (`location_url`),
+  lo sigue si es corto, y solo entonces pregunta por el texto acotado a La Laguna.
+  **Lo que caiga fuera de la caja se descarta: es la respuesta de relleno de Google, no
+  una dirección.** Se guarda una vez y `geoAddress()` en `lib/address.js` ya lo prefiere.
+  Quien agregue otra pantalla con mapa usa ese módulo; no vuelve a geocodificar por su
+  cuenta ni manda direcciones de texto a Maps.
+
+- **El mapa de la ruta es un mapa, no una foto.** Era un `<img>` con
+  `maps/api/staticmap`: el repartidor nunca lo pudo mover ni acercar y nadie se enteró
+  hasta que lo dijo él. Vive en `app/panel/entregas/ruta/MapaDeLaRuta.js`. La foto quedó
+  solo como respaldo para cuando no cargue Google en la calle. **Google Maps se carga con
+  `lib/ruta/googleMaps.js` y nada más:** dos cargadores sobre la misma etiqueta `<script>`
+  se pisan, y el segundo usa `window.google` antes de que exista.
+
 - **No crees entregas de prueba con la fecha de hoy.** Le mueven la ruta al repartidor
   que está trabajando. Usa `scripts/fechaDePrueba.mjs`, que las manda 400 días adelante.

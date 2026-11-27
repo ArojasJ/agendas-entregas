@@ -1,6 +1,8 @@
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getPanelSession } from "@/lib/panelAuth";
 import { TIPO_PARADA_PAQUETERIA } from "@/lib/constants";
+import { geoAddress } from "@/lib/address";
+import { ubicarParadas } from "@/lib/ruta/coordenadas";
 
 export const dynamic = "force-dynamic";
 
@@ -48,4 +50,66 @@ export async function GET(req) {
   }
 
   return Response.json({ paradas: data || [] });
+}
+
+// POST: dónde queda cada parada, para poder pintarlas en el mapa.
+//
+// Se resuelve UNA vez y se guarda en bookings.lat/lng. Las columnas existían desde
+// siempre y estaban vacías en las 318 entregas desde octubre, así que el mapa le
+// mandaba a Google el texto de la dirección y Google adivinaba: de ahí el mapa a
+// escala de todo el país que vio el repartidor, con los pines encimados.
+//
+// Guardarlo importa por dos razones: seguir el link corto de cada pin cuesta un viaje
+// a Google por parada —con el repartidor mirando la pantalla— y cada búsqueda por
+// texto se cobra. Una vez resuelto, abrir la ruta ya no pregunta nada.
+export async function POST(req) {
+  const session = getPanelSession(req);
+  if (!session) return Response.json({ message: "No autorizado" }, { status: 401 });
+
+  let ids;
+  try {
+    ({ ids } = await req.json());
+  } catch {
+    return Response.json({ message: "Cuerpo inválido" }, { status: 400 });
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return Response.json({ message: "Faltan las paradas" }, { status: 400 });
+  }
+  // Un día de ruta son unas pocas paradas; el tope es para que nadie use esto como
+  // una manguera para geocodificar la base entera.
+  if (ids.length > 60) {
+    return Response.json({ message: "Demasiadas paradas de una vez" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("id, address, city, state, location_url, lat, lng")
+    .in("id", ids);
+
+  if (error) {
+    console.error("Error al leer las paradas por ubicar:", error);
+    return Response.json({ message: "No se pudieron leer las paradas" }, { status: 500 });
+  }
+
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const ubicadas = await ubicarParadas(
+    (data || []).map((bk) => ({ ...bk, addressText: geoAddress(bk) })),
+    apiKey
+  );
+
+  // Guardar lo recién resuelto. Que falle el guardado no arruina la ruta de hoy —el
+  // mapa ya tiene sus coordenadas en la respuesta—, pero sí hay que gritarlo, porque
+  // significa que mañana se vuelve a preguntar y a pagar.
+  for (const u of ubicadas) {
+    if (!u.nueva || u.lat == null) continue;
+    const { error: errGuardar } = await supabase
+      .from("bookings")
+      .update({ lat: u.lat, lng: u.lng })
+      .eq("id", u.id);
+    if (errGuardar) console.error("No se pudo guardar la ubicación de " + u.id + ":", errGuardar);
+  }
+
+  return Response.json({
+    ubicaciones: ubicadas.map(({ id, lat, lng, fuente }) => ({ id, lat, lng, fuente })),
+  });
 }

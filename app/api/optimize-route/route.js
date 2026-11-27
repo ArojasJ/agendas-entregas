@@ -1,4 +1,5 @@
 import { getPanelSession } from "@/lib/panelAuth";
+import { ubicarParada } from "@/lib/ruta/coordenadas";
 
 export async function POST(req) {
   const session = getPanelSession(req);
@@ -18,30 +19,20 @@ export async function POST(req) {
       return Response.json({ message: "Se necesitan ubicaciones para optimizar." }, { status: 400 });
     }
 
-    // Función para expandir links cortos y extraer coordenadas
-    const resolveLocation = async (item) => {
-      const { url, addressText } = item;
-      if (!url) return addressText; // Si no hay URL, usamos el texto directo
-      
-      try {
-        const response = await fetch(url, { method: "GET", redirect: "follow" });
-        const finalUrl = response.url;
-        
-        const coordMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || finalUrl.match(/q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-        if (coordMatch) {
-          return `${coordMatch[1]},${coordMatch[2]}`;
-        }
-        return addressText; // Si el URL no tiene coordenadas, usamos el texto
-      } catch (e) {
-        return addressText; // Si falla la visita al link, usamos el texto
-      }
-    };
+    // Dónde queda cada parada. Esto vivía aquí adentro y se tiraba al terminar: sacaba
+    // las coordenadas del pin de la clienta, armaba el orden y las olvidaba, mientras
+    // el mapa de la pantalla le mandaba a Google el texto de la dirección y Google
+    // adivinaba. Ahora lo resuelve lib/ruta/coordenadas.js, que es el mismo que usa el
+    // mapa, y además las guarda. Aquí se devuelven junto con el orden.
+    const ubicadas = await Promise.all(locations.map((l) =>
+      ubicarParada({ id: l.id, location_url: l.url, addressText: l.addressText }, apiKey)
+    ));
 
-    // Resolvemos todas las ubicaciones en paralelo
-    const resolvedLocations = await Promise.all(locations.map(async (l) => ({
-      id: l.id,
-      address: await resolveLocation(l)
-    })));
+    const resolvedLocations = ubicadas.map((u, i) => ({
+      id: u.id,
+      // Con coordenadas, Google no tiene nada que interpretar. Sin ellas queda el texto.
+      address: u.lat != null ? `${u.lat},${u.lng}` : locations[i].addressText,
+    }));
 
     const origin = customOrigin || resolvedLocations[0].address;
     const destination = customDestination || origin;
@@ -75,9 +66,10 @@ export async function POST(req) {
       });
     }
 
-    return Response.json({ 
+    return Response.json({
       order: resultIds,
-      summary: data.routes[0].summary 
+      summary: data.routes[0].summary,
+      ubicaciones: ubicadas.map(({ id, lat, lng, fuente }) => ({ id, lat, lng, fuente })),
     });
 
   } catch (err) {

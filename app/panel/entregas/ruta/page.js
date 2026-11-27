@@ -6,11 +6,21 @@ import { geoAddress } from "@/lib/address";
 import { decodePanelTokenUnsafe } from "@/lib/panelToken";
 import { TIPO_PARADA_PAQUETERIA } from "@/lib/constants";
 import CobroPendiente from "../../CobroPendiente";
+import MapaDeLaRuta from "./MapaDeLaRuta";
+import { cargarGoogleMaps } from "@/lib/ruta/googleMaps";
 import { vibrar, mantenerPantallaEncendida, encolar, cuantasEsperan, vaciarCola } from "@/lib/ruta/telefono";
 
 const ORIGIN = "25.5464865,-103.4497847";
 const DESTINATION = "25.572988616868752,-103.51420759387985";
 const ORIGIN_LABEL = "B";
+
+// Las mismas de arriba, ya partidas, para el mapa. Se dejan como constantes del módulo
+// a propósito: un objeto nuevo en cada render reconstruiría el mapa y le quitaría al
+// repartidor el acercamiento que acaba de hacer.
+const [oLat, oLng] = ORIGIN.split(",").map(Number);
+const [dLat, dLng] = DESTINATION.split(",").map(Number);
+const ORIGEN_PUNTO = { lat: oLat, lng: oLng };
+const DESTINO_PUNTO = { lat: dLat, lng: dLng };
 
 function getPanelToken() {
   if (typeof window === "undefined") return "";
@@ -164,6 +174,9 @@ export default function RutaPage() {
           (bk.delivery_status !== "entregado" || savedIds.includes(bk.id))
       );
       setBookings(todayDom);
+      // Resolver dónde queda cada parada, sin detener la pantalla: la lista se pinta
+      // de inmediato y los pines caen en el mapa cuando lleguen.
+      ubicarLasParadas(todayDom);
       // Restore saved order if it matches today's set
       if (savedIds.length > 0) {
         try {
@@ -206,6 +219,36 @@ export default function RutaPage() {
     if (url) localStorage.setItem("rutaMapUrl", url);
     else localStorage.removeItem("rutaMapUrl");
   };
+
+  const aplicarUbicaciones = useCallback((ubicaciones) => {
+    const porId = new Map((ubicaciones || []).filter((u) => u.lat != null).map((u) => [u.id, u]));
+    if (porId.size === 0) return;
+    setBookings((previas) =>
+      previas.map((b) => (porId.has(b.id) ? { ...b, lat: porId.get(b.id).lat, lng: porId.get(b.id).lng } : b))
+    );
+  }, []);
+
+  // Dónde queda cada parada. El servidor sigue el pin que mandó la clienta, lo guarda en
+  // la entrega y lo devuelve; la siguiente vez ya viene con la ruta y esto ni se llama.
+  // Antes nadie preguntaba esto: el mapa le mandaba a Google el texto de la dirección y
+  // Google adivinaba, y por eso la ruta salía a escala de todo el país.
+  const ubicarLasParadas = useCallback(async (bks) => {
+    const faltan = bks.filter((b) => b.lat == null || b.lng == null).map((b) => b.id);
+    if (faltan.length === 0) return;
+    try {
+      const res = await fetch("/api/panel/ruta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-panel-token": getPanelToken() },
+        body: JSON.stringify({ ids: faltan }),
+      });
+      if (!res.ok) return;
+      const { ubicaciones } = await res.json();
+      aplicarUbicaciones(ubicaciones);
+    } catch {
+      // Sin señal el mapa se queda sin pines, pero la lista de paradas sigue completa
+      // y el botón de navegar usa la dirección: la ruta no se detiene por esto.
+    }
+  }, [aplicarUbicaciones]);
 
   // Persist order, mode y posición actual
   // IMPORTANTE: solo guardar cuando hay orden real, nunca borrar aquí
@@ -268,6 +311,9 @@ export default function RutaPage() {
         const newOrder = data.order || bookings.map((b) => b.id);
         localStorage.setItem("rutaOrder", JSON.stringify(newOrder));
         setOrder(newOrder);
+        // Optimizar ya resolvió dónde queda cada parada para poder pedir la ruta.
+        // Antes ese trabajo se tiraba; ahora alimenta el mapa.
+        aplicarUbicaciones(data.ubicaciones);
         regenerateMap(bookings, newOrder);
         setStatusMsg({ text: `Ruta optimizada — ${newOrder.length} paradas`, type: "success" });
       }
@@ -522,27 +568,16 @@ export default function RutaPage() {
       });
     };
 
-    // Si ya está cargado, montar directamente
-    if (window.google?.maps?.places?.Autocomplete) {
-      mountAC();
-      return () => { if (acContainerRef.current) acContainerRef.current.innerHTML = ""; };
-    }
-
-    // Cargar el script solo la primera vez que se abre el editor
-    const cbName = "__rutaGMapsReady";
-    window[cbName] = mountAC;
-
-    if (!document.getElementById("gm-ruta-script")) {
-      const s = document.createElement("script");
-      s.id = "gm-ruta-script";
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&language=es&callback=${cbName}`;
-      s.async = true;
-      document.head.appendChild(s);
-    }
+    // Un solo cargador para toda la pantalla. Antes esto tenía el suyo propio, con su
+    // callback global; ahora que el mapa también necesita Google, dos cargadores sobre
+    // la misma etiqueta <script> se pisan y el segundo usa `window.google` antes de que
+    // exista. Ver lib/ruta/googleMaps.js.
+    let vivo = true;
+    cargarGoogleMaps(apiKey).then(() => { if (vivo) mountAC(); }).catch(() => {});
 
     return () => {
+      vivo = false;
       if (acContainerRef.current) acContainerRef.current.innerHTML = "";
-      delete window[cbName];
     };
   }, [editingId, apiKey]);
 
@@ -1104,21 +1139,20 @@ export default function RutaPage() {
               </button>
             </div>
 
-            {/* Mapa estático */}
-            {mapUrl && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-                  <span className="text-sm font-black text-slate-200">Vista de la Ruta</span>
-                  <span className="text-xs text-slate-500 font-medium">— verde = salida · azul = llegada · rojo = paradas</span>
-                </div>
-                <img
-                  src={mapUrl}
-                  alt="Mapa de ruta"
-                  className="w-full object-cover"
-                  style={{ maxHeight: 320 }}
-                  onError={() => setMapUrl(null)}
-                />
-              </div>
+            {/* El mapa de la ruta. Esto era un <img> con una foto de maps/api/staticmap:
+                no se podía acercar ni mover, y se armaba con el texto de cada dirección,
+                así que Google adivinaba dónde poner los pines. La foto queda nada más de
+                respaldo para cuando no cargue Google en la calle. */}
+            {sorted.length > 0 && (
+              <MapaDeLaRuta
+                paradas={sorted}
+                etiquetaDe={stopLabel}
+                origen={ORIGEN_PUNTO}
+                destino={DESTINO_PUNTO}
+                apiKey={apiKey}
+                respaldoUrl={mapUrl}
+                alTocarParada={openNavigation}
+              />
             )}
 
             {/* Lista de paradas */}
